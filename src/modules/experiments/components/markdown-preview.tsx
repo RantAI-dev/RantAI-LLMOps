@@ -23,7 +23,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
       return (
         <code
           key={key}
-          className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[12px] text-primary-strong"
+          className="rounded bg-surface-2 px-1 py-0.5 font-mono text-xs text-primary-strong"
         >
           {part.slice(1, -1)}
         </code>
@@ -53,7 +53,7 @@ export function MarkdownPreview({ source }: { source: string }) {
       blocks.push(
         <pre
           key={`b${bk++}`}
-          className="overflow-x-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-[12px] leading-5 text-[#e4e4e7]"
+          className="overflow-x-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]"
         >
           <code>{code.join("\n")}</code>
         </pre>
@@ -69,7 +69,7 @@ export function MarkdownPreview({ source }: { source: string }) {
           ? "text-lg font-semibold text-ink"
           : level === 2
             ? "text-base font-semibold text-ink"
-            : "text-[14px] font-semibold text-ink";
+            : "text-sm font-semibold text-ink";
       blocks.push(
         <p key={`b${bk++}`} className={`mt-3 first:mt-0 ${cls}`}>
           {renderInline(heading[2], `h${bk}`)}
@@ -119,8 +119,8 @@ export function MarkdownPreview({ source }: { source: string }) {
   }
 
   if (blocks.length === 0) {
-    return <p className="text-[14px] text-ink-faint italic">Nothing to preview yet.</p>;
+    return <p className="text-sm text-ink-faint italic">Nothing to preview yet.</p>;
   }
 
-  return <div className="space-y-2 text-[14px] leading-6">{blocks}</div>;
+  return <div className="space-y-2 text-sm leading-6">{blocks}</div>;
 }

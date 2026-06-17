@@ -20,7 +20,7 @@ export function DatasetFormField({
         {label}
         {required ? <span className="text-primary"> *</span> : null}
       </span>
-      {helper ? <p className="text-[12px] leading-4 text-ink-soft">{helper}</p> : null}
+      {helper ? <p className="text-xs leading-4 text-ink-soft">{helper}</p> : null}
       {children}
     </label>
   );

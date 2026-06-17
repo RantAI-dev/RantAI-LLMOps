@@ -10,28 +10,28 @@ import {
   type ReactNode,
 } from "react";
 
-import { initialDatasets } from "@/modules/datasets/data/initial-datasets";
+import { USE_REAL_API } from "@/lib/api/config";
 import {
-  HUGGINGFACE_DATASETS_CATALOG,
-  MOCK_HF_EXPIRED_TOKEN,
-  MOCK_HF_INVALID_TOKENS,
-  MOCK_HF_VALID_TOKEN,
-} from "@/modules/datasets/data/mock-huggingface-datasets-catalog";
+  fetchDatasets,
+  seedDatasets,
+} from "@/modules/datasets/services/datasets-service";
 import {
   DEFAULT_SCHEMA_MAPPING,
   DEFAULT_VALIDATION_ISSUES,
 } from "@/modules/datasets/data/preview-rows";
-import { loadDatasetsFromStorage, saveDatasetsToStorage } from "@/modules/datasets/lib/storage";
-import { mergeRagDefaults } from "@/modules/datasets/lib/rag-utils";
+import { saveDatasetsToStorage } from "@/modules/datasets/lib/storage";
 import {
   buildReadiness,
   buildValidationSummary,
-  catalogEntryToCreateInput,
+  computeQualityScore,
   datasetFromCreateInput,
   deriveValidationStatus,
   generateActivityId,
   generateVersionId,
+  updateDataset,
 } from "@/modules/datasets/lib/utils";
+import { useHuggingFaceDatasetImport } from "@/modules/datasets/hooks/use-huggingface-dataset-import";
+import { useRagKnowledgeBases } from "@/modules/datasets/hooks/use-rag-knowledge-bases";
 import type {
   CreateDatasetInput,
   Dataset,
@@ -45,12 +45,6 @@ import type {
   RagQueryResult,
   SchemaMappingRow,
 } from "@/modules/datasets/types";
-import { inferDocumentType } from "@/modules/datasets/data/rag-mock-data";
-import {
-  buildIndexChunks,
-  generateRagDocumentId,
-  queryRagKnowledgeBase,
-} from "@/modules/datasets/lib/rag-utils";
 
 const defaultFilters: DatasetFilters = {
   search: "",
@@ -58,22 +52,6 @@ const defaultFilters: DatasetFilters = {
   source: "all",
   validationStatus: "all",
   sort: "updated",
-};
-
-const defaultHfImportConfig: HuggingFaceImportConfig = {
-  config: "default",
-  split: "train",
-  revision: "main",
-  streaming: false,
-  trustRemoteCode: false,
-  importMode: "Full Download",
-  maxRows: null,
-  datasetType: "Training Dataset",
-  accessLevel: "Team",
-  owner: "Erif",
-  name: "",
-  description: "",
-  tags: [],
 };
 
 type DatasetsContextValue = {
@@ -134,34 +112,24 @@ type DatasetsContextValue = {
 
 const DatasetsContext = createContext<DatasetsContextValue | null>(null);
 
-function updateDataset(
-  datasets: Dataset[],
-  id: string,
-  updater: (d: Dataset) => Dataset
-): Dataset[] {
-  return datasets.map((d) => (d.id === id ? updater(d) : d));
-}
-
 export function DatasetsProvider({ children }: { children: ReactNode }) {
-  const [datasets, setDatasets] = useState<Dataset[]>(() =>
-    mergeRagDefaults(loadDatasetsFromStorage(initialDatasets))
-  );
+  const [datasets, setDatasets] = useState<Dataset[]>(seedDatasets);
   const [filters, setFilters] = useState<DatasetFilters>(defaultFilters);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [isCreateWizardOpen, setIsCreateWizardOpen] = useState(false);
-  const [isHfImportOpen, setIsHfImportOpen] = useState(false);
-  const [hfImportStep, setHfImportStep] = useState(0);
-  const [hfToken, setHfToken] = useState("");
-  const [hfTokenStatus, setHfTokenStatus] = useState<HuggingFaceTokenStatus>("Not Connected");
-  const [hfSearchQuery, setHfSearchQuery] = useState("");
-  const [hfSearchResults, setHfSearchResults] = useState<HuggingFaceDatasetCatalogEntry[]>([]);
-  const [selectedHfCatalogEntry, setSelectedHfCatalogEntry] =
-    useState<HuggingFaceDatasetCatalogEntry | null>(null);
-  const [hfImportConfig, setHfImportConfig] = useState<HuggingFaceImportConfig>(defaultHfImportConfig);
-  const [hfImportProgress, setHfImportProgress] = useState(0);
-  const [hfImportCurrentStep, setHfImportCurrentStep] = useState("");
-  const [hfImportError, setHfImportError] = useState<HuggingFaceImportErrorType | null>(null);
-  const [isHfImporting, setIsHfImporting] = useState(false);
+
+  // The HuggingFace import wizard and the RAG knowledge-base subsystem are
+  // separate concerns kept in their own hooks; both operate on the shared
+  // `datasets` state so the public context shape is unchanged.
+  const hf = useHuggingFaceDatasetImport(setDatasets);
+  const rag = useRagKnowledgeBases(datasets, setDatasets);
+
+  // Load real data only when the API flag is on. Mock mode uses the sync seed
+  // above, so there's no empty flash. (async setState in the callback is fine.)
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    fetchDatasets().then(setDatasets).catch(() => {});
+  }, []);
 
   // Persist to localStorage on change. (Initial load is handled by the lazy
   // useState initializer above — this provider only mounts client-side.)
@@ -249,128 +217,14 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
     [datasets, selectedDatasetId]
   );
 
+  const resetFilters = useCallback(() => setFilters(defaultFilters), []);
+
   const createDataset = useCallback((input: CreateDatasetInput) => {
     const dataset = datasetFromCreateInput(input);
     setDatasets((prev) => [dataset, ...prev]);
     setIsCreateWizardOpen(false);
     return dataset.id;
   }, []);
-
-  const resetHfImportFlow = useCallback(() => {
-    setHfImportStep(0);
-    setHfSearchQuery("");
-    setHfSearchResults([]);
-    setSelectedHfCatalogEntry(null);
-    setHfImportConfig(defaultHfImportConfig);
-    setHfImportProgress(0);
-    setHfImportCurrentStep("");
-    setHfImportError(null);
-    setIsHfImporting(false);
-  }, []);
-
-  const validateHfToken = useCallback(async (): Promise<HuggingFaceTokenStatus> => {
-    await new Promise((r) => setTimeout(r, 800));
-    const trimmed = hfToken.trim();
-    if (!trimmed) {
-      setHfTokenStatus("Not Connected");
-      return "Not Connected";
-    }
-    if (trimmed === MOCK_HF_EXPIRED_TOKEN || trimmed.includes("expired")) {
-      setHfTokenStatus("Expired");
-      return "Expired";
-    }
-    if (MOCK_HF_INVALID_TOKENS.some((t) => trimmed.toLowerCase().includes(t))) {
-      setHfTokenStatus("Invalid");
-      return "Invalid";
-    }
-    if (trimmed === MOCK_HF_VALID_TOKEN || trimmed.startsWith("hf_")) {
-      setHfTokenStatus("Valid");
-      return "Valid";
-    }
-    setHfTokenStatus("Valid");
-    return "Valid";
-  }, [hfToken]);
-
-  const searchHuggingFaceDatasets = useCallback((query: string): HuggingFaceDatasetCatalogEntry[] => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    const results = HUGGINGFACE_DATASETS_CATALOG.filter(
-      (entry) =>
-        entry.repoId.toLowerCase().includes(q) ||
-        entry.datasetName.toLowerCase().includes(q) ||
-        entry.author.toLowerCase().includes(q) ||
-        entry.tags.some((t) => t.includes(q)) ||
-        entry.taskCategories.some((t) => t.includes(q))
-    );
-    setHfSearchResults(results);
-    return results;
-  }, []);
-
-  const startHfImport = useCallback(async (): Promise<string | null> => {
-    if (!selectedHfCatalogEntry) return null;
-    setIsHfImporting(true);
-    setHfImportError(null);
-    setHfImportStep(4);
-
-    const entry = selectedHfCatalogEntry;
-    const config = hfImportConfig;
-    const datasetConfig = entry.configs.find((c) => c.name === config.config);
-
-    const steps = [
-      "Checking Repository Access",
-      "Validating Config Name",
-      "Checking Split Availability",
-      "Downloading Dataset Info",
-      "Loading Dataset Split",
-      "Mapping Schema Features",
-      "Registering Dataset",
-      "Import Completed",
-    ];
-
-    if (entry.gated && hfTokenStatus !== "Valid") {
-      setHfImportError("gated_access_required");
-      setIsHfImporting(false);
-      return null;
-    }
-    if (entry.private && hfTokenStatus !== "Valid") {
-      setHfImportError("access_not_granted");
-      setIsHfImporting(false);
-      return null;
-    }
-    if (hfTokenStatus === "Invalid") {
-      setHfImportError("token_invalid");
-      setIsHfImporting(false);
-      return null;
-    }
-    if (!datasetConfig) {
-      setHfImportError("config_not_found");
-      setIsHfImporting(false);
-      return null;
-    }
-    if (!datasetConfig.splits.some((s) => s.name === config.split)) {
-      setHfImportError("split_not_found");
-      setIsHfImporting(false);
-      return null;
-    }
-    if (entry.requiresTrustRemoteCode && !config.trustRemoteCode) {
-      setHfImportError("trust_remote_code_required");
-      setIsHfImporting(false);
-      return null;
-    }
-
-    for (let i = 0; i < steps.length; i++) {
-      setHfImportCurrentStep(steps[i]!);
-      setHfImportProgress(Math.round(((i + 1) / steps.length) * 100));
-      await new Promise((r) => setTimeout(r, 600));
-    }
-
-    const input = catalogEntryToCreateInput(entry, config);
-    const dataset = datasetFromCreateInput(input);
-    setDatasets((prev) => [dataset, ...prev]);
-    setIsHfImporting(false);
-    setIsHfImportOpen(false);
-    return dataset.id;
-  }, [selectedHfCatalogEntry, hfImportConfig, hfTokenStatus]);
 
   const archiveDataset = useCallback(
     (id: string) => {
@@ -417,7 +271,7 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
           );
           const summary = buildValidationSummary(d.totalRows, d.invalidRows, {
             ...d.validationSummary,
-            dataQualityScore: Math.round((d.validRows / d.totalRows) * 100),
+            dataQualityScore: computeQualityScore(d.validRows, d.totalRows),
           });
           return {
             ...d,
@@ -582,223 +436,53 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const ragKnowledgeBases = useMemo(
-    () =>
-      datasets.filter(
-        (d) => d.datasetType === "RAG Knowledge Base" && d.validationStatus !== "Archived"
-      ),
-    [datasets]
+  const value = useMemo<DatasetsContextValue>(
+    () => ({
+      datasets,
+      filters,
+      setFilters,
+      resetFilters,
+      filteredDatasets,
+      selectedDatasetId,
+      setSelectedDatasetId,
+      selectedDataset,
+      isCreateWizardOpen,
+      setIsCreateWizardOpen,
+      getDatasetById,
+      createDataset,
+      archiveDataset,
+      validateAgain,
+      createNewVersion,
+      setActiveVersion,
+      rollbackVersion,
+      saveSplit,
+      updateSchemaMapping,
+      appendActivity,
+      ...hf,
+      ...rag,
+    }),
+    [
+      datasets,
+      filters,
+      resetFilters,
+      filteredDatasets,
+      selectedDatasetId,
+      selectedDataset,
+      isCreateWizardOpen,
+      getDatasetById,
+      createDataset,
+      archiveDataset,
+      validateAgain,
+      createNewVersion,
+      setActiveVersion,
+      rollbackVersion,
+      saveSplit,
+      updateSchemaMapping,
+      appendActivity,
+      hf,
+      rag,
+    ]
   );
-
-  const uploadRagDocument = useCallback(
-    (datasetId: string, fileName: string, sizeBytes: number) => {
-      const now = new Date().toISOString();
-      const doc = {
-        id: generateRagDocumentId(),
-        name: fileName,
-        type: inferDocumentType(fileName),
-        sizeBytes,
-        uploadedAt: now,
-        uploadedBy: "Admin-NQR",
-        status: "Pending" as const,
-        chunkCount: 0,
-        folder: "rag",
-      };
-
-      setDatasets((prev) =>
-        updateDataset(prev, datasetId, (d) => {
-          if (!d.rag) return d;
-          return {
-            ...d,
-            lastUpdated: now,
-            rag: {
-              ...d.rag,
-              indexStatus: "Stale",
-              documents: [doc, ...d.rag.documents],
-            },
-            activityLog: [
-              {
-                id: generateActivityId(),
-                timestamp: now,
-                actor: "Admin-NQR",
-                activity: "Document uploaded",
-                description: `${fileName} added to knowledge base`,
-              },
-              ...d.activityLog,
-            ],
-          };
-        })
-      );
-    },
-    []
-  );
-
-  const removeRagDocument = useCallback((datasetId: string, documentId: string) => {
-    const now = new Date().toISOString();
-    setDatasets((prev) =>
-      updateDataset(prev, datasetId, (d) => {
-        if (!d.rag) return d;
-        const removed = d.rag.documents.find((doc) => doc.id === documentId);
-        return {
-          ...d,
-          lastUpdated: now,
-          rag: {
-            ...d.rag,
-            indexStatus: "Stale",
-            documents: d.rag.documents.filter((doc) => doc.id !== documentId),
-            chunks: d.rag.chunks.filter((c) => c.documentId !== documentId),
-          },
-          activityLog: [
-            {
-              id: generateActivityId(),
-              timestamp: now,
-              actor: "Admin-NQR",
-              activity: "Document removed",
-              description: removed ? `${removed.name} removed from knowledge base` : "Document removed",
-            },
-            ...d.activityLog,
-          ],
-        };
-      })
-    );
-  }, []);
-
-  const updateRagIndexConfig = useCallback(
-    (datasetId: string, config: Partial<RagIndexConfig>) => {
-      const now = new Date().toISOString();
-      setDatasets((prev) =>
-        updateDataset(prev, datasetId, (d) => {
-          if (!d.rag) return d;
-          return {
-            ...d,
-            lastUpdated: now,
-            rag: {
-              ...d.rag,
-              indexStatus: d.rag.indexStatus === "Ready" ? "Stale" : d.rag.indexStatus,
-              indexConfig: { ...d.rag.indexConfig, ...config },
-            },
-            activityLog: [
-              {
-                id: generateActivityId(),
-                timestamp: now,
-                actor: "Admin-NQR",
-                activity: "Search settings updated",
-                description: "Indexing configuration saved",
-              },
-              ...d.activityLog,
-            ],
-          };
-        })
-      );
-    },
-    []
-  );
-
-  const reindexRagKnowledgeBase = useCallback(async (datasetId: string) => {
-    setDatasets((prev) =>
-      updateDataset(prev, datasetId, (d) =>
-        d.rag ? { ...d, rag: { ...d.rag, indexStatus: "Indexing" } } : d
-      )
-    );
-
-    await new Promise((r) => setTimeout(r, 2000));
-
-    setDatasets((prev) =>
-      updateDataset(prev, datasetId, (d) => {
-        if (!d.rag) return d;
-        const indexedDocs = d.rag.documents.map((doc) => ({
-          ...doc,
-          status: "Indexed" as const,
-          chunkCount: Math.max(1, Math.ceil(doc.sizeBytes / (d.rag!.indexConfig.chunkSize * 4))),
-        }));
-        const { chunks, totalChunks } = buildIndexChunks(indexedDocs, d.rag.indexConfig);
-        const finished = new Date().toISOString();
-        return {
-          ...d,
-          lastUpdated: finished,
-          readiness: buildReadiness(d),
-          rag: {
-            ...d.rag,
-            indexStatus: "Ready",
-            documents: indexedDocs,
-            chunks,
-            totalChunks,
-            lastIndexedAt: finished,
-          },
-          activityLog: [
-            {
-              id: generateActivityId(),
-              timestamp: finished,
-              actor: "System",
-              activity: "Index rebuilt",
-              description: `${totalChunks} passages indexed and ready for search`,
-            },
-            ...d.activityLog,
-          ],
-        };
-      })
-    );
-  }, []);
-
-  const queryRag = useCallback(
-    (datasetId: string, query: string) => {
-      const dataset = datasets.find((d) => d.id === datasetId);
-      if (!dataset?.rag || dataset.rag.indexStatus !== "Ready") return null;
-      return queryRagKnowledgeBase(dataset.rag, query);
-    },
-    [datasets]
-  );
-
-  const value: DatasetsContextValue = {
-    datasets,
-    filters,
-    setFilters,
-    resetFilters: () => setFilters(defaultFilters),
-    filteredDatasets,
-    selectedDatasetId,
-    setSelectedDatasetId,
-    selectedDataset,
-    isCreateWizardOpen,
-    setIsCreateWizardOpen,
-    isHfImportOpen,
-    setIsHfImportOpen,
-    hfImportStep,
-    setHfImportStep,
-    hfToken,
-    setHfToken,
-    hfTokenStatus,
-    validateHfToken,
-    hfSearchQuery,
-    setHfSearchQuery,
-    hfSearchResults,
-    searchHuggingFaceDatasets,
-    selectedHfCatalogEntry,
-    setSelectedHfCatalogEntry,
-    hfImportConfig,
-    setHfImportConfig,
-    hfImportProgress,
-    hfImportCurrentStep,
-    hfImportError,
-    isHfImporting,
-    startHfImport,
-    resetHfImportFlow,
-    getDatasetById,
-    createDataset,
-    archiveDataset,
-    validateAgain,
-    createNewVersion,
-    setActiveVersion,
-    rollbackVersion,
-    saveSplit,
-    updateSchemaMapping,
-    appendActivity,
-    ragKnowledgeBases,
-    uploadRagDocument,
-    removeRagDocument,
-    updateRagIndexConfig,
-    reindexRagKnowledgeBase,
-    queryRag,
-  };
 
   return (
     <DatasetsContext.Provider value={value}>{children}</DatasetsContext.Provider>

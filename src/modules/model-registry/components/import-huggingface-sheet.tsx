@@ -215,7 +215,7 @@ export function ImportHuggingFaceSheet(props: ImportHuggingFaceSheetProps) {
         <div className="flex-1 overflow-y-auto p-4">
           {importStep === 0 ? (
             <div className="space-y-4">
-              <p className="text-[14px] text-ink-soft">
+              <p className="text-sm text-ink-soft">
                 Connect your Hugging Face account. For public models, token is optional. For private or gated models, a valid token is required.
               </p>
               <label className="block space-y-1.5">
@@ -238,7 +238,7 @@ export function ImportHuggingFaceSheet(props: ImportHuggingFaceSheetProps) {
               </div>
               <div className={cn(panelClassName, "p-3 text-[13px] text-ink-soft")}>
                 <p><strong>Demo tokens:</strong></p>
-                <p className="mt-1">Valid: <code className="text-[12px]">hf_valid_token_demo</code> or any <code className="text-[12px]">hf_*</code> prefix</p>
+                <p className="mt-1">Valid: <code className="text-xs">hf_valid_token_demo</code> or any <code className="text-xs">hf_*</code> prefix</p>
                 <p>Invalid: contains &quot;invalid&quot; or &quot;bad-token&quot;</p>
                 <p>Expired: contains &quot;expired&quot;</p>
               </div>
@@ -279,8 +279,8 @@ export function ImportHuggingFaceSheet(props: ImportHuggingFaceSheetProps) {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-primary">{entry.modelName}</h3>
-                        <p className="text-[12px] text-ink-soft">{entry.repoId}</p>
-                        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-ink-soft">
+                        <p className="text-xs text-ink-soft">{entry.repoId}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink-soft">
                           <span>{entry.author}</span>
                           <span>·</span>
                           <span>{entry.task}</span>
@@ -288,7 +288,7 @@ export function ImportHuggingFaceSheet(props: ImportHuggingFaceSheetProps) {
                           <span>{entry.library}</span>
                           <ModelAccessBadge access={entry.accessType} />
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-ink-soft">
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-ink-soft">
                           <span>License: {entry.license}</span>
                           <span>{formatNumber(entry.downloads)} downloads</span>
                           <span>{formatNumber(entry.likes)} likes</span>
@@ -471,7 +471,7 @@ function PreviewSection({ entry }: { entry: import("@/modules/model-registry/typ
         <Meta label="Total Model Size" value={entry.totalModelSize} />
       </dl>
       <div>
-        <p className="text-[12px] font-medium text-ink-soft">Tags</p>
+        <p className="text-xs font-medium text-ink-soft">Tags</p>
         <div className="mt-1 flex flex-wrap gap-1">
           {entry.tags.map((tag) => (
             <span key={tag} className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary-strong">{tag}</span>
@@ -479,8 +479,8 @@ function PreviewSection({ entry }: { entry: import("@/modules/model-registry/typ
         </div>
       </div>
       <div>
-        <p className="text-[12px] font-medium text-ink-soft">Files Summary</p>
-        <ul className="mt-1 space-y-1 text-[12px] text-ink">
+        <p className="text-xs font-medium text-ink-soft">Files Summary</p>
+        <ul className="mt-1 space-y-1 text-xs text-ink">
           {entry.files.map((f) => (
             <li key={f.name} className="flex justify-between">
               <span>{f.name}{f.required ? " *" : ""}</span>
@@ -559,7 +559,7 @@ function WarningBanner({
       <Icon className="mt-0.5 size-5 shrink-0 text-warning" />
       <div>
         <p className="text-[13px] font-semibold text-warning-strong">{title}</p>
-        <p className="text-[12px] text-warning-strong-2">{message}</p>
+        <p className="text-xs text-warning-strong-2">{message}</p>
       </div>
     </div>
   );
@@ -583,7 +583,7 @@ function ErrorState({
         <div>
           <p className="font-semibold text-danger-strong">{title}</p>
           <p className="mt-1 text-[13px] text-danger-strong-2">{explanation}</p>
-          <p className="mt-2 text-[12px] text-danger-strong">Suggested action: {action}</p>
+          <p className="mt-2 text-xs text-danger-strong">Suggested action: {action}</p>
           {onRetry ? (
             <Button type="button" variant="outline" size="sm" className="mt-3" onClick={onRetry}>
               Retry

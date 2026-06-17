@@ -38,7 +38,7 @@ export function DatasetCard({
           <h3 className="line-clamp-2 text-[15px] font-semibold leading-snug text-primary">
             {dataset.name}
           </h3>
-          <p className="text-[12px] text-ink-soft">
+          <p className="text-xs text-ink-soft">
             {dataset.datasetType} · {sourceLabel(dataset.source)} · {dataset.currentVersion}
           </p>
         </div>
@@ -53,7 +53,7 @@ export function DatasetCard({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-soft">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-ink-soft">
           <span>
             Status: <strong className="font-medium text-ink">{dataset.validationStatus}</strong>
           </span>

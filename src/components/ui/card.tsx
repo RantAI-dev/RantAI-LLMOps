@@ -20,14 +20,14 @@ function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) 
   return (
     <h3
       data-slot="card-title"
-      className={cn("text-[14px] font-semibold leading-5 tracking-tight", className)}
+      className={cn("text-sm font-semibold leading-5 tracking-tight", className)}
       {...props}
     />
   );
 }
 
 function CardDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
-  return <p data-slot="card-description" className={cn("text-[14px] leading-5 text-muted-foreground", className)} {...props} />;
+  return <p data-slot="card-description" className={cn("text-sm leading-5 text-muted-foreground", className)} {...props} />;
 }
 
 function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {

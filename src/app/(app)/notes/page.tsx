@@ -26,12 +26,12 @@ export default function Page() {
 
       <MockBanner>
         Notes di Transformer Lab adalah markdown per-experiment (disimpan sebagai{" "}
-        <code className="text-[12px]">notes/readme.md</code>). Belum ada catatan global — daftar di
-        bawah memetakan ke endpoint <code className="text-[12px]">GET/POST /experiment/&#123;id&#125;/notes</code>.
+        <code className="text-xs">notes/readme.md</code>). Belum ada catatan global — daftar di
+        bawah memetakan ke endpoint <code className="text-xs">GET/POST /experiment/&#123;id&#125;/notes</code>.
       </MockBanner>
 
       {experiments.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-[14px] text-ink-soft">
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
           No experiments yet. Create an experiment first — its notes will appear here.
         </div>
       ) : (
@@ -47,10 +47,10 @@ export default function Page() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
-                    <span className="truncate text-[14px] font-medium text-primary">
+                    <span className="truncate text-sm font-medium text-primary">
                       {experiment.name}
                     </span>
-                    <span className="shrink-0 text-[12px] tabular-nums text-ink-faint">
+                    <span className="shrink-0 text-xs tabular-nums text-ink-faint">
                       {experiment.updatedAt.slice(0, 10)}
                     </span>
                   </span>

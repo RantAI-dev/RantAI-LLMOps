@@ -239,10 +239,10 @@ export function ImportHuggingFaceDatasetSheet(props: ImportHuggingFaceDatasetShe
         <div className="flex-1 overflow-y-auto p-4">
           {importStep === 0 ? (
             <div className="space-y-4">
-              <p className="text-[14px] text-ink-soft">
+              <p className="text-sm text-ink-soft">
                 Connect your Hugging Face account. Token is optional for public datasets. Required
-                for private or gated datasets (maps to <code className="text-[12px]">token</code> in{" "}
-                <code className="text-[12px]">load_dataset</code>).
+                for private or gated datasets (maps to <code className="text-xs">token</code> in{" "}
+                <code className="text-xs">load_dataset</code>).
               </p>
               <label className="block space-y-1.5">
                 <span className={datasetUi.label}>Hugging Face Access Token</span>
@@ -306,20 +306,20 @@ export function ImportHuggingFaceDatasetSheet(props: ImportHuggingFaceDatasetShe
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <h3 className="font-semibold text-primary">{entry.datasetName}</h3>
-                        <p className="text-[12px] text-ink-soft">{entry.repoId}</p>
-                        <div className="mt-2 flex flex-wrap gap-2 text-[12px] text-ink-soft">
+                        <p className="text-xs text-ink-soft">{entry.repoId}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-xs text-ink-soft">
                           <span>{entry.author}</span>
                           <span>·</span>
                           <span>{entry.taskCategories.join(", ")}</span>
                           <AccessBadge access={entry.accessType} />
                         </div>
-                        <div className="mt-2 flex flex-wrap gap-3 text-[12px] text-ink-soft">
+                        <div className="mt-2 flex flex-wrap gap-3 text-xs text-ink-soft">
                           <span>License: {entry.license}</span>
                           <span>{formatNumber(entry.downloads)} downloads</span>
                           <span>{formatNumber(entry.likes)} likes</span>
                           <span>Size: {entry.sizeCategory}</span>
                         </div>
-                        <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft">
+                        <p className="mt-2 line-clamp-2 text-xs text-ink-soft">
                           {entry.description}
                         </p>
                       </div>
@@ -357,7 +357,7 @@ export function ImportHuggingFaceDatasetSheet(props: ImportHuggingFaceDatasetShe
             <div className="space-y-4">
               <p className="text-[13px] text-ink-soft">
                 Configure import parameters matching Hugging Face{" "}
-                <code className="text-[12px]">datasets.load_dataset()</code>.
+                <code className="text-xs">datasets.load_dataset()</code>.
               </p>
               <div className="grid gap-4 sm:grid-cols-2">
                 <ConfigField label="Dataset Name">
@@ -508,7 +508,7 @@ export function ImportHuggingFaceDatasetSheet(props: ImportHuggingFaceDatasetShe
               {activeConfig ? (
                 <div className={cn(panelClassName, "p-4")}>
                   <h4 className="text-[13px] font-semibold text-ink">Schema features</h4>
-                  <Table className="mt-2 text-[12px]">
+                  <Table className="mt-2 text-xs">
                     <TableHeader>
                       <TableRow className="text-ink-soft">
                         <TableHead>Column</TableHead>
@@ -670,8 +670,8 @@ function PreviewSection({ entry }: { entry: HuggingFaceDatasetCatalogEntry }) {
         <Meta label="Downloads" value={formatNumber(entry.downloads)} />
       </dl>
       <div>
-        <p className="text-[12px] font-medium text-ink-soft">Available configs & splits</p>
-        <ul className="mt-1 space-y-1 text-[12px] text-ink-soft">
+        <p className="text-xs font-medium text-ink-soft">Available configs & splits</p>
+        <ul className="mt-1 space-y-1 text-xs text-ink-soft">
           {entry.configs.map((c) => (
             <li key={c.name}>
               <strong className="text-ink">{c.name}</strong>:{" "}
@@ -681,7 +681,7 @@ function PreviewSection({ entry }: { entry: HuggingFaceDatasetCatalogEntry }) {
         </ul>
       </div>
       <div>
-        <p className="text-[12px] font-medium text-ink-soft">Features ({defaultConfig.name})</p>
+        <p className="text-xs font-medium text-ink-soft">Features ({defaultConfig.name})</p>
         <div className="mt-1 flex flex-wrap gap-1">
           {defaultConfig.features.map((f) => (
             <span
@@ -759,7 +759,7 @@ function WarningBanner({
       <Icon className="size-5 shrink-0 text-warning" />
       <div>
         <p className="text-[13px] font-semibold text-warning">{title}</p>
-        <p className="text-[12px] text-warning-strong">{message}</p>
+        <p className="text-xs text-warning-strong">{message}</p>
       </div>
     </div>
   );
@@ -781,9 +781,9 @@ function ErrorState({
       <div className="flex gap-3">
         <XCircle className="size-5 shrink-0 text-danger" />
         <div className="space-y-2">
-          <p className="text-[14px] font-semibold text-danger">{title}</p>
+          <p className="text-sm font-semibold text-danger">{title}</p>
           <p className="text-[13px] text-danger-strong-2">{explanation}</p>
-          <p className="text-[12px] text-danger-strong">{action}</p>
+          <p className="text-xs text-danger-strong">{action}</p>
           {onRetry ? (
             <Button type="button" size="sm" variant="outline" onClick={onRetry}>
               Retry

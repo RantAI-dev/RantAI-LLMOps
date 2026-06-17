@@ -1,12 +1,16 @@
 "use client";
 
 import { Boxes, Cpu, Plus, Server, Star, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { USE_REAL_API } from "@/lib/api/config";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
-import { initialProviders } from "@/modules/compute/data/initial-compute";
+import {
+  fetchComputeProviders,
+  seedComputeProviders,
+} from "@/modules/compute/services/compute-service";
 import type {
   AddProviderInput,
   Cluster,
@@ -38,8 +42,14 @@ function makeId() {
 }
 
 export function ComputePage() {
-  const [providers, setProviders] = useState<ComputeProvider[]>(initialProviders);
+  const [providers, setProviders] = useState<ComputeProvider[]>(seedComputeProviders);
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  // Load real data only when the API flag is on; mock seed renders instantly.
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    fetchComputeProviders().then(setProviders).catch(() => {});
+  }, []);
 
   const summary = useMemo(() => {
     const localGpus = providers
@@ -176,12 +186,12 @@ function ProviderCard({
 
       {provider.accelerators.length > 0 ? (
         <div className="mt-3 border-t border-border pt-3">
-          <p className="mb-1.5 text-[12px] font-medium text-ink">Detected accelerators</p>
+          <p className="mb-1.5 text-xs font-medium text-ink">Detected accelerators</p>
           <div className="flex flex-wrap gap-2">
             {provider.accelerators.map((a, i) => (
               <span
                 key={`${provider.id}-acc-${i}`}
-                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-ink"
+                className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink"
               >
                 <Cpu className="size-3.5 text-primary" />
                 {a.count}× {a.name} ({a.vramGb}GB)
@@ -193,7 +203,7 @@ function ProviderCard({
 
       {provider.clusters.length > 0 ? (
         <div className="mt-3 space-y-2 border-t border-border pt-3">
-          <p className="text-[12px] font-medium text-ink">Clusters</p>
+          <p className="text-xs font-medium text-ink">Clusters</p>
           {provider.clusters.map((cluster) => (
             <ClusterRow key={cluster.name} cluster={cluster} />
           ))}
@@ -214,12 +224,12 @@ function ClusterRow({ cluster }: { cluster: Cluster }) {
             {cluster.state}
           </span>
         </div>
-        <span className="text-[12px] text-ink-soft">
+        <span className="text-xs text-ink-soft">
           {cluster.numNodes} node{cluster.numNodes > 1 ? "s" : ""}
           {running > 0 ? ` · ${running} running` : ""}
         </span>
       </div>
-      <p className="mt-1 text-[12px] text-ink-soft">{cluster.resourcesStr}</p>
+      <p className="mt-1 text-xs text-ink-soft">{cluster.resourcesStr}</p>
     </div>
   );
 }

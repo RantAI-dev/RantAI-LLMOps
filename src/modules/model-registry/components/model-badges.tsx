@@ -1,15 +1,10 @@
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { accessStyles, compatibilityStyles, providerStyles, statusStyles } from "@/modules/model-registry/lib/utils";
 import type { AccessType, CompatibilityStatus, ModelProvider, ModelStatus } from "@/modules/model-registry/types";
 
 export function ModelStatusBadge({ status, className }: { status: ModelStatus; className?: string }) {
-  const style = statusStyles[status];
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[12px] font-medium leading-4", style.bg, style.text, className)}>
-      <span className={cn("size-1.5 rounded-full", style.dot)} aria-hidden />
-      {status}
-    </span>
-  );
+  return <StatusBadge status={status} style={statusStyles[status]} className={className} />;
 }
 
 export function ModelAccessBadge({ access, className }: { access: AccessType; className?: string }) {

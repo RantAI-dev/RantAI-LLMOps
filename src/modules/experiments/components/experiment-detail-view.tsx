@@ -132,7 +132,7 @@ export function ExperimentDetailView({
         className="rounded-lg border border-[#e8e8e8] bg-surface p-3"
       >
         <div className="grid gap-3 xl:grid-cols-12">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px] xl:col-span-5">
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs xl:col-span-5">
             <Meta label="Objective" value={experiment.objective} className="col-span-2" />
             <Meta label="Owner" value={experiment.owner} />
             <Meta label="Base model" value={experiment.baseModel} />
@@ -167,7 +167,7 @@ export function ExperimentDetailView({
               </dd>
               <Link
                 href={`/notes/${experiment.id}`}
-                className="mt-1 inline-flex items-center gap-1 text-[12px] font-medium text-primary hover:underline"
+                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
               >
                 <NotebookPen className="size-3.5" />
                 {experiment.notes ? "Open notes" : "Add notes"}
@@ -205,7 +205,7 @@ export function ExperimentDetailView({
               Task distribution
             </p>
             {relatedTasks.length === 0 ? (
-              <p className="text-[12px] text-ink-soft">No tasks yet.</p>
+              <p className="text-xs text-ink-soft">No tasks yet.</p>
             ) : (
               <>
                 <div className="flex h-2 overflow-hidden rounded-full bg-[#ebebeb]">
@@ -242,7 +242,7 @@ export function ExperimentDetailView({
         </div>
         {relatedTasks.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border px-4 py-6 text-center">
-            <p className="text-[14px] font-medium text-primary">No tasks in this experiment yet</p>
+            <p className="text-sm font-medium text-primary">No tasks in this experiment yet</p>
             <p className="mt-1 text-[13px] text-ink-soft">
               Create a task to start fine-tuning, evaluation, or inference for this experiment.
             </p>
@@ -338,7 +338,7 @@ function Kpi({
       <p className="text-[10px] text-ink-faint">{label}</p>
       <p
         className={cn(
-          "text-[14px] font-semibold tabular-nums leading-tight",
+          "text-sm font-semibold tabular-nums leading-tight",
           warn ? "text-danger" : accent ? "text-warning" : "text-primary"
         )}
       >

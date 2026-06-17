@@ -155,7 +155,7 @@ export function DatasetsPage({
           />
         ) : showFilteredEmpty ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center">
-            <p className="text-[14px] text-ink-soft">No datasets match your filters.</p>
+            <p className="text-sm text-ink-soft">No datasets match your filters.</p>
             <Button type="button" variant="outline" className="mt-3" onClick={resetFilters}>
               Reset filters
             </Button>
@@ -231,7 +231,7 @@ function EmptyState({
         <Database className="size-7 text-primary" />
       </div>
       <h2 className="text-lg font-semibold text-primary">No datasets yet</h2>
-      <p className="mt-2 max-w-md text-[14px] text-ink-soft">
+      <p className="mt-2 max-w-md text-sm text-ink-soft">
         Upload or connect your first dataset to start the AI data lifecycle — preview, map schema,
         validate, version, and use in experiments.
       </p>

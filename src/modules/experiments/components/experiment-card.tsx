@@ -116,7 +116,7 @@ export function ExperimentCard({
           <p className="line-clamp-2 text-[13px] leading-5 text-ink-soft">{experiment.description}</p>
         </div>
 
-        <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-soft">
+        <ul className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-soft">
           <MetaItem icon={User} label={experiment.owner} />
           <MetaItem icon={Cpu} label={experiment.baseModel} />
           <MetaItem icon={Database} label={experiment.dataset} className="min-w-0 max-w-full basis-full sm:basis-auto" />
@@ -147,7 +147,7 @@ export function ExperimentCard({
       </div>
 
       <footer className="border-t border-surface-3 bg-surface/80 px-4 py-3">
-        <div className="mb-2 flex items-center justify-between gap-2 text-[12px]">
+        <div className="mb-2 flex items-center justify-between gap-2 text-xs">
           <span className="text-ink-soft">Overall progress</span>
           <span className="font-medium tabular-nums text-ink">{stats.overallProgress}%</span>
         </div>

@@ -48,7 +48,7 @@ export function RagIndexTab({ dataset, onSave, onReindex }: RagIndexTabProps) {
       </MockBanner>
       <div className={cn(panelClassName, "p-4")}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-[14px] font-semibold text-primary">Index Status</h3>
+          <h3 className="text-sm font-semibold text-primary">Index Status</h3>
           <span className={cn("rounded-full px-2.5 py-0.5 text-[11px] font-medium", statusStyle.bg, statusStyle.text)}>
             {rag.indexStatus}
           </span>
@@ -69,7 +69,7 @@ export function RagIndexTab({ dataset, onSave, onReindex }: RagIndexTabProps) {
       </div>
 
       <div className={cn(panelClassName, "space-y-4 p-4")}>
-        <h3 className="text-[14px] font-semibold text-primary">Search index settings</h3>
+        <h3 className="text-sm font-semibold text-primary">Search index settings</h3>
         <p className="text-[13px] text-ink-soft">
           Control how documents are split and embedded so retrieval matches your content and use case.
         </p>
@@ -176,7 +176,7 @@ export function RagIndexTab({ dataset, onSave, onReindex }: RagIndexTabProps) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[12px] font-medium text-ink-soft">{label}</span>
+      <span className="text-xs font-medium text-ink-soft">{label}</span>
       {children}
     </label>
   );

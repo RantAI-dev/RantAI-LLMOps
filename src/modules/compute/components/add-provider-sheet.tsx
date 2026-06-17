@@ -91,7 +91,7 @@ export function AddProviderSheet({ open, onClose, onAdd }: AddProviderSheetProps
                 placeholder="Region, credentials profile, etc."
               />
             </label>
-            <p className="rounded-md border border-warning-border bg-warning-soft-3 px-3 py-2 text-[12px] text-warning-strong">
+            <p className="rounded-md border border-warning-border bg-warning-soft-3 px-3 py-2 text-xs text-warning-strong">
               Credentials &amp; cluster config are set per provider after adding (TL{" "}
               <code className="text-[11px]">lab provider add</code> / web UI).
             </p>

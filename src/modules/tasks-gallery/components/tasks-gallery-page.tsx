@@ -1,13 +1,17 @@
 "use client";
 
 import { CheckCircle2, Search, Sparkles, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
+import { USE_REAL_API } from "@/lib/api/config";
 import { FilterSelect } from "@/modules/tasks/components/filter-select";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
-import { GALLERY_TASKS } from "@/modules/tasks-gallery/data/gallery-tasks";
+import {
+  fetchGalleryTasks,
+  seedGalleryTasks,
+} from "@/modules/tasks-gallery/services/gallery-service";
 import {
   GALLERY_CATEGORIES,
   GALLERY_FRAMEWORKS,
@@ -28,13 +32,20 @@ const DEFAULT_FILTERS: GalleryFilters = {
 
 export function TasksGalleryPage() {
   const { experiments, createTask } = useLlmOps();
+  const [galleryTasks, setGalleryTasks] = useState<GalleryTask[]>(seedGalleryTasks);
   const [filters, setFilters] = useState<GalleryFilters>(DEFAULT_FILTERS);
   const [importTask, setImportTask] = useState<GalleryTask | null>(null);
   const [imported, setImported] = useState<string | null>(null);
 
+  // Load real data only when the API flag is on; mock seed renders instantly.
+  useEffect(() => {
+    if (!USE_REAL_API) return;
+    fetchGalleryTasks().then(setGalleryTasks).catch(() => {});
+  }, []);
+
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
-    return GALLERY_TASKS.filter((t) => {
+    return galleryTasks.filter((t) => {
       if (q && !t.title.toLowerCase().includes(q) && !t.description.toLowerCase().includes(q)) {
         return false;
       }
@@ -43,9 +54,9 @@ export function TasksGalleryPage() {
       if (filters.modality !== "all" && t.modality !== filters.modality) return false;
       return true;
     });
-  }, [filters]);
+  }, [filters, galleryTasks]);
 
-  const unslothCount = GALLERY_TASKS.filter((t) => t.framework.includes("unsloth")).length;
+  const unslothCount = galleryTasks.filter((t) => t.framework.includes("unsloth")).length;
 
   return (
     <div className="min-w-0 w-full space-y-4">
@@ -59,7 +70,7 @@ export function TasksGalleryPage() {
 
       <div className="flex flex-wrap items-center gap-3 text-[13px] text-ink-soft">
         <span>
-          <strong className="text-primary">{GALLERY_TASKS.length}</strong> recipes
+          <strong className="text-primary">{galleryTasks.length}</strong> recipes
         </span>
         <span className="inline-flex items-center gap-1">
           <Sparkles className="size-3.5 text-primary-strong" />
@@ -122,7 +133,7 @@ export function TasksGalleryPage() {
       </div>
 
       {filtered.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-[14px] text-ink-soft">
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
           No recipes match your filters.{" "}
           <button
             type="button"

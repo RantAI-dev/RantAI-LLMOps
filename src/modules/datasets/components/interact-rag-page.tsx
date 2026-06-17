@@ -163,7 +163,7 @@ export function InteractRagPage() {
               <div
                 key={msg.id}
                 className={cn(
-                  "max-w-[90%] rounded-lg px-3 py-2 text-[14px] leading-relaxed",
+                  "max-w-[90%] rounded-lg px-3 py-2 text-sm leading-relaxed",
                   msg.role === "user"
                     ? "ml-auto bg-primary text-white"
                     : "bg-surface-2 text-ink"
@@ -214,8 +214,8 @@ export function InteractRagPage() {
         </div>
 
         <aside className={cn(panelClassName, "flex flex-col p-4")}>
-          <h2 className="text-[14px] font-semibold text-primary">Sources</h2>
-          <p className="mt-1 text-[12px] text-ink-soft">
+          <h2 className="text-sm font-semibold text-primary">Sources</h2>
+          <p className="mt-1 text-xs text-ink-soft">
             Passages retrieved with {selectedKb?.rag?.indexConfig.embeddingModelName ?? "your embedding model"}
           </p>
           <div className="mt-3 flex-1 space-y-3 overflow-y-auto">
@@ -230,7 +230,7 @@ export function InteractRagPage() {
                       {(score * 100).toFixed(0)}%
                     </span>
                   </div>
-                  <p className="mt-1.5 text-[12px] leading-relaxed text-ink">{chunk.content}</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-ink">{chunk.content}</p>
                 </div>
               ))
             )}

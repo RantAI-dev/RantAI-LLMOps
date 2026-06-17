@@ -15,7 +15,7 @@ export function DatasetWizardStepper({ steps, currentStep }: DatasetWizardSteppe
 
   return (
     <div className="border-b border-hairline bg-surface px-5 py-4">
-      <div className="mb-2 flex items-center justify-between gap-2 text-[12px]">
+      <div className="mb-2 flex items-center justify-between gap-2 text-xs">
         <span className="text-ink-soft">
           Step {currentStep + 1} of {steps.length}
         </span>

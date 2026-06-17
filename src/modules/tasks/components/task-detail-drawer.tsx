@@ -74,7 +74,7 @@ export function TaskDetailDrawer({
         <SheetHeader className="border-b border-border px-5 py-4 text-left">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <TaskStatusBadge status={status} />
-            <span className="rounded bg-primary-soft px-2 py-0.5 text-[12px] font-medium text-primary">
+            <span className="rounded bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">
               {task.type}
             </span>
           </div>
@@ -118,7 +118,7 @@ export function TaskDetailDrawer({
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <Section title="Task Overview">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-[14px]">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <Meta label="Experiment" value={task.experimentName} full />
               <Meta label="Owner" value={task.owner} />
               <Meta label="Priority" value={task.priority} />
@@ -139,7 +139,7 @@ export function TaskDetailDrawer({
           </Section>
 
           <Section title="Configuration">
-            <dl className="grid grid-cols-1 gap-2 text-[14px] sm:grid-cols-2">
+            <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
               <Meta label="Base Model" value={task.baseModel} full />
               <Meta label="Dataset" value={task.dataset} full />
               <Meta label="Processing engine" value={task.engine} />
@@ -165,7 +165,7 @@ export function TaskDetailDrawer({
 
           <Section title="Runs">
             {task.runs.length === 0 ? (
-              <p className="text-[14px] text-ink-soft">
+              <p className="text-sm text-ink-soft">
                 No runs yet. Start this task to create run #1.
               </p>
             ) : (
@@ -190,14 +190,14 @@ export function TaskDetailDrawer({
             {run ? (
               <Timeline steps={run.timeline} status={status} />
             ) : (
-              <p className="text-[14px] text-ink-soft">No runs yet.</p>
+              <p className="text-sm text-ink-soft">No runs yet.</p>
             )}
           </Section>
 
           <Section title="Resource Usage">
             <div className="mb-3 flex items-center gap-2">
               <MockBadge />
-              <p className="text-[12px] text-ink-soft">
+              <p className="text-xs text-ink-soft">
                 TL tidak meng-expose metrik GPU realtime maupun estimasi biaya per job — angka di
                 bawah masih contoh.
               </p>
@@ -208,7 +208,7 @@ export function TaskDetailDrawer({
               <ResourceBar label="CPU" value={ru.cpu} />
               <ResourceBar label="Memory" value={ru.memory} />
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-4 text-[14px] text-ink-soft">
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-ink-soft">
               <span>Tokens: {ru.tokensProcessed.toLocaleString()}</span>
               <span className="inline-flex items-center gap-1.5">
                 Est. cost: ${ru.estimatedCost.toFixed(2)} <MockBadge />
@@ -217,7 +217,7 @@ export function TaskDetailDrawer({
           </Section>
 
           <Section title="Logs">
-            <div className="max-h-48 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-[12px] leading-5 text-[#e4e4e7]">
+            <div className="max-h-48 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]">
               {!run || run.logs.length === 0 ? (
                 <p className="text-ink-faint-strong">No logs yet.</p>
               ) : (
@@ -232,7 +232,7 @@ export function TaskDetailDrawer({
 
           <Section title="Output / Artifacts">
             {!run || run.artifacts.length === 0 ? (
-              <p className="text-[14px] text-ink-soft">
+              <p className="text-sm text-ink-soft">
                 No artifacts yet. Outputs appear when the run completes.
               </p>
             ) : (
@@ -240,12 +240,12 @@ export function TaskDetailDrawer({
                 {run.artifacts.map((artifact) => (
                   <Card key={artifact.id} className="shadow-sm">
                     <CardHeader className="pb-1">
-                      <CardTitle className="text-[14px] font-medium text-primary">
+                      <CardTitle className="text-sm font-medium text-primary">
                         {artifact.name}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="flex items-center justify-between pt-0">
-                      <div className="text-[12px] text-ink-soft">
+                      <div className="text-xs text-ink-soft">
                         <p>{artifact.type}</p>
                         <p>{artifact.size}</p>
                       </div>
@@ -276,7 +276,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function Meta({ label, value, full }: { label: string; value: string; full?: boolean }) {
   return (
     <div className={full ? "sm:col-span-2" : undefined}>
-      <dt className="text-[12px] font-medium uppercase tracking-wide text-ink-soft">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-soft">
         {label}
       </dt>
       <dd className="mt-0.5 text-ink">{value}</dd>
@@ -332,9 +332,9 @@ function Timeline({
               {!isLast ? <span className="my-1 w-px flex-1 bg-border min-h-[20px]" /> : null}
             </div>
             <div className="pb-4">
-              <p className="text-[14px] font-medium text-ink">{step.label}</p>
+              <p className="text-sm font-medium text-ink">{step.label}</p>
               {step.timestamp ? (
-                <p className="text-[12px] text-ink-soft">{step.timestamp}</p>
+                <p className="text-xs text-ink-soft">{step.timestamp}</p>
               ) : null}
             </div>
           </li>

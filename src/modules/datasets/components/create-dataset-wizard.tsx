@@ -287,8 +287,8 @@ export function CreateDatasetWizard({
                       )}
                     >
                       <opt.icon className="mb-2 size-5 text-primary" />
-                      <p className="text-[14px] font-semibold text-ink">{opt.title}</p>
-                      <p className="mt-1 text-[12px] leading-4 text-ink-soft">{opt.description}</p>
+                      <p className="text-sm font-semibold text-ink">{opt.title}</p>
+                      <p className="mt-1 text-xs leading-4 text-ink-soft">{opt.description}</p>
                       {opt.disabled ? (
                         <span className="mt-2 inline-block rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-faint-strong">
                           Coming soon
@@ -304,9 +304,9 @@ export function CreateDatasetWizard({
                 {source === "Hugging Face" ? (
                   <div className="rounded-lg border border-warning-border bg-warning-soft-3 px-4 py-3 text-[13px] text-warning-strong">
                     Hugging Face import uses dedicated flow with{" "}
-                    <code className="text-[12px]">path</code>, <code className="text-[12px]">name</code>
-                    , <code className="text-[12px]">split</code>, and{" "}
-                    <code className="text-[12px]">revision</code> parameters. Click Next to open
+                    <code className="text-xs">path</code>, <code className="text-xs">name</code>
+                    , <code className="text-xs">split</code>, and{" "}
+                    <code className="text-xs">revision</code> parameters. Click Next to open
                     the import wizard.
                   </div>
                 ) : null}
@@ -393,7 +393,7 @@ export function CreateDatasetWizard({
                     {Object.keys(visibleCols).map((col) => (
                       <label
                         key={col}
-                        className="flex cursor-pointer items-center gap-1.5 text-[12px] text-ink"
+                        className="flex cursor-pointer items-center gap-1.5 text-xs text-ink"
                       >
                         <input
                           type="checkbox"

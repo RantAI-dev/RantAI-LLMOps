@@ -262,7 +262,7 @@ export function CreateTaskSheet({
             <button
               type="button"
               onClick={() => setShowAdvanced((v) => !v)}
-              className="text-[14px] font-medium text-primary hover:underline"
+              className="text-sm font-medium text-primary hover:underline"
             >
               {showAdvanced ? "Hide" : "Show"} Advanced Configuration
             </button>
@@ -337,7 +337,7 @@ export function CreateTaskSheet({
                     />
                   </Field>
                 </div>
-                <label className="flex items-center gap-2 text-[14px] text-ink">
+                <label className="flex items-center gap-2 text-sm text-ink">
                   <Checkbox
                     checked={form.hyperparameters.enableCheckpoint}
                     onCheckedChange={(checked) =>
@@ -349,7 +349,7 @@ export function CreateTaskSheet({
                   />
                   Enable Checkpoint
                 </label>
-                <label className="flex items-center gap-2 text-[14px] text-ink">
+                <label className="flex items-center gap-2 text-sm text-ink">
                   <Checkbox
                     checked={form.hyperparameters.enableEvaluationAfterRun}
                     onCheckedChange={(checked) =>
@@ -399,7 +399,7 @@ function Field({
         {label}
         {required ? " *" : ""}
       </span>
-      {helper ? <p className="text-[12px] leading-4 text-ink-soft">{helper}</p> : null}
+      {helper ? <p className="text-xs leading-4 text-ink-soft">{helper}</p> : null}
       {children}
     </label>
   );

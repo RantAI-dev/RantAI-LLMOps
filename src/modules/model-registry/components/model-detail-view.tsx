@@ -73,7 +73,7 @@ export function ModelDetailView({
               <ModelCompatibilityBadge status={model.compatibilityStatus} />
             </div>
             {model.repoId ? (
-              <p className="mt-1 text-[12px] text-ink-soft">{model.repoId}</p>
+              <p className="mt-1 text-xs text-ink-soft">{model.repoId}</p>
             ) : null}
           </div>
           <ModelDetailToolbar
@@ -199,7 +199,7 @@ function HuggingFaceTab({ model }: { model: RegistryModel }) {
 function FilesTab({ model }: { model: RegistryModel }) {
   if (model.files.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-border p-8 text-center text-[14px] text-ink-soft">
+      <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
         No files registered. Import with Full Download to fetch model files.
       </div>
     );
@@ -227,7 +227,7 @@ function FilesTab({ model }: { model: RegistryModel }) {
               <TableCell className="tabular-nums">{file.fileSize}</TableCell>
               <TableCell>{file.isRequired ? "Yes" : "No"}</TableCell>
               <TableCell>{file.downloadStatus}</TableCell>
-              <TableCell className="text-[12px] text-ink-soft">{file.storageLocation}</TableCell>
+              <TableCell className="text-xs text-ink-soft">{file.storageLocation}</TableCell>
               <TableCell className="font-mono text-[11px]">{file.checksum}</TableCell>
               <TableCell>{formatDateTime(file.downloadedAt)}</TableCell>
             </TableRow>
@@ -333,7 +333,7 @@ function DeploymentTab({
         ) : null}
         <Button type="button" variant="ghost" size="sm" disabled>View Logs</Button>
       </div>
-      <p className="text-[12px] text-ink-soft">Test this model in Playground before deploying to production.</p>
+      <p className="text-xs text-ink-soft">Test this model in Playground before deploying to production.</p>
     </div>
   );
 }
@@ -395,7 +395,7 @@ function UsageTab({ model }: { model: RegistryModel }) {
             );
           })}
         </div>
-        <p className="mt-2 text-[12px] text-ink-soft">Usage chart placeholder — connect monitoring backend for live data.</p>
+        <p className="mt-2 text-xs text-ink-soft">Usage chart placeholder — connect monitoring backend for live data.</p>
       </div>
       {u.gpuUtilization > 0 ? (
         <div>
@@ -429,7 +429,7 @@ function AuditTab({ model }: { model: RegistryModel }) {
                 {log.status}
               </span>
             </div>
-            <p className="mt-1 text-[12px] text-ink-soft">{log.notes}</p>
+            <p className="mt-1 text-xs text-ink-soft">{log.notes}</p>
             <p className="mt-1 text-[11px] text-ink-faint">{log.actor} · {formatDateTime(log.timestamp)}</p>
           </div>
         </div>

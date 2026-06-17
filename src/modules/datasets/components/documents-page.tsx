@@ -173,7 +173,7 @@ export function DocumentsPage({ onNavigate }: DocumentsPageProps) {
             <TabsContent value="all-documents" className="mt-4">
               {showFilteredEmpty ? (
                 <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
-                  <p className="text-[14px] text-ink-soft">No documents match your filters.</p>
+                  <p className="text-sm text-ink-soft">No documents match your filters.</p>
                   <Button
                     type="button"
                     variant="outline"
@@ -246,7 +246,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 px-6 py-16 text-center">
       <FolderOpen className="size-10 text-primary/60" />
       <h2 className="mt-4 text-lg font-semibold text-primary">Start your document library</h2>
-      <p className="mt-2 max-w-md text-[14px] text-ink-soft">
+      <p className="mt-2 max-w-md text-sm text-ink-soft">
         Create a knowledge base, upload your files, and index them so your team can ask questions
         with confidence.
       </p>
@@ -293,14 +293,14 @@ function KnowledgeBaseCard({
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-[12px]">
+      <div className="grid grid-cols-3 gap-2 text-xs">
         <MiniStat label="Documents" value={String(rag?.documents.length ?? 0)} />
         <MiniStat label="Passages" value={String(rag?.totalChunks ?? 0)} />
         <MiniStat label="Q&A pairs" value={String(rag?.qaPairCount ?? 0)} />
       </div>
 
       {rag?.documents.slice(0, 2).map((doc) => (
-        <div key={doc.id} className="flex items-center gap-2 text-[12px] text-ink-soft">
+        <div key={doc.id} className="flex items-center gap-2 text-xs text-ink-soft">
           <FileText className="size-3.5 shrink-0" />
           <span className="truncate">{doc.name}</span>
         </div>

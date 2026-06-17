@@ -1,0 +1,29 @@
+# Normalize all text files to LF in the repository (and on checkout), so the
+# working tree is consistent across macOS/Linux/Windows and `core.autocrlf`
+# no longer produces phantom "modified" files.
+* text=auto eol=lf
+
+# Scripts whose line endings matter — keep LF (shells break on CRLF)
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# Windows scripts — keep CRLF
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary assets — never touch line endings
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.svg   text
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
+*.db    binary
+*.sqlite binary

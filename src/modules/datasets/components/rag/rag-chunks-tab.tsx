@@ -48,7 +48,7 @@ export function RagChunksTab({ dataset }: RagChunksTabProps) {
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
-          <p className="text-[14px] text-ink-soft">
+          <p className="text-sm text-ink-soft">
             {rag.indexStatus === "Ready"
               ? "No passages match your search."
               : "Index this knowledge base to preview passages."}
@@ -59,7 +59,7 @@ export function RagChunksTab({ dataset }: RagChunksTabProps) {
           {filtered.map((chunk) => (
             <div key={chunk.id} className={cn(panelClassName, "p-4")}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[12px] font-medium text-primary">
+                <p className="text-xs font-medium text-primary">
                   Passage {chunk.chunkIndex + 1} · {chunk.documentName}
                 </p>
                 <span className="text-[11px] tabular-nums text-ink-soft">
@@ -73,7 +73,7 @@ export function RagChunksTab({ dataset }: RagChunksTabProps) {
       )}
 
       {rag.totalChunks > rag.chunks.length && (
-        <p className="text-[12px] text-ink-soft">
+        <p className="text-xs text-ink-soft">
           Showing a preview. The full index contains {rag.totalChunks} passages.
         </p>
       )}

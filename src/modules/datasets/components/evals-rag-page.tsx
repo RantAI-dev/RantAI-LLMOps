@@ -55,7 +55,7 @@ export function EvalsRagPage() {
               <FlaskConical className="size-4 text-primary/70" />
             </div>
             <p className="mt-1 text-[24px] font-semibold tabular-nums text-primary">{score}</p>
-            <p className="mt-1 text-[12px] text-ink-soft">{desc}</p>
+            <p className="mt-1 text-xs text-ink-soft">{desc}</p>
             <p className="mt-2 flex items-center gap-1 text-[11px] text-success-bright">
               <TrendingUp className="size-3" />
               Improvement after embedding fine-tune
@@ -71,7 +71,7 @@ export function EvalsRagPage() {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
                 <p className="font-semibold text-ink">{run.name}</p>
-                <p className="mt-0.5 text-[12px] text-ink-soft">
+                <p className="mt-0.5 text-xs text-ink-soft">
                   {run.knowledgeBaseName} · {run.embeddingModel} · {run.status}
                 </p>
               </div>
@@ -127,7 +127,7 @@ function MetricsComparison({ metrics }: { metrics: RagEvalMetric[] }) {
         const improved = delta > 0;
         return (
           <div key={m.id} className="rounded-md border border-border bg-white p-3">
-            <p className="text-[12px] font-medium text-ink">{m.name}</p>
+            <p className="text-xs font-medium text-ink">{m.name}</p>
             <div className="mt-2 flex items-end gap-3">
               <div>
                 <p className="text-[10px] text-ink-faint">Before tuning</p>

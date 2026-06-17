@@ -436,7 +436,7 @@ export function DatasetDetailView({
         <TabsContent value="usage" className="mt-4">
           <div className="relative space-y-4 border-l-2 border-primary/20 pl-6">
             {dataset.usage.length === 0 ? (
-              <p className="text-[14px] text-ink-soft">No usage recorded yet.</p>
+              <p className="text-sm text-ink-soft">No usage recorded yet.</p>
             ) : (
               dataset.usage.map((item) => (
                 <div key={item.id} className="relative">
@@ -446,7 +446,7 @@ export function DatasetDetailView({
                       {item.category}
                     </p>
                     <p className="mt-1 font-semibold text-ink">{item.title}</p>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-soft">
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
                       <span>Status: {item.status}</span>
                       <span>Version: {item.datasetVersion}</span>
                       <span>Since: {formatDate(item.usedSince)}</span>
@@ -466,7 +466,7 @@ export function DatasetDetailView({
                 key={log.id}
                 className="flex gap-4 border-b border-border pb-3 last:border-0"
               >
-                <time className="w-36 shrink-0 text-[12px] text-ink-soft">
+                <time className="w-36 shrink-0 text-xs text-ink-soft">
                   {formatDateTime(log.timestamp)}
                 </time>
                 <div>
@@ -502,7 +502,7 @@ function MetricGrid({ items }: { items: [string, string][] }) {
 function CardSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className={cn(panelClassName, "p-4")}>
-      <h3 className="mb-3 text-[14px] font-semibold text-primary">{title}</h3>
+      <h3 className="mb-3 text-sm font-semibold text-primary">{title}</h3>
       {children}
     </div>
   );

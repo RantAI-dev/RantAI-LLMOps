@@ -43,7 +43,7 @@ export function LoginScreen() {
 
         <form onSubmit={onSubmit} className="mt-6 space-y-3">
           <label className="block space-y-1.5">
-            <span className="text-[12px] font-medium text-ink-soft">Email</span>
+            <span className="text-xs font-medium text-ink-soft">Email</span>
             <Input
               type="email"
               value={email}
@@ -54,7 +54,7 @@ export function LoginScreen() {
             />
           </label>
           <label className="block space-y-1.5">
-            <span className="text-[12px] font-medium text-ink-soft">Password</span>
+            <span className="text-xs font-medium text-ink-soft">Password</span>
             <Input
               type="password"
               value={password}
@@ -77,7 +77,7 @@ export function LoginScreen() {
           </Button>
         </form>
 
-        <p className={cn("mt-4 text-center text-[12px]", USE_REAL_API ? "text-ink-soft" : "text-warning")}>
+        <p className={cn("mt-4 text-center text-xs", USE_REAL_API ? "text-ink-soft" : "text-warning")}>
           {USE_REAL_API
             ? "Connecting to Transformer Lab backend."
             : "Mock mode — any credentials work. Set NEXT_PUBLIC_USE_REAL_API=true for the real backend."}

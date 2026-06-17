@@ -50,7 +50,7 @@ export function RagDocumentsTab({
         <div>
           <div className="flex items-center gap-2">
             <FolderOpen className="size-4 text-primary" />
-            <p className="text-[14px] font-semibold text-ink">
+            <p className="text-sm font-semibold text-ink">
               Storage folder:{" "}
               <span className="font-normal text-ink-soft">/{rag.indexConfig.folder}</span>
             </p>
@@ -89,7 +89,7 @@ export function RagDocumentsTab({
         <div className={cn(panelClassName, "space-y-2 p-4")}>
           <p className="text-[13px] font-medium text-ink">Building search index…</p>
           <Progress value={66} className="h-2" />
-          <p className="text-[12px] text-ink-soft">
+          <p className="text-xs text-ink-soft">
             Reading documents, splitting into passages, and preparing them for search.
           </p>
         </div>
@@ -107,7 +107,7 @@ export function RagDocumentsTab({
       {rag.documents.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
           <FileUp className="mx-auto size-8 text-primary/60" />
-          <p className="mt-3 text-[14px] font-medium text-ink">No documents yet</p>
+          <p className="mt-3 text-sm font-medium text-ink">No documents yet</p>
           <p className="mt-1 text-[13px] text-ink-soft">
             Upload your first file to start building this knowledge base.
           </p>

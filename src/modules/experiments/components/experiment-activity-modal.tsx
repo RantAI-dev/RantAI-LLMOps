@@ -36,7 +36,7 @@ export function ExperimentActivityModal({ open, experiment, onClose }: Experimen
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           {items.length === 0 ? (
-            <p className="py-6 text-center text-[14px] text-ink-soft">No activity recorded yet.</p>
+            <p className="py-6 text-center text-sm text-ink-soft">No activity recorded yet.</p>
           ) : (
             <ul>
               {items.map((item, index) => (

@@ -23,7 +23,7 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
     return (
       <div className="flex min-h-[320px] flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/20 p-8 text-center">
         <h2 className="text-lg font-semibold text-primary">Experiment not found</h2>
-        <p className="mt-2 max-w-md text-[14px] text-ink-soft">
+        <p className="mt-2 max-w-md text-sm text-ink-soft">
           This experiment doesn’t exist (or hasn’t loaded).
         </p>
         <Link
@@ -47,7 +47,7 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
         <div className="min-w-0">
           <Link
             href="/notes"
-            className="inline-flex items-center gap-1 text-[12px] font-medium text-ink-soft hover:text-primary"
+            className="inline-flex items-center gap-1 text-xs font-medium text-ink-soft hover:text-primary"
           >
             <ArrowLeft className="size-3.5" /> Notes
           </Link>
@@ -57,9 +57,9 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
             </h1>
             <MockBadge label="Mock" />
           </div>
-          <p className="mt-1 text-[14px] leading-5 text-ink-soft">
+          <p className="mt-1 text-sm leading-5 text-ink-soft">
             Lab notebook for this experiment — maps to TL{" "}
-            <code className="text-[12px]">notes/readme.md</code> (markdown).
+            <code className="text-xs">notes/readme.md</code> (markdown).
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">

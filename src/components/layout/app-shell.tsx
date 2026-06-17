@@ -84,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             title={item.label}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex h-9 w-full items-center rounded-md text-left text-[14px] leading-5 transition-colors",
+              "relative flex h-9 w-full items-center rounded-md text-left text-sm leading-5 transition-colors",
               isSidebarOpen ? "gap-2 px-2" : "justify-center px-0",
               active
                 ? "border border-border bg-surface-2 text-primary-light"
@@ -115,7 +115,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <main className="flex h-dvh overflow-hidden bg-white text-[14px] leading-5 text-primary">
+    <main className="flex h-dvh overflow-hidden bg-white text-sm leading-5 text-primary">
       <div className="flex h-full min-h-0 w-full">
         <aside
           className={cn(
@@ -144,8 +144,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               {isSidebarOpen ? (
                 <div className="text-left">
-                  <p className="text-[14px] leading-none font-semibold text-primary">NQR</p>
-                  <p className="mt-1 text-[14px] leading-none text-ink-soft">LLMOps</p>
+                  <p className="text-sm leading-none font-semibold text-primary">NQR</p>
+                  <p className="mt-1 text-sm leading-none text-ink-soft">LLMOps</p>
                 </div>
               ) : null}
             </Link>
@@ -154,14 +154,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className={cn("flex-1 space-y-6 py-3", isSidebarOpen ? "px-2" : "px-3")}>
             <nav aria-label="Main">
               {isSidebarOpen ? (
-                <p className="px-2 py-1 text-[14px] leading-5 font-medium text-primary/70">Main</p>
+                <p className="px-2 py-1 text-sm leading-5 font-medium text-primary/70">Main</p>
               ) : null}
               {renderNav(mainNav)}
             </nav>
 
             <nav aria-label="Workspace">
               {isSidebarOpen ? (
-                <p className="px-2 py-1 text-[14px] leading-5 font-medium text-primary/70">Workspace</p>
+                <p className="px-2 py-1 text-sm leading-5 font-medium text-primary/70">Workspace</p>
               ) : null}
               {renderNav(workspaceNav)}
             </nav>
@@ -185,8 +185,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {isSidebarOpen ? (
                       <>
                         <div className="min-w-0 flex-1 text-left">
-                          <p className="truncate text-[14px] leading-5 font-semibold">{user?.name ?? "—"}</p>
-                          <p className="truncate text-[14px] leading-5 text-ink-soft">{user?.email ?? ""}</p>
+                          <p className="truncate text-sm leading-5 font-semibold">{user?.name ?? "—"}</p>
+                          <p className="truncate text-sm leading-5 text-ink-soft">{user?.email ?? ""}</p>
                         </div>
                         <LogOut className="size-4 shrink-0 text-ink-soft" aria-hidden />
                       </>
@@ -197,7 +197,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <DropdownMenuContent side="top" align="start" className="w-[200px]">
                 <DropdownMenuLabel>
                   <p className="truncate text-[13px] font-semibold text-ink">{user?.name ?? "—"}</p>
-                  <p className="truncate text-[12px] font-normal text-ink-soft">{user?.email ?? ""}</p>
+                  <p className="truncate text-xs font-normal text-ink-soft">{user?.email ?? ""}</p>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-destructive" onClick={logout}>

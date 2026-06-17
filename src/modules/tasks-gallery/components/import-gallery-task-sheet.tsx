@@ -86,7 +86,7 @@ export function ImportGalleryTaskSheet({
           <SheetTitle className="text-primary">Import “{task.title}”</SheetTitle>
           <SheetDescription>
             Creates a Task (recipe) in an experiment. Maps to TL gallery import:{" "}
-            <code className="text-[12px]">{task.githubRepoDir}</code>
+            <code className="text-xs">{task.githubRepoDir}</code>
           </SheetDescription>
         </SheetHeader>
 
@@ -183,7 +183,7 @@ function Field({
         {label}
         {required ? " *" : ""}
       </span>
-      {helper ? <p className="text-[12px] leading-4 text-ink-soft">{helper}</p> : null}
+      {helper ? <p className="text-xs leading-4 text-ink-soft">{helper}</p> : null}
       {children}
     </label>
   );

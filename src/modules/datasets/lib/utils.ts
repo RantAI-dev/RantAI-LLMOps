@@ -29,6 +29,15 @@ export const statusStyles: Record<
   Error: { bg: "bg-danger-soft", text: "text-danger", dot: "bg-danger-solid" },
 };
 
+/** Copy-on-write update of a single dataset by id (no-op if not found). */
+export function updateDataset(
+  datasets: Dataset[],
+  id: string,
+  updater: (d: Dataset) => Dataset
+): Dataset[] {
+  return datasets.map((d) => (d.id === id ? updater(d) : d));
+}
+
 export function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
 }

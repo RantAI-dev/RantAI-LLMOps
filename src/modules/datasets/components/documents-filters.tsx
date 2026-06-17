@@ -1,9 +1,6 @@
 "use client";
 
-import { RotateCcw, Search, SlidersHorizontal } from "lucide-react";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { FilterBar } from "@/components/ui/filter-bar";
 import {
   defaultDocumentsFilters,
   type DocumentsFilters,
@@ -36,47 +33,21 @@ export function DocumentsFiltersBar({
   const active = hasActive(filters);
 
   return (
-    <section className="space-y-3 border-b border-hairline pb-4" aria-label="Document filters">
-      <div className="relative w-full max-w-xl">
-        <Search
-          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-primary"
-          aria-hidden
-        />
-        <Input
-          value={filters.search}
-          onChange={(e) => onChange({ search: e.target.value })}
-          placeholder="Search by file name, knowledge base, or type..."
-          className={searchFieldClassName}
-          aria-label="Search documents"
-        />
-      </div>
-
-      <div className="rounded-lg border border-hairline bg-surface p-3">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-ink">
-            <SlidersHorizontal className="size-4 text-primary" aria-hidden />
-            <span className="text-[13px] font-medium">Filter documents</span>
-            {active ? (
-              <span className="rounded-full bg-primary-soft px-2 py-0.5 text-[11px] font-medium text-primary">
-                Active
-              </span>
-            ) : null}
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onReset}
-            disabled={!active}
-            className="h-8 shrink-0 gap-1.5"
-          >
-            <RotateCcw className="size-3.5" />
-            Reset
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <FilterSelect
+    <FilterBar
+      ariaLabel="Document filters"
+      title="Filter documents"
+      searchValue={filters.search}
+      onSearchChange={(search) => onChange({ search })}
+      searchPlaceholder="Search by file name, knowledge base, or type..."
+      searchAriaLabel="Search documents"
+      searchClassName={searchFieldClassName}
+      active={active}
+      onReset={onReset}
+      resetLabel="Reset"
+      sectionClassName="border-b border-hairline pb-4"
+      gridClassName="sm:grid-cols-2 lg:grid-cols-4"
+    >
+      <FilterSelect
             showLabel
             label="Knowledge base"
             value={filters.knowledgeBase}
@@ -118,8 +89,6 @@ export function DocumentsFiltersBar({
               { value: "size", label: "Largest file" },
             ]}
           />
-        </div>
-      </div>
-    </section>
+    </FilterBar>
   );
 }

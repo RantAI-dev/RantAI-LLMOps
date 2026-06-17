@@ -28,7 +28,7 @@ export function DocumentsTable({ items, onOpenKnowledgeBase, onRemove }: Documen
   if (items.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
-        <p className="text-[14px] text-ink-soft">No documents match your filters.</p>
+        <p className="text-sm text-ink-soft">No documents match your filters.</p>
       </div>
     );
   }

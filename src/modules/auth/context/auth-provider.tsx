@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
   type CurrentUser,
@@ -53,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = useCallback(async (email: string, password: string) => {
     await apiLogin(email, password);
     if (USE_REAL_API) {
       setUser(await fetchCurrentUser());
@@ -61,20 +69,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserEmail(email);
       setUser({ email, name: nameFromEmail(email) });
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     apiLogout();
     setUser(null);
-  };
+  }, []);
 
-  const value: AuthContextValue = {
-    user,
-    isAuthenticated: user !== null,
-    isLoading,
-    login,
-    logout,
-  };
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      isAuthenticated: user !== null,
+      isLoading,
+      login,
+      logout,
+    }),
+    [user, isLoading, login, logout]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

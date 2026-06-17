@@ -70,7 +70,7 @@ export function DocumentKbDetailView({
               </span>
               <h1 className={datasetUi.detailTitle}>{dataset.name}</h1>
             </div>
-            <p className="mt-1 max-w-2xl text-[14px] text-ink-soft">{dataset.description}</p>
+            <p className="mt-1 max-w-2xl text-sm text-ink-soft">{dataset.description}</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" onClick={onUpload}>

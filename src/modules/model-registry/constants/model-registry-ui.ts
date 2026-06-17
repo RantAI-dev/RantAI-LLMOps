@@ -1,11 +1,11 @@
 export const modelRegistryUi = {
-  body: "text-[14px] leading-5",
+  body: "text-sm leading-5",
   title: "text-2xl font-semibold leading-8 tracking-tight",
   subheading: "text-base leading-6 text-ink-soft",
   section: "text-lg font-semibold leading-7 tracking-tight",
   detailTitle: "text-lg font-semibold leading-tight text-primary",
   metric: "text-2xl font-semibold leading-8 tabular-nums tracking-tight",
-  label: "text-[12px] font-medium text-ink-soft",
+  label: "text-xs font-medium text-ink-soft",
 } as const;
 
 export {

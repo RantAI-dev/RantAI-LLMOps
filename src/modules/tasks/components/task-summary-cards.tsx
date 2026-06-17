@@ -8,11 +8,10 @@ import {
   XCircle,
 } from "lucide-react";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SummaryCardGrid, type SummaryCard } from "@/components/ui/summary-card-grid";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import { activeGpuUsage, averageDurationMs, formatDuration, taskStatus } from "@/modules/tasks/lib/utils";
 import type { Task } from "@/modules/tasks/types";
-import { cn } from "@/lib/utils";
 
 type TaskSummaryCardsProps = {
   tasks: Task[];
@@ -30,33 +29,25 @@ export function TaskSummaryCards({ tasks }: TaskSummaryCardsProps) {
   const avgDuration = formatDuration(averageDurationMs(tasks));
   const gpuUsage = activeGpuUsage(tasks);
 
-  const cards = [
-    { label: "Total Tasks", value: String(total), icon: Layers, tint: "bg-primary-soft text-primary" },
-    { label: "Running", value: String(running), icon: PlayCircle, tint: "bg-warning-soft text-warning" },
-    { label: "Queued", value: String(queued), icon: ListOrdered, tint: "bg-info-soft text-info" },
-    { label: "Completed", value: String(completed), icon: CheckCircle2, tint: "bg-success-soft text-success" },
-    { label: "Failed", value: String(failed), icon: XCircle, tint: "bg-danger-soft text-danger" },
-    { label: "Avg Duration", value: avgDuration, icon: Clock, tint: "bg-purple-soft text-purple" },
-    { label: "Active GPU", value: `${gpuUsage}%`, icon: Cpu, tint: "bg-success-soft text-success-bright" },
+  const cards: SummaryCard[] = [
+    { label: "Total Tasks", value: String(total), icon: Layers, iconWrapClassName: "bg-primary-soft text-primary" },
+    { label: "Running", value: String(running), icon: PlayCircle, iconWrapClassName: "bg-warning-soft text-warning" },
+    { label: "Queued", value: String(queued), icon: ListOrdered, iconWrapClassName: "bg-info-soft text-info" },
+    { label: "Completed", value: String(completed), icon: CheckCircle2, iconWrapClassName: "bg-success-soft text-success" },
+    { label: "Failed", value: String(failed), icon: XCircle, iconWrapClassName: "bg-danger-soft text-danger" },
+    { label: "Avg Duration", value: avgDuration, icon: Clock, iconWrapClassName: "bg-purple-soft text-purple" },
+    { label: "Active GPU", value: `${gpuUsage}%`, icon: Cpu, iconWrapClassName: "bg-success-soft text-success-bright" },
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-7">
-      {cards.map((card) => (
-        <Card key={card.label} className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
-          <CardHeader className="pb-1">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-[13px] font-medium text-ink-soft">{card.label}</CardTitle>
-              <div className={cn("rounded p-1", card.tint)}>
-                <card.icon className="size-4" aria-hidden />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <p className={cn("text-primary", taskUi.metric)}>{card.value}</p>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+    <SummaryCardGrid
+      cards={cards}
+      columns={7}
+      cardClassName="shadow-[0_1px_2px_rgba(0,0,0,0.1)]"
+      headerClassName="pb-1"
+      titleClassName="text-[13px] font-medium text-ink-soft"
+      contentClassName="pt-0"
+      metricClassName={taskUi.metric}
+    />
   );
 }

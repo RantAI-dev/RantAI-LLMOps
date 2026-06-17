@@ -9,9 +9,9 @@ const typographyVariants = cva("text-foreground", {
       h1: "font-heading text-2xl font-semibold leading-8 tracking-tight",
       h2: "font-heading text-xl font-semibold leading-7 tracking-tight",
       h3: "font-heading text-lg font-semibold leading-7",
-      body: "text-[14px] leading-5",
-      bodySmall: "text-[14px] leading-5 text-muted-foreground",
-      label: "text-[14px] font-medium leading-5",
+      body: "text-sm leading-5",
+      bodySmall: "text-sm leading-5 text-muted-foreground",
+      label: "text-sm font-medium leading-5",
     },
   },
   defaultVariants: {

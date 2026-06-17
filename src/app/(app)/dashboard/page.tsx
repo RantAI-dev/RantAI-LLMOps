@@ -56,8 +56,8 @@ export default function Page() {
             </CardHeader>
             <CardContent className="space-y-2">
               <p className={cn("text-primary", ui.metric)}>82ms</p>
-              <p className="text-[14px] leading-5 text-success-bright">+12ms faster</p>
-              <p className="text-[14px] leading-5 text-ink-soft">Active Users : 127</p>
+              <p className="text-sm leading-5 text-success-bright">+12ms faster</p>
+              <p className="text-sm leading-5 text-ink-soft">Active Users : 127</p>
             </CardContent>
           </Card>
 
@@ -72,9 +72,9 @@ export default function Page() {
             </CardHeader>
             <CardContent className="space-y-1.5">
               <p className={cn("text-primary", ui.metric)}>12</p>
-              <p className="text-[14px] leading-5 text-ink-soft">15.420 API Request</p>
-              <p className="text-[14px] leading-5 text-success-bright">+12 this month</p>
-              <button type="button" className="text-left text-[14px] leading-5 font-medium text-primary hover:underline">
+              <p className="text-sm leading-5 text-ink-soft">15.420 API Request</p>
+              <p className="text-sm leading-5 text-success-bright">+12 this month</p>
+              <button type="button" className="text-left text-sm leading-5 font-medium text-primary hover:underline">
                 View All
               </button>
             </CardContent>
@@ -85,7 +85,7 @@ export default function Page() {
               <div className="flex items-center justify-between gap-2">
                 <CardTitle className="font-medium text-primary">Cost Summary</CardTitle>
                 <div className="rounded bg-purple-soft p-1">
-                  <span className="text-[14px] font-medium text-purple-bright">$</span>
+                  <span className="text-sm font-medium text-purple-bright">$</span>
                 </div>
               </div>
             </CardHeader>
@@ -94,8 +94,8 @@ export default function Page() {
                 $2.560<span className="text-lg font-semibold text-ink-soft">/$5.000</span>
               </p>
               <Progress value={60} />
-              <p className="text-[14px] leading-5 text-ink-soft">$94 for yesterday</p>
-              <button type="button" className="text-left text-[14px] leading-5 font-medium text-primary hover:underline">
+              <p className="text-sm leading-5 text-ink-soft">$94 for yesterday</p>
+              <button type="button" className="text-left text-sm leading-5 font-medium text-primary hover:underline">
                 View All
               </button>
             </CardContent>
@@ -112,14 +112,14 @@ export default function Page() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div>
-                <div className="mb-1 flex justify-between text-[14px] leading-5 text-ink-soft">
+                <div className="mb-1 flex justify-between text-sm leading-5 text-ink-soft">
                   <span>CPU</span>
                   <span>99.31%</span>
                 </div>
                 <Progress value={99.31} />
               </div>
               <div>
-                <div className="mb-1 flex justify-between text-[14px] leading-5 text-ink-soft">
+                <div className="mb-1 flex justify-between text-sm leading-5 text-ink-soft">
                   <span>GPU</span>
                   <span>62.31%</span>
                 </div>
@@ -146,22 +146,22 @@ export default function Page() {
                   <CardTitle className={cn("text-primary", ui.cardHeading)}>{model.name}</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  <p className="text-[14px] leading-5 text-ink-soft">Uptime</p>
+                  <p className="text-sm leading-5 text-ink-soft">Uptime</p>
                   <Progress value={model.uptime} />
-                  <p className="text-[14px] leading-5 text-ink-soft">{model.uptime.toFixed(2)}%</p>
-                  <p className="text-[14px] leading-5 text-ink-soft">Active Users : {model.users}</p>
+                  <p className="text-sm leading-5 text-ink-soft">{model.uptime.toFixed(2)}%</p>
+                  <p className="text-sm leading-5 text-ink-soft">Active Users : {model.users}</p>
                 </CardContent>
               </Card>
             ))}
           </TabsContent>
 
-          <TabsContent value="alerts" className="p-4 text-[14px] leading-5 text-ink-soft">
+          <TabsContent value="alerts" className="p-4 text-sm leading-5 text-ink-soft">
             Alerts and notification panel is ready for upcoming integration.
           </TabsContent>
-          <TabsContent value="training" className="p-4 text-[14px] leading-5 text-ink-soft">
+          <TabsContent value="training" className="p-4 text-sm leading-5 text-ink-soft">
             Training model queue will appear here.
           </TabsContent>
-          <TabsContent value="activity" className="p-4 text-[14px] leading-5 text-ink-soft">
+          <TabsContent value="activity" className="p-4 text-sm leading-5 text-ink-soft">
             Recent activity timeline will appear here.
           </TabsContent>
         </Tabs>
@@ -170,7 +170,7 @@ export default function Page() {
       <aside className="w-[260px] shrink-0 rounded-lg border border-border">
         <div className="flex items-center justify-between gap-2 border-b border-border p-4">
           <h2 className={cn("text-primary", ui.section)}>Top Models</h2>
-          <span className="text-[14px] leading-5 text-ink-soft" aria-hidden>
+          <span className="text-sm leading-5 text-ink-soft" aria-hidden>
             i
           </span>
         </div>
@@ -181,10 +181,10 @@ export default function Page() {
               className="space-y-1 border-b border-border pb-3 last:border-none last:pb-0"
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-[14px] leading-5 font-medium text-primary">{model.name}</p>
-                <p className="shrink-0 text-[14px] leading-5 tabular-nums text-ink-soft">{model.latency}ms</p>
+                <p className="text-sm leading-5 font-medium text-primary">{model.name}</p>
+                <p className="shrink-0 text-sm leading-5 tabular-nums text-ink-soft">{model.latency}ms</p>
               </div>
-              <div className="flex items-center justify-between gap-2 text-[14px] leading-5 text-ink-soft">
+              <div className="flex items-center justify-between gap-2 text-sm leading-5 text-ink-soft">
                 <p>Active Users : {model.users}</p>
                 <p className="text-success-bright">+{model.speedGain}ms faster</p>
               </div>

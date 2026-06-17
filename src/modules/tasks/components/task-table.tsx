@@ -113,7 +113,7 @@ export function TaskTable({
               >
                 <TableCell className="max-w-[220px]">
                   <p className="truncate font-medium text-primary">{task.name}</p>
-                  <p className="truncate text-[12px] text-ink-soft">
+                  <p className="truncate text-xs text-ink-soft">
                     {task.id}
                     {task.runs.length > 0 ? ` · ${task.runs.length} run${task.runs.length > 1 ? "s" : ""}` : " · no runs"}
                   </p>
@@ -125,7 +125,7 @@ export function TaskTable({
                 </TableCell>
                 <TableCell>
                   <div className="flex min-w-[100px] flex-col gap-1">
-                    <span className="text-[12px] tabular-nums text-ink-soft">{progress}%</span>
+                    <span className="text-xs tabular-nums text-ink-soft">{progress}%</span>
                     <Progress value={progress} />
                   </div>
                 </TableCell>

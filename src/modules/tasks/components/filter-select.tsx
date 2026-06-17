@@ -42,7 +42,7 @@ export function FilterSelect({
       >
         <SelectTrigger
           aria-label={label}
-          className="h-8 w-full text-[14px] font-medium text-ink"
+          className="h-8 w-full text-sm font-medium text-ink"
         >
           <SelectValue />
         </SelectTrigger>

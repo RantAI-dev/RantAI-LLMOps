@@ -62,7 +62,7 @@ export function TasksPage() {
       />
 
       {showFilteredEmpty ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-[14px] text-ink-soft">
+        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
           No tasks match your filters.{" "}
           <button
             type="button"

@@ -255,7 +255,7 @@ function Field({
         {label}
         {required ? <span className="text-primary"> *</span> : null}
       </span>
-      {helper ? <p className="text-[12px] text-ink-soft">{helper}</p> : null}
+      {helper ? <p className="text-xs text-ink-soft">{helper}</p> : null}
       {children}
     </label>
   );

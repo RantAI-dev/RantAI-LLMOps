@@ -78,7 +78,7 @@ export function UploadDocumentSheet({
 
         <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
           <label className="block space-y-1.5">
-            <span className="text-[12px] font-medium text-ink-soft">Knowledge base</span>
+            <span className="text-xs font-medium text-ink-soft">Knowledge base</span>
             {knowledgeBases.length === 0 ? (
               <p className="rounded-md border border-dashed border-border bg-surface px-3 py-2 text-[13px] text-ink-soft">
                 No knowledge bases yet.
@@ -110,8 +110,8 @@ export function UploadDocumentSheet({
             )}
           >
             <FileUp className="mx-auto size-8 text-primary/70" />
-            <p className="mt-3 text-[14px] font-medium text-ink">Drop files here</p>
-            <p className="mt-1 text-[12px] text-ink-soft">PDF, Markdown, TXT, DOCX, HTML</p>
+            <p className="mt-3 text-sm font-medium text-ink">Drop files here</p>
+            <p className="mt-1 text-xs text-ink-soft">PDF, Markdown, TXT, DOCX, HTML</p>
             <input
               ref={inputRef}
               type="file"
@@ -141,7 +141,7 @@ export function UploadDocumentSheet({
                   <span className="truncate text-ink">{file.name}</span>
                   <button
                     type="button"
-                    className="shrink-0 text-[12px] text-danger hover:underline"
+                    className="shrink-0 text-xs text-danger hover:underline"
                     onClick={() => setFiles((prev) => prev.filter((f) => f !== file))}
                   >
                     Remove
