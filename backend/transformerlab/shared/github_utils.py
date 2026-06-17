@@ -1,0 +1,595 @@
+"""GitHub utility functions for reading PAT and working with GitHub repositories."""
+
+import base64
+import json
+import uuid
+from typing import Optional, Tuple, List
+from fastapi import HTTPException
+
+
+import httpx
+from lab import storage
+from lab.dirs import get_workspace_dir
+
+
+async def read_github_pat_from_workspace(workspace_dir: str, user_id: Optional[str] = None) -> Optional[str]:
+    """Read GitHub PAT from secrets (team_secrets.json or user_secrets_{user_id}.json).
+
+    First checks user secrets, then falls back to team secrets.
+
+    Args:
+        workspace_dir: Path to the workspace directory
+        user_id: Optional user ID to check user-specific secrets
+
+    Returns:
+        GitHub PAT string if found, None otherwise
+    """
+    import json
+
+    try:
+        # First, try to read from secrets (user secrets override team secrets)
+        if user_id:
+            user_secrets_path = storage.join(workspace_dir, f"user_secrets_{user_id}.json")
+            if await storage.exists(user_secrets_path):
+                async with await storage.open(user_secrets_path, "r") as f:
+                    user_secrets = json.loads(await f.read())
+                    if "_GITHUB_PAT_TOKEN" in user_secrets and user_secrets["_GITHUB_PAT_TOKEN"]:
+                        return user_secrets["_GITHUB_PAT_TOKEN"].strip()
+
+        # Check team secrets
+        team_secrets_path = storage.join(workspace_dir, "team_secrets.json")
+        if await storage.exists(team_secrets_path):
+            async with await storage.open(team_secrets_path, "r") as f:
+                team_secrets = json.loads(await f.read())
+                if "_GITHUB_PAT_TOKEN" in team_secrets and team_secrets["_GITHUB_PAT_TOKEN"]:
+                    return team_secrets["_GITHUB_PAT_TOKEN"].strip()
+    except Exception as e:
+        print(f"Error reading GitHub PAT from workspace: {e}")
+    return None
+
+
+def generate_github_clone_setup(
+    repo_url: str,
+    directory: Optional[str] = None,
+    github_pat: Optional[str] = None,
+    branch: Optional[str] = None,
+) -> str:
+    """
+    Generate bash script to clone a GitHub repository.
+    Supports both public and private repos (with PAT).
+    Supports cloning entire repo or specific directory (sparse checkout).
+    Supports specifying a branch, tag, or commit SHA.
+
+    Args:
+        repo_url: GitHub repository URL (e.g., https://github.com/owner/repo.git)
+        directory: Optional subdirectory within the repo to clone
+        github_pat: Optional GitHub Personal Access Token for private repos
+        branch: Optional branch, tag, or commit SHA to checkout. If not specified,
+                defaults to trying main, master, or HEAD (in that order).
+
+    Returns:
+        Bash script string that can be executed to clone the repository
+    """
+    clone_dir = f"~/tmp/git-clone-{uuid.uuid4().hex[:8]}"
+
+    if github_pat:
+        if repo_url.startswith("https://github.com/"):
+            repo_url_with_auth = repo_url.replace("https://github.com/", f"https://{github_pat}@github.com/")
+        elif repo_url.startswith("https://"):
+            repo_url_with_auth = repo_url.replace("https://", f"https://{github_pat}@")
+        else:
+            repo_url_with_auth = repo_url
+    else:
+        repo_url_with_auth = repo_url
+
+    def escape_bash(s: str) -> str:
+        return s.replace("'", "'\"'\"'").replace("\\", "\\\\").replace("$", "\\$")
+
+    escaped_directory = escape_bash(directory) if directory else None
+    escaped_branch = escape_bash(branch) if branch else None
+
+    if directory:
+        if branch:
+            # Use specified branch
+            pull_command = f"git pull origin {escaped_branch}"
+        else:
+            # Fall back to trying main, master, or HEAD
+            pull_command = "git pull origin main || git pull origin master || git pull origin HEAD"
+
+        setup_script = (
+            f"TEMP_CLONE_DIR={clone_dir}; "
+            f"CURRENT_DIR=$PWD; "
+            f"mkdir -p $TEMP_CLONE_DIR; "
+            f"cd $TEMP_CLONE_DIR; "
+            f"git init -q; "
+            f"git remote add origin {repo_url_with_auth}; "
+            f"git config core.sparseCheckout true; "
+            f"echo '{escaped_directory}/' > .git/info/sparse-checkout; "
+            f"{pull_command}; "
+            f"if [ -d '{escaped_directory}' ]; then cp -r {escaped_directory} $CURRENT_DIR/; cd $CURRENT_DIR; rm -rf $TEMP_CLONE_DIR; else echo 'Warning: Directory {escaped_directory} not found in repository'; cd $CURRENT_DIR; rm -rf $TEMP_CLONE_DIR; fi"
+        )
+    else:
+        if branch:
+            # Use specified branch
+            setup_script = f"git clone -b {escaped_branch} {repo_url_with_auth} {clone_dir}; cp -r {clone_dir}/* .; rm -rf {clone_dir}"
+        else:
+            # Default behavior - clone default branch
+            setup_script = f"git clone {repo_url_with_auth} {clone_dir}; cp -r {clone_dir}/* .; rm -rf {clone_dir}"
+
+    return setup_script
+
+
+async def _fetch_task_json_impl(
+    repo_url: str, directory: Optional[str] = None, ref: Optional[str] = None, raise_on_error: bool = False
+) -> Tuple[Optional[dict], Optional[str], Optional[str], Optional[str]]:
+    """
+    Internal implementation to fetch task.json from a GitHub repository.
+
+    Args:
+        repo_url: GitHub repository URL
+        directory: Optional subdirectory path where task.json is located
+        ref: Optional branch, tag, or commit SHA to fetch from
+        raise_on_error: If True, raises HTTPException on errors instead of returning None
+
+    Returns:
+        Tuple of (task_json_dict, owner, repo, file_path) or (None, None, None, None) on error.
+        If raise_on_error is True, raises HTTPException instead of returning None.
+    """
+    # Extract owner and repo from URL
+    repo_url_clean = repo_url.replace(".git", "").strip()
+    if not repo_url_clean.startswith("https://github.com/"):
+        if raise_on_error:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid GitHub repository URL. Must start with https://github.com/",
+            )
+        return None, None, None, None
+
+    # Extract owner/repo from URL (e.g., https://github.com/owner/repo -> owner/repo)
+    parts = repo_url_clean.replace("https://github.com/", "").split("/")
+    if len(parts) < 2:
+        if raise_on_error:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid GitHub repository URL format",
+            )
+        return None, None, None, None
+
+    owner = parts[0]
+    repo = parts[1]
+
+    # Build file path
+    file_path = f"{directory}/task.json" if directory else "task.json"
+    # Normalize path (remove leading/trailing slashes)
+    file_path = file_path.strip("/")
+
+    # Get GitHub PAT from workspace (no user_id available in this context)
+    workspace_dir = await get_workspace_dir()
+    github_pat = await read_github_pat_from_workspace(workspace_dir, user_id=None)
+
+    # Build GitHub API URL with optional ref parameter
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}"
+    if ref:
+        api_url = f"{api_url}?ref={ref}"
+
+    # Prepare headers
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "TransformerLab",
+    }
+
+    # Add authentication if PAT is available
+    if github_pat:
+        headers["Authorization"] = f"token {github_pat}"
+
+    try:
+        # Fetch file from GitHub API
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(api_url, headers=headers)
+
+            if response.status_code == 404:
+                if raise_on_error:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"task.json not found at {file_path} in repository {owner}/{repo}",
+                    )
+                return None, owner, repo, file_path
+
+            if response.status_code == 403:
+                if raise_on_error:
+                    if github_pat:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Access denied. Please check your GitHub PAT permissions.",
+                        )
+                    else:
+                        raise HTTPException(
+                            status_code=403,
+                            detail="Repository is private. Please configure a GitHub PAT in team settings.",
+                        )
+                return None, owner, repo, file_path
+
+            if response.status_code != 200:
+                if raise_on_error:
+                    raise HTTPException(
+                        status_code=response.status_code,
+                        detail=f"Failed to fetch task.json: {response.text}",
+                    )
+                return None, owner, repo, file_path
+
+            # Parse response
+            file_data = response.json()
+
+            # GitHub API returns base64-encoded content
+            if "content" not in file_data:
+                if raise_on_error:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="GitHub API response missing content field",
+                    )
+                return None, owner, repo, file_path
+
+            # Decode base64 content
+            try:
+                content = base64.b64decode(file_data["content"]).decode("utf-8")
+            except Exception as e:
+                if raise_on_error:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to decode file content: {str(e)}",
+                    )
+                return None, owner, repo, file_path
+
+            # Parse JSON
+            try:
+                task_json = json.loads(content)
+                return task_json, owner, repo, file_path
+            except json.JSONDecodeError as e:
+                if raise_on_error:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"task.json is not valid JSON: {str(e)}",
+                    )
+                return None, owner, repo, file_path
+
+    except httpx.TimeoutException:
+        if raise_on_error:
+            raise HTTPException(
+                status_code=504,
+                detail="Request to GitHub API timed out",
+            )
+        return None, owner, repo, file_path
+    except httpx.RequestError as e:
+        if raise_on_error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to connect to GitHub API: {str(e)}",
+            )
+        return None, owner, repo, file_path
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        if raise_on_error:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error fetching task.json: {str(e)}",
+            )
+        return None, owner, repo, file_path
+
+
+async def fetch_task_json_from_github_helper(
+    repo_url: str, directory: Optional[str] = None, ref: Optional[str] = None
+) -> Optional[dict]:
+    """
+    Helper function to fetch task.json from a GitHub repository.
+
+    Args:
+        repo_url: GitHub repository URL
+        directory: Optional subdirectory path where task.json is located
+        ref: Optional branch, tag, or commit SHA to fetch from
+
+    Returns:
+        The parsed JSON as a dict, or None if not found or if an error occurs.
+        This is a non-raising version for use in import functions.
+    """
+    task_json, _, _, _ = await _fetch_task_json_impl(repo_url, directory, ref=ref, raise_on_error=False)
+    return task_json
+
+
+async def fetch_task_json_from_github(
+    repo_url: str, directory: Optional[str] = None, ref: Optional[str] = None
+) -> dict:
+    """
+    Fetch task.json from a GitHub repository, raising HTTPException on errors.
+
+    This version is for use in API endpoints that need to return detailed error messages.
+
+    Args:
+        repo_url: GitHub repository URL
+        directory: Optional subdirectory path where task.json is located
+        ref: Optional branch, tag, or commit SHA to fetch from
+
+    Returns:
+        The parsed task.json as a dict
+
+    Raises:
+        HTTPException: On any error (404, 403, 500, etc.)
+    """
+    task_json, owner, repo, file_path = await _fetch_task_json_impl(repo_url, directory, ref=ref, raise_on_error=True)
+    if task_json is None:
+        # This shouldn't happen if raise_on_error=True, but just in case
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch task.json from {owner}/{repo}",
+        )
+    return task_json
+
+
+async def fetch_task_yaml_from_github(repo_url: str, directory: Optional[str] = None, ref: Optional[str] = None) -> str:
+    """
+    Fetch task.yaml from a GitHub repository as raw string.
+
+    Args:
+        repo_url: GitHub repository URL (must start with https://github.com/)
+        directory: Optional subdirectory path where task.yaml is located
+        ref: Optional branch, tag, or commit SHA to fetch from
+
+    Returns:
+        Raw task.yaml file content
+
+    Raises:
+        HTTPException: On any error (404, 403, 500, etc.)
+    """
+    repo_url_clean = repo_url.replace(".git", "").strip()
+    if not repo_url_clean.startswith("https://github.com/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid GitHub repository URL. Must start with https://github.com/",
+        )
+
+    parts = repo_url_clean.replace("https://github.com/", "").split("/")
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="Invalid GitHub repository URL format")
+
+    owner, repo = parts[0], parts[1]
+    file_path = f"{directory}/task.yaml" if directory else "task.yaml"
+    file_path = file_path.strip("/")
+
+    workspace_dir = await get_workspace_dir()
+    github_pat = await read_github_pat_from_workspace(workspace_dir, user_id=None)
+
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{file_path}"
+    if ref:
+        api_url = f"{api_url}?ref={ref}"
+
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "TransformerLab",
+    }
+    if github_pat:
+        headers["Authorization"] = f"token {github_pat}"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.get(api_url, headers=headers)
+
+    if response.status_code == 404:
+        raise HTTPException(
+            status_code=404,
+            detail=f"task.yaml not found at {file_path} in repository {owner}/{repo}",
+        )
+    if response.status_code == 403:
+        if github_pat:
+            raise HTTPException(
+                status_code=403,
+                detail="Access denied. Please check your GitHub PAT permissions.",
+            )
+        raise HTTPException(
+            status_code=403,
+            detail="Repository is private. Please configure a GitHub PAT in team settings.",
+        )
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=response.status_code,
+            detail=f"Failed to fetch task.yaml: {response.text}",
+        )
+
+    file_data = response.json()
+    if "content" not in file_data:
+        raise HTTPException(
+            status_code=500,
+            detail="GitHub API response missing content field",
+        )
+
+    try:
+        return base64.b64decode(file_data["content"]).decode("utf-8")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to decode file content: {str(e)}",
+        )
+
+
+async def list_files_in_github_directory(
+    repo_url: str,
+    directory: Optional[str] = None,
+    ref: Optional[str] = None,
+) -> List[str]:
+    """
+    List files in a GitHub repository directory using the configured PAT if present.
+
+    Returns a flat list of file paths (relative to the repo root) limited to regular
+    files (sub-directories are traversed recursively).
+    """
+    repo_url_clean = repo_url.replace(".git", "").strip()
+    if not repo_url_clean.startswith("https://github.com/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid GitHub repository URL. Must start with https://github.com/",
+        )
+
+    parts = repo_url_clean.replace("https://github.com/", "").split("/")
+    if len(parts) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid GitHub repository URL format",
+        )
+
+    owner, repo = parts[0], parts[1]
+
+    base_path = (directory or "").strip("/")
+
+    workspace_dir = await get_workspace_dir()
+    github_pat = await read_github_pat_from_workspace(workspace_dir, user_id=None)
+
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "TransformerLab",
+    }
+    if github_pat:
+        headers["Authorization"] = f"token {github_pat}"
+
+    async def _list_dir(path: str, client: httpx.AsyncClient, results: List[str]) -> None:
+        api_url = (
+            f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+            if path
+            else f"https://api.github.com/repos/{owner}/{repo}/contents"
+        )
+        if ref:
+            sep = "&" if "?" in api_url else "?"
+            api_url = f"{api_url}{sep}ref={ref}"
+
+        resp = await client.get(api_url, headers=headers)
+        if resp.status_code == 404:
+            # Treat missing directory as empty listing
+            return
+        if resp.status_code == 403:
+            if github_pat:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied when listing GitHub files. Please check your GitHub PAT permissions.",
+                )
+            raise HTTPException(
+                status_code=403,
+                detail="GitHub repository is private. Please configure a GitHub PAT in team settings.",
+            )
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"Failed to list files from GitHub: {resp.text}",
+            )
+
+        items = resp.json()
+        if not isinstance(items, list):
+            return
+
+        for item in items:
+            item_type = item.get("type")
+            item_path = item.get("path")
+            if not item_path:
+                continue
+            if item_type == "file":
+                results.append(item_path)
+            elif item_type == "dir":
+                # Recursively walk sub-directories
+                await _list_dir(item_path, client, results)
+
+    results: List[str] = []
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        await _list_dir(base_path, client, results)
+
+    return results
+
+
+async def fetch_github_file_bytes(
+    repo_url: str,
+    file_path: str,
+    ref: Optional[str] = None,
+) -> bytes:
+    """
+    Fetch an arbitrary file's raw bytes from a GitHub repository using the configured PAT if present.
+
+    This is similar to the logic used in _fetch_task_json_impl but returns raw bytes instead
+    of attempting to parse JSON.
+    """
+    repo_url_clean = repo_url.replace(".git", "").strip()
+    if not repo_url_clean.startswith("https://github.com/"):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid GitHub repository URL. Must start with https://github.com/",
+        )
+
+    parts = repo_url_clean.replace("https://github.com/", "").split("/")
+    if len(parts) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid GitHub repository URL format",
+        )
+
+    owner = parts[0]
+    repo = parts[1]
+
+    # Normalize path (remove leading/trailing slashes)
+    normalized_path = file_path.strip("/")
+
+    workspace_dir = await get_workspace_dir()
+    github_pat = await read_github_pat_from_workspace(workspace_dir, user_id=None)
+
+    api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/{normalized_path}"
+    if ref:
+        api_url = f"{api_url}?ref={ref}"
+
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "TransformerLab",
+    }
+    if github_pat:
+        headers["Authorization"] = f"token {github_pat}"
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(api_url, headers=headers)
+
+        if response.status_code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail=f"File not found at {normalized_path} in repository {owner}/{repo}",
+            )
+
+        if response.status_code == 403:
+            if github_pat:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied. Please check your GitHub PAT permissions.",
+                )
+            raise HTTPException(
+                status_code=403,
+                detail="GitHub repository is private. Please configure a GitHub PAT in team settings.",
+            )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Failed to fetch file from GitHub: {response.text}",
+            )
+
+        file_data = response.json()
+        content_b64 = file_data.get("content")
+        if not content_b64:
+            raise HTTPException(
+                status_code=500,
+                detail="GitHub API response missing content field",
+            )
+
+        try:
+            return base64.b64decode(content_b64)
+        except Exception as e:  # pragma: no cover - defensive
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to decode GitHub file content: {str(e)}",
+            ) from e
+    except httpx.TimeoutException as e:
+        raise HTTPException(
+            status_code=504,
+            detail="Request to GitHub API timed out",
+        ) from e

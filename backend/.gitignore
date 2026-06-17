@@ -1,0 +1,28 @@
+# Runtime artifacts produced when installing/running the vendored TL backend.
+# Source files are tracked; generated envs, DBs, secrets, logs, and caches are not.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Virtual / conda environments (created by install.sh / run.sh)
+.venv/
+venv/
+envs/
+miniforge3/
+.uv/
+
+# Local DB, secrets, env, workspace, logs
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+user_secrets_*.json
+secrets/
+workspace/
+logs/
+*.log

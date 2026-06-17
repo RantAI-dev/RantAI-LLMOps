@@ -1,0 +1,10 @@
+{
+  "bundle_version": "20260428184235",
+  "channel": "stable",
+  "released_at": "2026-04-28T18:42:35.366571+00:00",
+  "files": {
+    "task-gallery.json": 25,
+    "interactive-gallery.json": 9,
+    "announcement-gallery.json": 2
+  }
+}

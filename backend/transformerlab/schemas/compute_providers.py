@@ -1,0 +1,256 @@
+"""Pydantic schemas for provider management."""
+
+from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional, List, Union
+from datetime import datetime
+from transformerlab.shared.models.models import ProviderType, AcceleratorType
+
+
+class ProviderResourceGroup(BaseModel):
+    """Schema for provider resource group configuration."""
+
+    id: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=100)
+    cpus: Optional[str] = None
+    memory: Optional[str] = None
+    disk_space: Optional[str] = None
+    accelerators: Optional[str] = None
+    num_nodes: Optional[int] = None
+
+
+class ProviderConfigBase(BaseModel):
+    """Base schema for provider configuration."""
+
+    # SkyPilot-specific config
+    server_url: Optional[str] = None
+    api_token: Optional[str] = None
+    dstack_project: Optional[str] = None
+    default_env_vars: Dict[str, str] = Field(default_factory=dict)
+    default_entrypoint_run: Optional[str] = None
+
+    # SLURM-specific config
+    mode: Optional[str] = None  # "rest" or "ssh"
+    rest_url: Optional[str] = None
+    ssh_host: Optional[str] = None
+    ssh_user: Optional[str] = None
+    ssh_key_path: Optional[str] = None
+    ssh_port: int = 22
+
+    # AWS/GCP region config
+    region: Optional[str] = None  # e.g. AWS "us-east-1", GCP "us-central1"
+
+    # Nebius-specific config
+    nebius_profile: Optional[str] = None  # Nebius CLI profile name
+    nebius_config_path: Optional[str] = None  # Provider-scoped Nebius CLI config path
+    parent_id: Optional[str] = None  # Nebius project/parent ID
+    subnet_id: Optional[str] = None  # Nebius VPC subnet ID
+    default_platform: Optional[str] = None  # e.g. "gpu-h100-sxm" or "cpu-d3"
+    default_preset: Optional[str] = None  # e.g. "1gpu-16vcpu-200gb"
+    boot_image_family: Optional[str] = None  # e.g. "ubuntu24.04-cuda13.0"
+    disk_size_gib: Optional[int] = None
+
+    # GCP-specific config
+    project_id: Optional[str] = None
+    zone: Optional[str] = None  # Optional GCP zone (e.g. "us-central1-a"); falls back to <region>-a
+    credentials_path: Optional[str] = None
+    service_account_email: Optional[str] = None
+
+    # Runpod-specific config
+    api_key: Optional[str] = None  # Runpod API key (sensitive)
+    api_base_url: Optional[str] = None  # Defaults to https://rest.runpod.io/v1
+    default_gpu_type: Optional[str] = None  # Default GPU type (e.g., "RTX 3090", "A100")
+    default_region: Optional[str] = None  # Default region
+    default_template_id: Optional[str] = None  # Default Docker template ID
+    default_network_volume_id: Optional[str] = None  # Default network volume ID
+
+    # Lambda Cloud-specific config
+    lambda_file_system_names: Optional[List[str]] = None
+
+    # Azure-specific config
+    azure_subscription_id: Optional[str] = None
+    azure_tenant_id: Optional[str] = None
+    azure_client_id: Optional[str] = None
+    azure_client_secret: Optional[str] = None  # sensitive
+    azure_location: Optional[str] = None
+    azure_resource_group: Optional[str] = None
+
+    # Accelerators supported by this provider
+    supported_accelerators: Optional[List[AcceleratorType]] = Field(default=None)
+    resource_groups: Optional[List[ProviderResourceGroup]] = Field(default=None)
+
+    # Additional provider-specific config
+    extra_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ProviderCreate(BaseModel):
+    """Schema for creating a new provider."""
+
+    name: str = Field(..., min_length=1, max_length=100)
+    type: ProviderType
+    config: ProviderConfigBase
+
+
+class ProviderUpdate(BaseModel):
+    """Schema for updating a provider."""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    config: Optional[ProviderConfigBase] = None
+    disabled: Optional[bool] = None
+    is_default: Optional[bool] = None
+
+
+class ProviderRead(BaseModel):
+    """Schema for reading provider information (masks sensitive fields)."""
+
+    id: str
+    team_id: str
+    name: str
+    type: str
+    config: Dict[str, Any]  # Will mask sensitive fields
+    created_by_user_id: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    disabled: bool
+    is_default: bool
+    supports_spot: bool = False  # Derived: provider type can run spot/preemptible instances
+
+    class Config:
+        from_attributes = True
+
+
+def mask_sensitive_config(config: Dict[str, Any], provider_type: str) -> Dict[str, Any]:
+    """
+    Mask sensitive fields in provider configuration.
+
+    Args:
+        config: Provider configuration dictionary
+        provider_type: Type of provider (slurm, skypilot, or runpod)
+
+    Returns:
+        Configuration with sensitive fields masked
+    """
+    masked = config.copy()
+
+    # Mask API tokens for all providers.
+    if "api_token" in masked and masked["api_token"]:
+        masked["api_token"] = "***"
+
+    # Mask RunPod API key.
+    if "api_key" in masked and masked["api_key"]:
+        masked["api_key"] = "***"
+
+    # Mask any other sensitive fields
+    if "password" in masked:
+        masked["password"] = "***"
+    if "secret" in masked:
+        masked["secret"] = "***"
+    if "service_account_json" in masked and masked["service_account_json"]:
+        masked["service_account_json"] = "***"
+
+    # Mask Azure Service Principal secret.
+    if "azure_client_secret" in masked and masked["azure_client_secret"]:
+        masked["azure_client_secret"] = "***"
+
+    return masked
+
+
+class ProviderTemplateLaunchRequest(BaseModel):
+    """Payload for launching a remote template via providers."""
+
+    experiment_id: str = Field(..., description="Experiment that owns the job")
+    task_id: Optional[str] = Field(
+        None, description="Task ID; required when file_mounts is True for lab.copy_file_mounts()"
+    )
+    task_name: Optional[str] = Field(None, description="Friendly task name")
+    cluster_name: Optional[str] = Field(None, description="Base cluster name, suffix is appended automatically")
+    run: str = Field(..., description="Run command to execute on the cluster")
+    description: Optional[str] = Field(
+        None,
+        max_length=8000,
+        description="Free-form markdown describing what this run is trying to accomplish (like a commit description).",
+    )
+    subtype: Optional[str] = Field(None, description="Optional subtype for filtering")
+    interactive_type: Optional[str] = Field(None, description="Interactive task type (e.g. vscode)")
+    interactive_gallery_id: Optional[str] = Field(
+        None,
+        description="Interactive gallery entry id (e.g. jupyter, ollama-macos) for launch-time command resolution.",
+    )
+    cpus: Optional[str] = None
+    memory: Optional[str] = None
+    disk_space: Optional[str] = None
+    accelerators: Optional[str] = None
+    num_nodes: Optional[int] = None
+    setup: Optional[str] = None
+    env_vars: Dict[str, str] = Field(default_factory=dict, description="Environment variables as key-value pairs")
+    # File mounts: True = use lab.copy_file_mounts() at launch (task_id required); or dict for legacy path mapping
+    file_mounts: Optional[Union[Dict[str, str], bool]] = Field(
+        default=None,
+        description="True to copy task dir to ~/src via lab.copy_file_mounts(); or {<remote_path>: <local_path>} for legacy",
+    )
+    parameters: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Task parameters (hyperparameters, config, etc.) that will be accessible via lab.get_config()",
+    )
+    config: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Configuration values to override for this specific run. These will be merged with parameters defaults.",
+    )
+    provider_name: Optional[str] = None
+    github_repo_url: Optional[str] = None
+    github_repo_dir: Optional[str] = None
+    github_repo_branch: Optional[str] = None
+    # Sweep configuration
+    run_sweeps: Optional[bool] = Field(
+        default=False,
+        description="Enable parameter sweeps. When True, generates jobs for all parameter combinations in sweep_config.",
+    )
+    sweep_config: Optional[Dict[str, List[Any]]] = Field(
+        default=None,
+        description="Sweep configuration: parameter names mapped to lists of values to try. Example: {'learning_rate': ['1e-5', '3e-5'], 'batch_size': ['4', '8']}",
+    )
+    sweep_metric: Optional[str] = Field(
+        default="eval/loss",
+        description="Metric name to use for determining best configuration. Should match a metric logged by the task.",
+    )
+    lower_is_better: Optional[bool] = Field(
+        default=True,
+        description="Whether lower values of sweep_metric are better. If False, higher values are better.",
+    )
+    local: Optional[bool] = Field(
+        default=False,
+        description="Whether to use direct local access for interactive sessions (skip tunnels).",
+    )
+    minutes_requested: Optional[int] = Field(
+        default=None,
+        description="Number of minutes requested for this task. Required for quota tracking.",
+    )
+    enable_trackio: Optional[bool] = Field(
+        default=False,
+        description="When True, set TLAB_TRACKIO_AUTO_INIT=true in the job environment so lab SDK can auto-integrate with Trackio.",
+    )
+    enable_profiling: Optional[bool] = Field(
+        default=False,
+        description="When True, set _TFL_PROFILING=1 to enable system-level CPU/GPU/memory sampling via tfl-remote-trap.",
+    )
+    enable_profiling_torch: Optional[bool] = Field(
+        default=False,
+        description="When True (requires enable_profiling), also set _TFL_PROFILING_TORCH=1 to inject torch.profiler and export a Chrome trace.",
+    )
+    trackio_project_name: Optional[str] = Field(
+        default=None,
+        description="TrackIO project name for shared project; used when enable_trackio=True. Omit or empty to use 'default'.",
+    )
+
+
+class ProviderTemplateFileUploadResponse(BaseModel):
+    """Response for a single template file upload."""
+
+    status: str
+    stored_path: str
+    message: Optional[str] = None
+
+
+class ResumeFromCheckpointRequest(BaseModel):
+    """Request body for resuming a REMOTE job from a checkpoint."""
+
+    checkpoint: str = Field(..., description="Checkpoint filename to resume from")

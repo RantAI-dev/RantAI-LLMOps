@@ -1,0 +1,2250 @@
+import asyncio
+import csv
+from fnmatch import fnmatch
+import json
+import logging
+import os
+import posixpath
+from typing import List, Optional
+
+import pandas as pd
+from fastapi import APIRouter, Body, Response, Request, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse, FileResponse
+from json import JSONDecodeError
+from lab import Job, storage
+from lab.job_status import JobStatus
+from sqlalchemy.ext.asyncio import AsyncSession
+from werkzeug.utils import secure_filename
+
+from transformerlab.compute_providers.models import JobState
+from transformerlab.compute_providers.runpod import fetch_runpod_provider_logs
+from transformerlab.routers.auth import get_user_and_team
+from transformerlab.routers.serverinfo import watch_file
+from transformerlab.services.job_service import get_artifacts_from_directory, job_update_status
+import transformerlab.services.job_chart_service as job_chart_service
+import transformerlab.services.job_service as job_service
+from transformerlab.services.permission_service import require_permission
+from transformerlab.services.provider_service import get_team_provider, get_provider_instance
+from transformerlab.shared import shared, zip_utils
+from transformerlab.shared.models.models import ProviderType
+from transformerlab.db.session import get_async_session
+from transformerlab.shared.tunnel_parser import get_tunnel_info
+from transformerlab.shared import galleries
+from transformerlab.shared.interactive_gallery_utils import find_interactive_gallery_entry
+from lab.dirs import (
+    get_workspace_dir,
+    get_local_provider_job_dir,
+    get_job_datasets_dir,
+    get_job_eval_results_dir,
+    get_datasets_dir,
+    get_job_models_dir,
+    get_models_dir,
+)
+from transformerlab.services import asset_version_service
+
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/jobs", tags=["train"])
+
+
+def _normalize_dir_for_compare(path: str) -> str:
+    """Normalize directory strings for equality (local paths, s3://, gs://, Windows separators)."""
+    if not path:
+        return ""
+    return str(path).replace("\\", "/").rstrip("/")
+
+
+def _eval_results_storage_path(stored_path: str, eval_dir: str) -> str:
+    """
+    If ``stored_path`` lives under a different directory than the canonical job eval folder,
+    open the same filename under ``eval_dir`` (post-migration layout). Otherwise use the stored path as-is.
+    """
+    p = str(stored_path).strip()
+    if not p:
+        return p
+    p_norm = p.replace("\\", "/")
+    canonical = _normalize_dir_for_compare(eval_dir)
+    parent = _normalize_dir_for_compare(posixpath.dirname(p_norm))
+    basename = posixpath.basename(p_norm.strip("/"))
+    if not basename:
+        return p
+    if parent != canonical:
+        return storage.join(eval_dir, basename)
+    return p
+
+
+def _job_logs_not_ready_payload(
+    job_data: dict,
+    tail_lines: int,
+    message: str,
+    *,
+    include_request_id: bool = False,
+) -> dict:
+    payload = {
+        "cluster_name": job_data.get("cluster_name"),
+        "provider_id": job_data.get("provider_id"),
+        "provider_job_id": None,
+        "provider_name": job_data.get("provider_name"),
+        "tail_lines": tail_lines,
+        "logs": "",
+        "job_candidates": [],
+        "message": message,
+        "retryable": True,
+        "retry_after_seconds": 10,
+    }
+    if include_request_id:
+        payload["request_id"] = None
+    return payload
+
+
+# Heavy job_data keys that polling list-views never need. When ?slim=true is set
+# on /jobs/list, these are stripped from each job's job_data to keep the response
+# small. Per-job detail endpoints still return the full payload. New heavy keys
+# should be added here rather than allowlisting fields, so that adding metadata
+# elsewhere doesn't silently shrink list responses.
+_SLIM_JOB_DATA_DROPPED_KEYS: frozenset[str] = frozenset(
+    {
+        "accelerators",
+        "cluster_config",
+        "command",
+        "config",
+        "cpus",
+        "disk_space",
+        "env_vars",
+        "file_mounts",
+        "memory",
+        "num_nodes",
+        "parameters",
+        "provider_empty_jobs_polls",
+        "provider_jobs_seen_once",
+        "run",
+        "setup",
+    }
+)
+
+
+def _slim_job(job: dict) -> dict:
+    """Return a shallow copy of ``job`` with heavy keys removed from job_data."""
+    job_data = job.get("job_data")
+    if not isinstance(job_data, dict):
+        return job
+    trimmed = {k: v for k, v in job_data.items() if k not in _SLIM_JOB_DATA_DROPPED_KEYS}
+    return {**job, "job_data": trimmed}
+
+
+@router.get("/list")
+async def jobs_get_all(
+    experimentId: str,
+    type: str = "",
+    status: str = "",
+    subtype: str = "",
+    slim: bool = False,
+):
+    """
+    Return the list of jobs for an experiment, optionally filtered by type/status/subtype.
+
+    When ``slim=true``, heavy provisioning/config fields are stripped from each
+    job's ``job_data`` to keep polling payloads small. The set of stripped keys
+    is defined by ``_SLIM_JOB_DATA_DROPPED_KEYS``.
+    """
+    jobs = await job_service.jobs_get_all(type=type, status=status, experiment_id=experimentId)
+
+    # Optional filter by job_data.subtype
+    if subtype:
+        filtered = []
+        for job in jobs:
+            job_data = job.get("job_data", {})
+            if not isinstance(job_data, dict):
+                try:
+                    job_data = json.loads(job_data)
+                except Exception:
+                    job_data = {}
+            if job_data.get("subtype") == subtype:
+                filtered.append(job)
+        jobs = filtered
+
+    if slim:
+        jobs = [_slim_job(job) for job in jobs]
+
+    return jobs
+
+
+@router.get("/chart.png")
+async def jobs_chart_png(
+    experimentId: str,
+    metric: str = "",
+    lower_is_better: Optional[bool] = None,
+):
+    """
+    Render the experiment's job runs chart (metric score over time, with
+    best-so-far runs highlighted) as a PNG image.
+
+    ``metric`` defaults to the auto-detected primary metric; ``lower_is_better``
+    defaults to a majority vote over each job's ``job_data.lower_is_better``.
+    """
+    try:
+        png = await job_chart_service.generate_experiment_chart_png(
+            experiment_id=experimentId,
+            metric=metric or None,
+            lower_is_better=lower_is_better,
+        )
+    except job_chart_service.MetricNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except job_chart_service.ChartDataError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return Response(content=png, media_type="image/png")
+
+
+async def _job_delete_handler(job_id: str, experimentId: str) -> dict:
+    try:
+        await job_service.job_delete(job_id, experiment_id=experimentId)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found in experiment {experimentId}")
+    except Exception as e:
+        logger.exception("Failed to delete job (job_id=%s, experiment=%s)", job_id, experimentId)
+        raise HTTPException(status_code=500, detail=f"Failed to delete job {job_id}: {e}")
+    return {"message": "OK"}
+
+
+@router.put("/{job_id}/job_data")
+async def job_update_job_data(job_id: str, experimentId: str, body: dict = Body(...)):
+    """Update user-facing metadata fields in job_data (favorite, hidden, tags, discard)."""
+    updates = body.get("updates", {})
+    allowed_keys = {"favorite", "hidden", "tags", "discard"}
+    filtered = {k: v for k, v in updates.items() if k in allowed_keys}
+
+    # Keep discard under job_data.score.discard to avoid introducing a new top-level field.
+    if "discard" in filtered:
+        raw_discard_value = filtered.pop("discard")
+        if isinstance(raw_discard_value, bool):
+            discard_value = raw_discard_value
+        elif isinstance(raw_discard_value, int):
+            if raw_discard_value not in (0, 1):
+                raise HTTPException(status_code=422, detail="discard must be a boolean value")
+            discard_value = bool(raw_discard_value)
+        elif isinstance(raw_discard_value, str):
+            normalized_discard_value = raw_discard_value.strip().lower()
+            if normalized_discard_value in {"true", "false"}:
+                discard_value = normalized_discard_value == "true"
+            elif normalized_discard_value:
+                try:
+                    numeric_discard_value = int(normalized_discard_value)
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail="discard must be a boolean value") from exc
+                if numeric_discard_value not in (0, 1):
+                    raise HTTPException(status_code=422, detail="discard must be a boolean value")
+                discard_value = bool(numeric_discard_value)
+            else:
+                raise HTTPException(status_code=422, detail="discard must be a boolean value")
+        else:
+            raise HTTPException(status_code=422, detail="discard must be a boolean value")
+        await job_service.job_update_job_data_score_field(job_id, "discard", discard_value, experimentId)
+
+    if not filtered:
+        return {"message": "No valid keys to update"}
+    await job_service.job_update_job_data_insert_key_values(job_id, filtered, experimentId)
+    return {"message": "OK"}
+
+
+@router.get("/create")
+async def job_create(
+    experimentId: str,
+    type: str = "UNDEFINED",
+    status: str = "CREATED",
+    data: str = "{}",
+    _: None = Depends(require_permission("experiment", "execute", id_param="experimentId")),
+):
+    jobid = await job_service.job_create(type=type, status=status, job_data=data, experiment_id=experimentId)
+    return jobid
+
+
+async def job_create_task(script: str, job_data: str = "{}", experimentId: str = None):
+    jobid = await job_service.job_create(
+        type="UNDEFINED", status="CREATED", job_data=job_data, experiment_id=experimentId
+    )
+    return jobid
+
+
+@router.get("/update/{job_id}")
+async def job_update(job_id: str, status: str, experimentId: str):
+    await job_update_status(job_id, status, experiment_id=experimentId)
+    return {"message": "OK"}
+
+
+@router.get("/{job_id}/stop")
+async def stop_job(job_id: str, experimentId: str):
+    # The way a job is stopped is simply by adding "stop: true" to the job_data
+    # This will be checked by the plugin as it runs
+    await job_service.job_stop(job_id, experiment_id=experimentId)
+    return {"message": "OK"}
+
+
+async def _job_delete_all_handler(experimentId: str) -> dict:
+    try:
+        deleted = await job_service.job_delete_all(experiment_id=experimentId)
+    except Exception as e:
+        logger.exception("Failed to delete all jobs (experiment=%s)", experimentId)
+        raise HTTPException(status_code=500, detail=f"Failed to delete all jobs: {e}")
+    return {"message": "OK", "deleted": deleted}
+
+
+@router.delete("/delete_all")
+async def job_delete_all(experimentId: str):
+    return await _job_delete_all_handler(experimentId)
+
+
+@router.delete("/{job_id}")
+async def job_delete(job_id: str, experimentId: str):
+    return await _job_delete_handler(job_id, experimentId)
+
+
+@router.get("/{job_id}")
+async def get_training_job(job_id: str, experimentId: str):
+    job = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    return job
+
+
+@router.get("/{job_id}/metrics")
+async def get_job_metrics(job_id: str, experimentId: str, since: int = 0):
+    """
+    Return the contents of <job_dir>/metrics.jsonl as JSON.
+
+    `since` is a zero-based row index — useful for polling: pass the count
+    you already have to receive only newer rows. Returns
+    {"count": N, "rows": [...]} where N is the number of rows after the
+    `since` filter.
+    """
+    from lab.dirs import get_job_dir
+
+    job_dir = await get_job_dir(job_id, experimentId)
+    metrics_path = storage.join(job_dir, "metrics.jsonl")
+
+    if not await storage.exists(metrics_path):
+        return {"count": 0, "rows": []}
+
+    rows: list[dict] = []
+    line_idx = 0
+    async with await storage.open(metrics_path, "r", encoding="utf-8") as f:
+        while True:
+            line = await f.readline()
+            if not line:
+                break
+            if line_idx >= since:
+                stripped = line.strip()
+                if stripped:
+                    try:
+                        rows.append(json.loads(stripped))
+                    except json.JSONDecodeError:
+                        pass
+            line_idx += 1
+
+    return {"count": len(rows), "rows": rows}
+
+
+@router.get("/{job_id}/tasks_output")
+async def get_tasks_job_output(job_id: str, experimentId: str, sweeps: bool = False):
+    """
+    Get Tasks job output with robust error handling.
+    Uses the same logic as stream_job_output but returns content directly.
+    """
+    try:
+        job = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+        if job is None:
+            return "Job not found"
+
+        job_data = job.get("job_data", {})
+
+        # Handle both dict and JSON string formats
+        if not isinstance(job_data, dict):
+            try:
+                job_data = json.loads(job_data)
+            except JSONDecodeError:
+                print(f"Error decoding job_data for job {job_id}. Using empty job_data.")
+                job_data = {}
+
+        # Handle sweeps case first
+        if sweeps:
+            output_file = job_data.get("sweep_output_file", None)
+            if output_file is not None and await storage.exists(output_file):
+                output_file_name = output_file
+            else:
+                # Fall back to regular output file logic
+                output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+        else:
+            # Try to get output file name with fallback logic
+            output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+
+        # Read and return the file content as JSON array of lines
+        if await storage.exists(output_file_name):
+            async with await storage.open(output_file_name, "r") as f:
+                content = await f.read()
+            return content.splitlines()
+        else:
+            return ["Output file not found"]
+
+    except ValueError as e:
+        # If the value error starts with "No output file found for job" then wait 4 seconds and try again
+        # because the file might not have been created yet
+        if str(e).startswith("No output file found for job"):
+            print(f"Output file not found for job {job_id}, retrying in 4 seconds...")
+            await asyncio.sleep(4)
+            try:
+                output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+                if await storage.exists(output_file_name):
+                    async with await storage.open(output_file_name, "r") as f:
+                        content = await f.read()
+                    return content.splitlines()
+                else:
+                    return ["Output file not found after retry"]
+            except Exception as retry_e:
+                # If still no file after retry, create an empty one in the jobs directory
+                print(f"Still no output file found for job {job_id} after retry, creating empty file: {retry_e}")
+                # Use the Job class to get the proper directory and create the file
+                job_dict = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+                experiment_id = job_dict.get("experiment_id") if job_dict else None
+                if not experiment_id:
+                    return []
+                job_obj = Job(job_id, experiment_id)
+                output_file_name = await job_obj.get_log_path()
+                # Get directory by removing filename from path using storage.join
+                output_dir = storage.join(*output_file_name.split("/")[:-1]) if "/" in output_file_name else "."
+                await storage.makedirs(output_dir, exist_ok=True)
+                async with await storage.open(output_file_name, "w") as f:
+                    await f.write("")
+                return []
+        else:
+            print(f"ValueError in get_tasks_job_output: {e}")
+            return ["An internal error has occurred!"]
+    except Exception as e:
+        # Handle general error
+        print(f"Error in get_tasks_job_output: {e}")
+        return ["An internal error has occurred!"]
+
+
+@router.get("/{job_id}/provider_logs")
+async def get_provider_job_logs(
+    experimentId: str,
+    job_id: str,
+    tail_lines: int = Query(400, ge=100, le=2000),
+    live: bool = Query(
+        False,
+        description=(
+            "If true, bypass cached provider_logs.txt and fetch logs directly from the underlying compute provider."
+        ),
+    ),
+    user_and_team=Depends(get_user_and_team),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Fetch the raw job logs directly from the underlying compute provider for a REMOTE job.
+
+    Preferred order:
+      1. If `provider_logs.txt` exists in the job directory (written by the SDK wrapper),
+         read and return that.
+      2. Otherwise, fall back to provider-native log retrieval (existing behavior).
+    """
+
+    job = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+    if not job or str(job.get("experiment_id")) != str(experimentId):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_data = job.get("job_data") or {}
+    job_status = str(job.get("status") or "").upper()
+    if not isinstance(job_data, dict):
+        try:
+            job_data = json.loads(job_data)
+        except JSONDecodeError:
+            job_data = {}
+
+    def _logs_not_ready_response() -> dict:
+        return _job_logs_not_ready_payload(
+            job_data,
+            tail_lines,
+            "Machine logs are not available yet. Please try again shortly.",
+        )
+
+    provider_id = job_data.get("provider_id")
+    cluster_name = job_data.get("cluster_name")
+    if not provider_id or not cluster_name:
+        if job_status in {JobStatus.LAUNCHING.value, JobStatus.WAITING.value, "CREATED"}:
+            return _logs_not_ready_response()
+        raise HTTPException(
+            status_code=400, detail="Job does not contain provider metadata (provider_id/cluster_name missing)"
+        )
+
+    # 1) If live=False (default) and the provider is NOT local, try provider_logs.txt
+    #    from the SDK job directory.  This file is written by tfl-remote-trap at the
+    #    END of a remote command, so for local providers it may be empty or stale
+    #    while stdout.log (the real log) is available via get_job_logs().
+    is_local_provider = (
+        job_data.get("provider_type") == "local" or (job_data.get("provider_name") or "").lower() == "local"
+    )
+    if not live and not is_local_provider:
+        try:
+            from lab.dirs import get_job_dir
+
+            job_dir = await get_job_dir(job_id, experimentId)
+            provider_logs_path = storage.join(job_dir, "provider_logs.txt")
+            if await storage.exists(provider_logs_path):
+                async with await storage.open(provider_logs_path, "r", encoding="utf-8") as f:
+                    logs_text = await f.read()
+                if tail_lines is not None:
+                    lines = logs_text.splitlines()
+                    logs_text = "\n".join(lines[-tail_lines:])
+
+                return {
+                    "cluster_name": cluster_name,
+                    "provider_id": provider_id,
+                    "provider_job_id": None,
+                    "provider_name": job_data.get("provider_name"),
+                    "tail_lines": tail_lines,
+                    "logs": logs_text,
+                    "job_candidates": [],
+                }
+        except Exception:
+            # If anything goes wrong with the file-based path, fall back to provider-native logs.
+            pass
+
+    # 2) Fall back to existing provider-native log retrieval.
+    provider = await get_team_provider(session, user_and_team["team_id"], provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    try:
+        user_id_str = str(user_and_team["user"].id)
+        team_id = user_and_team["team_id"]
+        provider_instance = await get_provider_instance(provider, user_id=user_id_str, team_id=team_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize provider: {exc}") from exc
+
+    # Figure out which provider-side job_id to query logs for
+    provider_job_id: Optional[str | int] = job_data.get("provider_job_id")
+
+    provider_job_candidates: List[dict] = []
+    if provider_job_id is None:
+        provider_job_ids = job_data.get("provider_job_ids")
+        if isinstance(provider_job_ids, list) and provider_job_ids:
+            provider_job_id = provider_job_ids[-1]
+
+    if provider_job_id is None:
+        provider_launch_result = job_data.get("provider_launch_result")
+        if isinstance(provider_launch_result, dict):
+            provider_job_id = provider_launch_result.get("job_id")
+
+    if provider_job_id is None:
+        provider_jobs: List = []
+        try:
+            provider_jobs = await asyncio.to_thread(provider_instance.list_jobs, cluster_name)
+        except NotImplementedError:
+            # Provider doesn't support listing jobs (e.g., Runpod)
+            # For Runpod, we can't determine a job_id, so we'll use the cluster_name as a fallback
+            # or return a message that logs aren't available via job_id
+            provider_job_id = cluster_name  # Use cluster_name as fallback identifier
+            provider_job_candidates = []
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to enumerate provider jobs: {exc}") from exc
+
+        if provider_jobs:
+            running_states = {JobState.RUNNING, JobState.PENDING}
+            chosen_job = next((job for job in provider_jobs if job.state in running_states), provider_jobs[-1])
+            provider_job_id = chosen_job.job_id
+            provider_job_candidates = [
+                {
+                    "job_id": str(job.job_id),
+                    "state": job.state.value if isinstance(job.state, JobState) else str(job.state),
+                    "submitted_at": job.submitted_at,
+                    "started_at": job.started_at,
+                    "finished_at": job.finished_at,
+                }
+                for job in provider_jobs
+            ]
+
+    if provider_job_id is None:
+        if job_status in {JobStatus.LAUNCHING.value, JobStatus.WAITING.value, "CREATED"}:
+            return _logs_not_ready_response()
+        raise HTTPException(status_code=404, detail="Unable to determine provider job id for this job")
+
+    # For local provider, set workspace_dir (job dir) so LocalProvider can read logs.
+    # Use the dedicated local-only directory so this works even when TFL_REMOTE_STORAGE_ENABLED is set.
+    if getattr(provider, "type", None) == "local" and hasattr(provider_instance, "extra_config"):
+        job_dir = get_local_provider_job_dir(job_id, org_id=user_and_team["team_id"])
+        provider_instance.extra_config["workspace_dir"] = job_dir
+
+    try:
+        if provider.type == ProviderType.RUNPOD.value:
+            raw_logs = await fetch_runpod_provider_logs(
+                provider_instance, cluster_name, user_and_team["team_id"], tail_lines
+            )
+        else:
+            raw_logs = await asyncio.to_thread(
+                provider_instance.get_job_logs,
+                cluster_name,
+                provider_job_id,
+                tail_lines=tail_lines or None,
+                follow=False,
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch provider logs: {exc}") from exc
+
+    if isinstance(raw_logs, (bytes, bytearray)):
+        logs_text = raw_logs.decode("utf-8", errors="replace")
+    elif isinstance(raw_logs, str):
+        logs_text = raw_logs
+    else:
+        try:
+            logs_text = json.dumps(raw_logs, indent=2)
+        except TypeError:
+            logs_text = str(raw_logs)
+
+    return {
+        "cluster_name": cluster_name,
+        "provider_id": provider_id,
+        "provider_job_id": str(provider_job_id),
+        "provider_name": job_data.get("provider_name"),
+        "tail_lines": tail_lines,
+        "logs": logs_text,
+        "job_candidates": provider_job_candidates,
+    }
+
+
+@router.get("/{job_id}/request_logs")
+async def get_request_logs(
+    experimentId: str,
+    job_id: str,
+    tail_lines: int = Query(400, ge=100, le=5000),
+    user_and_team=Depends(get_user_and_team),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Fetch logs for the provider-level request that launched this job.
+
+    This returns the orchestration/launch logs from the provider (e.g. SkyPilot
+    API server logs for a launch request), as opposed to the job's own stdout
+    or the machine-level provider logs.
+    """
+    job = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+    if not job or str(job.get("experiment_id")) != str(experimentId):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_data = job.get("job_data") or {}
+    job_status = str(job.get("status") or "").upper()
+    if not isinstance(job_data, dict):
+        try:
+            job_data = json.loads(job_data)
+        except JSONDecodeError:
+            job_data = {}
+
+    provider_id = job_data.get("provider_id")
+    if not provider_id:
+        if job_status in {JobStatus.LAUNCHING.value, JobStatus.WAITING.value, "CREATED"}:
+            return _job_logs_not_ready_payload(
+                job_data,
+                tail_lines,
+                "Request logs are not available yet. Please try again shortly.",
+                include_request_id=True,
+            )
+        raise HTTPException(status_code=400, detail="Job does not contain provider metadata (provider_id missing)")
+
+    provider_launch_result = job_data.get("provider_launch_result")
+    request_id = None
+    if isinstance(provider_launch_result, dict):
+        request_id = provider_launch_result.get("request_id")
+    if not request_id:
+        request_id = job_data.get("orchestrator_request_id")
+    if not request_id:
+        if job_status in {JobStatus.LAUNCHING.value, JobStatus.WAITING.value, "CREATED"}:
+            return _job_logs_not_ready_payload(
+                job_data,
+                tail_lines,
+                "Request logs are not available yet. Please try again shortly.",
+                include_request_id=True,
+            )
+        raise HTTPException(status_code=400, detail="Job does not have a provider request ID")
+
+    team_id = user_and_team["team_id"]
+    try:
+        provider_record = await get_team_provider(session, team_id, provider_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {exc}") from exc
+
+    try:
+        provider_instance = await get_provider_instance(provider_record)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to instantiate provider: {exc}") from exc
+
+    try:
+        logs_text = await asyncio.to_thread(provider_instance.get_request_logs, request_id, tail_lines=tail_lines)
+    except NotImplementedError:
+        raise HTTPException(
+            status_code=400, detail=f"Provider type '{provider_record.type}' does not support request logs"
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch request logs: {exc}") from exc
+
+    return {
+        "request_id": request_id,
+        "logs": logs_text,
+    }
+
+
+@router.get("/{job_id}/tunnel_info")
+async def get_tunnel_info_for_job(
+    experimentId: str,
+    job_id: str,
+    tail_lines: int = Query(1000, ge=100, le=5000),
+    user_and_team=Depends(get_user_and_team),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    Parse provider logs and extract tunnel or local URLs based on job type.
+
+    For remote jobs with a tunnel (e.g. ngrok), parses tunnel URLs from logs.
+    For local provider jobs (no tunnel), parses local URLs (e.g. Local Ollama API:
+    http://localhost:11434) from stdout/stderr. Uses job_data.interactive_type to
+    choose the parser. Supports: 'vscode', 'jupyter', 'vllm', 'ollama', 'ssh'.
+    """
+
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if not job or str(job.get("experiment_id")) != str(experimentId):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_data = job.get("job_data") or {}
+    if not isinstance(job_data, dict):
+        try:
+            job_data = json.loads(job_data)
+        except JSONDecodeError:
+            job_data = {}
+    interactive_type = job_data.get("interactive_type")
+
+    # Look up the gallery entry to resolve url_patterns and interactive_type fallbacks
+    interactive_gallery_id = job_data.get("interactive_gallery_id")
+    gallery_list = await galleries.get_interactive_gallery()
+    gallery_entry = find_interactive_gallery_entry(
+        gallery_list,
+        interactive_gallery_id=interactive_gallery_id,
+    )
+
+    url_patterns = gallery_entry.get("url_patterns") if gallery_entry else None
+    if not interactive_type:
+        interactive_type = gallery_entry.get("interactive_type") if gallery_entry else None
+    if not interactive_type:
+        # No explicit type: use "custom" (url_patterns-based parsing) rather than
+        # assuming a specific legacy type like "vscode".
+        interactive_type = "custom"
+
+    # Build the set of URL keys expected by this interactive template so cache is only
+    # considered "complete" when all expected values are populated.
+    expected_url_keys: set[str] = set()
+    for pattern in url_patterns or []:
+        value_key = pattern.get("value_key")
+        if isinstance(value_key, str) and value_key.endswith("_url"):
+            expected_url_keys.add(value_key)
+    for item in gallery_entry.get("instructions", []) if gallery_entry else []:
+        if item.get("kind") == "url":
+            value_key = item.get("value_key")
+            if isinstance(value_key, str):
+                expected_url_keys.add(value_key)
+
+    def _cache_has_expected_urls(cache: dict) -> bool:
+        if not cache.get("is_ready"):
+            return False
+        if not expected_url_keys:
+            return True
+        return all(cache.get(key) for key in expected_url_keys)
+
+    # If we have previously cached tunnel info URLs and they are complete, use them
+    # immediately and skip provider log fetching for a faster response.
+    cached_urls = job_data.get("tunnel_info_urls")
+    cached_legacy = job_data.get("cached_tunnel_info")
+    tunnel_info: dict | None = None
+    if isinstance(cached_urls, dict) and _cache_has_expected_urls(cached_urls):
+        tunnel_info = cached_urls
+    elif isinstance(cached_legacy, dict) and _cache_has_expected_urls(cached_legacy):
+        tunnel_info = cached_legacy
+
+    provider_id = job_data.get("provider_id")
+    cluster_name = job_data.get("cluster_name")
+    if not provider_id or not cluster_name:
+        raise HTTPException(
+            status_code=400, detail="Job does not contain provider metadata (provider_id/cluster_name missing)"
+        )
+
+    provider = await get_team_provider(session, user_and_team["team_id"], provider_id)
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    try:
+        user_id_str = str(user_and_team["user"].id)
+        team_id = user_and_team["team_id"]
+        provider_instance = await get_provider_instance(provider, user_id=user_id_str, team_id=team_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize provider: {exc}") from exc
+
+    # Determine provider-side job id in the same way as provider_logs
+    provider_job_id: Optional[str | int] = job_data.get("provider_job_id")
+
+    if provider_job_id is None:
+        provider_job_ids = job_data.get("provider_job_ids")
+        if isinstance(provider_job_ids, list) and provider_job_ids:
+            provider_job_id = provider_job_ids[-1]
+
+    if provider_job_id is None:
+        provider_jobs = None
+        try:
+            provider_jobs = await asyncio.to_thread(provider_instance.list_jobs, cluster_name)
+        except NotImplementedError:
+            # Provider doesn't support listing jobs (e.g., Runpod)
+            # For Runpod, we can't determine a job_id, so we'll use the cluster_name as a fallback
+            provider_job_id = cluster_name  # Use cluster_name as fallback identifier
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to enumerate provider jobs: {exc}") from exc
+
+        if provider_jobs:
+            running_states = {JobState.RUNNING, JobState.PENDING}
+            chosen_job = next((pj for pj in provider_jobs if pj.state in running_states), provider_jobs[-1])
+            provider_job_id = chosen_job.job_id
+
+    if provider_job_id is None:
+        raise HTTPException(status_code=404, detail="Unable to determine provider job id for this job")
+
+    # If we don't have ready tunnel info from cache, fetch logs and parse them.
+    if tunnel_info is None or not tunnel_info.get("is_ready"):
+        # For local provider, set workspace_dir (job dir) so LocalProvider can read logs.
+        if getattr(provider, "type", None) == ProviderType.LOCAL.value and hasattr(provider_instance, "extra_config"):
+            job_dir = get_local_provider_job_dir(job_id, org_id=user_and_team["team_id"])
+            provider_instance.extra_config["workspace_dir"] = job_dir
+
+        try:
+            if provider.type == ProviderType.RUNPOD.value:
+                raw_logs = await fetch_runpod_provider_logs(
+                    provider_instance, cluster_name, user_and_team["team_id"], tail_lines
+                )
+            else:
+                # For local providers, read full logs so the initial local URL echoes
+                # are always visible even if the log is long.
+                effective_tail = None
+                if provider.type != ProviderType.LOCAL.value:
+                    effective_tail = tail_lines or None
+
+                raw_logs = await asyncio.to_thread(
+                    provider_instance.get_job_logs,
+                    cluster_name,
+                    provider_job_id,
+                    tail_lines=effective_tail,
+                    follow=False,
+                )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Failed to fetch provider logs: {exc}") from exc
+
+        if isinstance(raw_logs, (bytes, bytearray)):
+            logs_text = raw_logs.decode("utf-8", errors="replace")
+        elif isinstance(raw_logs, str):
+            logs_text = raw_logs
+        else:
+            try:
+                logs_text = json.dumps(raw_logs, indent=2)
+            except TypeError:
+                logs_text = str(raw_logs)
+
+        tunnel_info = get_tunnel_info(logs_text, interactive_type, url_patterns=url_patterns)
+
+        # If parsing the logs found a ready service, cache the tunnel info in job_data
+        # so it survives log rotation / truncation and can be reused without log fetches.
+        if tunnel_info.get("is_ready"):
+            await job_service.job_update_job_data_insert_key_values(
+                job_id,
+                {"cached_tunnel_info": tunnel_info, "tunnel_info_urls": tunnel_info},
+                experimentId,
+            )
+        else:
+            print(f"[tunnel_info] Job {job_id}: no URLs found in logs and no cache available")
+
+    ports = gallery_entry.get("ports", []) if gallery_entry else []
+    modal_title = gallery_entry.get("modal_title", "") if gallery_entry else ""
+    modal_subtitle = gallery_entry.get("modal_subtitle", "") if gallery_entry else ""
+    instructions = gallery_entry.get("instructions", []) if gallery_entry else []
+
+    return {
+        **tunnel_info,
+        "cluster_name": cluster_name,
+        "provider_id": provider_id,
+        "provider_job_id": str(provider_job_id),
+        "interactive_type": interactive_type,
+        "ports": ports,
+        "modal_title": modal_title,
+        "modal_subtitle": modal_subtitle,
+        "instructions": instructions,
+    }
+
+
+@router.get("/{job_id}/task_logs")
+async def get_job_task_logs(
+    experimentId: str,
+    job_id: str,
+    tail_lines: int = Query(400, ge=100, le=2000),
+    sweeps: bool = False,
+    user_and_team=Depends(get_user_and_team),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """
+    One-shot fetch of a job's task (SDK) output as JSON.
+
+    Returns ``{"logs": "<text>", "tail_lines": N}`` — same envelope as
+    ``/provider_logs``, so scripted/CLI consumers can use the same parsing.
+    The existing ``/stream_output`` endpoint is an open-ended SSE tail
+    intended for the UI; that connection never closes, which makes it
+    unusable from a one-shot HTTP client.
+    """
+    job = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+    if not job or str(job.get("experiment_id")) != str(experimentId):
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job_data = job.get("job_data") or {}
+    job_status = str(job.get("status") or "").upper()
+    if not isinstance(job_data, dict):
+        try:
+            job_data = json.loads(job_data)
+        except JSONDecodeError:
+            job_data = {}
+
+    output_file_name: Optional[str] = None
+    if sweeps:
+        sweep_file = job_data.get("sweep_output_file")
+        if sweep_file and await storage.exists(sweep_file):
+            output_file_name = sweep_file
+
+    if output_file_name is None:
+        try:
+            output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+        except (ValueError, FileNotFoundError):
+            if job_status in {JobStatus.LAUNCHING.value, JobStatus.WAITING.value, "CREATED"}:
+                return _job_logs_not_ready_payload(
+                    job_data,
+                    tail_lines,
+                    "Task logs are not available yet. Please try again shortly.",
+                )
+            return {"logs": "", "tail_lines": tail_lines}
+
+    if not await storage.exists(output_file_name):
+        if job_status in {JobStatus.LAUNCHING.value, JobStatus.WAITING.value, "CREATED"}:
+            return _job_logs_not_ready_payload(
+                job_data,
+                tail_lines,
+                "Task logs are not available yet. Please try again shortly.",
+            )
+        return {"logs": "", "tail_lines": tail_lines}
+
+    async with await storage.open(output_file_name, "r") as f:
+        logs_text = await f.read()
+
+    if tail_lines is not None:
+        lines = logs_text.splitlines()
+        logs_text = "\n".join(lines[-tail_lines:])
+
+    return {"logs": logs_text, "tail_lines": tail_lines}
+
+
+@router.get("/{job_id}/stream_output")
+async def stream_job_output(job_id: str, experimentId: str, sweeps: bool = False):
+    """
+    Stream job output with robust error handling and retry logic.
+    Enhanced version combining the best of both train and jobs routers.
+    """
+    try:
+        job = await job_service.job_get(job_id, experiment_id=experimentId)
+
+        job_data = job.get("job_data", {})
+
+        # Handle both dict and JSON string formats
+        if not isinstance(job_data, dict):
+            try:
+                job_data = json.loads(job_data)
+            except JSONDecodeError:
+                print(f"Error decoding job_data for job {job_id}. Using empty job_data.")
+                job_data = {}
+
+        # Handle sweeps case first
+        if sweeps:
+            output_file = job_data.get("sweep_output_file", None)
+            if output_file is not None and await storage.exists(output_file):
+                output_file_name = output_file
+            else:
+                # Fall back to regular output file logic
+                output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+        else:
+            # Try to get output file name with fallback logic
+            output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+
+    except ValueError as e:
+        # If the value error starts with "No output file found for job" then wait 4 seconds and try again
+        # because the file might not have been created yet
+        if str(e).startswith("No output file found for job"):
+            print(f"Output file not found for job {job_id}, retrying in 4 seconds...")
+            await asyncio.sleep(4)
+            try:
+                output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experimentId)
+            except Exception as retry_e:
+                # If still no file after retry, create an empty one in the jobs directory
+                print(f"Still no output file found for job {job_id} after retry, creating empty file: {retry_e}")
+                # Use the Job class to get the proper directory and create the file
+                job_dict = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+                experiment_id = job_dict.get("experiment_id") if job_dict else None
+                if not experiment_id:
+                    return StreamingResponse(
+                        iter(["data: Error: An internal error has occurred!\n\n"]),
+                        media_type="text/event-stream",
+                        headers={
+                            "Cache-Control": "no-cache",
+                            "Connection": "keep-alive",
+                            "Access-Control-Allow-Origin": "*",
+                        },
+                    )
+                job_obj = Job(job_id, experiment_id)
+                output_file_name = await job_obj.get_log_path()
+                # Get directory by removing filename from path using storage.join
+                output_dir = storage.join(*output_file_name.split("/")[:-1]) if "/" in output_file_name else "."
+                await storage.makedirs(output_dir, exist_ok=True)
+                async with await storage.open(output_file_name, "w") as f:
+                    await f.write("")
+        else:
+            print(f"ValueError in stream_job_output: {e}")
+            return StreamingResponse(
+                iter(["data: Error: An internal error has occurred!\n\n"]),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "Access-Control-Allow-Origin": "*"},
+            )
+    except Exception as e:
+        # Handle general error
+        print(f"Error in stream_job_output: {e}")
+        return StreamingResponse(
+            iter(["data: Error: An internal error has occurred!\n\n"]),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "Access-Control-Allow-Origin": "*"},
+        )
+
+    # Check if this is a remote path (S3, GCS, etc.) and use appropriate watcher
+    is_remote_path = storage.is_remote_path(output_file_name)
+
+    if is_remote_path:
+        # Use S3 polling watcher for remote filesystems
+        # This handles file rewrites better by comparing content lengths
+        from transformerlab.routers.serverinfo import watch_remote_file
+
+        return StreamingResponse(
+            watch_remote_file(output_file_name, start_from_beginning=True, poll_interval_ms=100),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "Access-Control-Allow-Origin": "*"},
+        )
+    else:
+        # Use local file watcher for local filesystems
+        # watch_file is already imported at the top
+        return StreamingResponse(
+            # we force polling because i can't get this to work otherwise -- changes aren't detected
+            watch_file(output_file_name, start_from_beginning=True, force_polling=True),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "Access-Control-Allow-Origin": "*"},
+        )
+
+
+@router.get("/{job_id}/stream_detailed_json_report")
+async def stream_detailed_json_report(job_id: str, file_name: str):
+    if not await storage.exists(file_name):
+        print(f"File not found: {file_name}")
+        return "File not found", 404
+
+    return StreamingResponse(
+        # we force polling because i can't get this to work otherwise -- changes aren't detected
+        watch_file(file_name, start_from_beginning=True, force_polling=False),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "Access-Control-Allow-Origin": "*"},
+    )
+
+
+@router.get("/{job_id}/get_additional_details")
+async def stream_job_additional_details(job_id: str, experimentId: str, task: str = "view"):
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    job_data = job["job_data"]
+    if "additional_output_path" not in job_data:
+        return Response("No additional details found for this job", media_type="text/csv")
+    file_path = job_data["additional_output_path"]
+    if file_path.endswith(".csv"):
+        file_format = "text/csv"
+        filename = f"report_{job_id}.csv"
+    elif file_path.endswith(".json"):
+        file_format = "application/json"
+        filename = f"report_{job_id}.json"
+    if task == "download":
+        return FileResponse(file_path, filename=filename, media_type=file_format)
+
+    if not await storage.exists(file_path):
+        return Response("No additional details found for this evaluation", media_type="text/csv")
+
+    # convert csv to JSON, but do not assume that \n marks the end of a row as cells can
+    # contain fields that start and end with " and contain \n. Use a CSV parser instead.
+    async with await storage.open(file_path, "r") as csvfile:
+        contents_text = await csvfile.read()
+        contents = csv.reader(contents_text.splitlines(), delimiter=",", quotechar='"')
+        # convert the csv to a JSON object
+        csv_content = {"header": [], "body": []}
+        for i, row in enumerate(contents):
+            if i == 0:
+                csv_content["header"] = row
+            else:
+                csv_content["body"].append(row)
+    return csv_content
+
+
+@router.get("/{job_id}/get_figure_json")
+async def get_figure_path(job_id: str, experimentId: str):
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    job_data = job["job_data"]
+    file_path = job_data.get("plot_data_path", None)
+
+    if file_path is None or not await storage.exists(file_path):
+        return Response("No plot data found for this evaluation", media_type="text/csv")
+
+    async with await storage.open(file_path, "r") as f:
+        content_str = await f.read()
+        content = json.loads(content_str)
+    return content
+
+
+@router.get("/{job_id}/get_generated_dataset")
+async def get_generated_dataset(job_id: str, experimentId: str):
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    # Get experiment name
+    job_data = job["job_data"]
+
+    # Check if the job has additional output path
+    if "additional_output_path" in job_data.keys() and job_data["additional_output_path"]:
+        json_file_path = job_data["additional_output_path"]
+    else:
+        return Response("No dataset found for this evaluation", media_type="text/csv")
+
+    if not await storage.exists(json_file_path):
+        return Response("No dataset found for this evaluation", media_type="text/csv")
+    else:
+        async with await storage.open(json_file_path, "r") as f:
+            json_content_str = await f.read()
+            json_content = json.loads(json_content_str)
+
+        df = pd.DataFrame(json_content)
+
+        content = {"header": df.columns.tolist(), "body": df.values.tolist()}
+
+        return content
+
+
+@router.get("/{job_id}/get_eval_results")
+async def get_eval_results(job_id: str, experimentId: str, task: str = "view", file_index: int = 0):
+    """Get evaluation results for a job"""
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    job_data = job.get("job_data", {})
+    if not isinstance(job_data, dict):
+        try:
+            job_data = json.loads(job_data)
+        except (JSONDecodeError, TypeError):
+            job_data = {}
+
+    # Check if the job has eval_results
+    if "eval_results" not in job_data or not job_data["eval_results"]:
+        return Response("No evaluation results found for this job", media_type="text/csv")
+
+    eval_results_list = job_data["eval_results"]
+    if not isinstance(eval_results_list, list) or len(eval_results_list) == 0:
+        return Response("No evaluation results found for this job", media_type="text/csv")
+
+    # Get the file path (use file_index to select which file if multiple)
+    if file_index >= len(eval_results_list):
+        file_index = 0
+    raw_path = eval_results_list[file_index]
+    if not isinstance(raw_path, str) or not str(raw_path).strip():
+        return Response("No evaluation results found for this job", media_type="text/csv")
+
+    eval_dir = await get_job_eval_results_dir(str(job_id), str(experimentId))
+    file_path = _eval_results_storage_path(raw_path, eval_dir)
+    if not await storage.exists(file_path):
+        stored = str(raw_path).strip()
+        if stored and file_path != stored and await storage.exists(stored):
+            file_path = stored
+    if not await storage.exists(file_path):
+        return Response("Evaluation results file not found", media_type="text/csv")
+
+    # Determine file format
+    if file_path.endswith(".csv"):
+        file_format = "text/csv"
+        filename = f"eval_results_{job_id}.csv"
+    elif file_path.endswith(".json"):
+        file_format = "application/json"
+        filename = f"eval_results_{job_id}.json"
+    else:
+        file_format = "text/plain"
+        filename = f"eval_results_{job_id}.txt"
+
+    if task == "download":
+        # Use StreamingResponse to support both local and remote files
+        async def generate():
+            async with await storage.open(file_path, "rb") as f:
+                while True:
+                    chunk = await f.read(8192)  # Read in 8KB chunks
+                    if not chunk:
+                        break
+                    yield chunk
+
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+        return StreamingResponse(
+            generate(),
+            media_type=file_format,
+            headers=headers,
+        )
+
+    # For view, convert CSV to JSON format
+    if file_path.endswith(".csv"):
+        async with await storage.open(file_path, "r") as csvfile:
+            content_str = await csvfile.read()
+            contents = csv.reader(content_str.splitlines(), delimiter=",", quotechar='"')
+            csv_content = {"header": [], "body": []}
+            for i, row in enumerate(contents):
+                if i == 0:
+                    csv_content["header"] = row
+                else:
+                    csv_content["body"].append(row)
+            return csv_content
+    elif file_path.endswith(".json"):
+        async with await storage.open(file_path, "r") as jsonfile:
+            content_str = await jsonfile.read()
+            content = json.loads(content_str)
+            # If it's a list of records, convert to header/body format
+            if isinstance(content, list) and len(content) > 0:
+                if isinstance(content[0], dict):
+                    header = list(content[0].keys())
+                    body = [list(row.values()) for row in content]
+                    return {"header": header, "body": body}
+            return content
+    else:
+        # For other file types, just return as text
+        async with await storage.open(file_path, "r") as f:
+            return await f.read()
+
+
+@router.get("/{job_id}/get_eval_images")
+async def get_eval_images(job_id: str, experimentId: str):
+    """Get list of evaluation images for a job"""
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    job_data = job["job_data"]
+
+    # Check if the job has eval_images_dir
+    if "eval_images_dir" not in job_data or not job_data["eval_images_dir"]:
+        return {"images": []}
+
+    images_dir = job_data["eval_images_dir"]
+
+    if not await storage.exists(images_dir):
+        return {"images": []}
+
+    # Supported image extensions
+    image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"}
+    images = []
+    try:
+        # Use storage.ls to list directory contents
+        items = await storage.ls(images_dir, detail=True)
+        for item in items:
+            # Handle both dict (detail=True) and string (detail=False) formats
+            if isinstance(item, dict):
+                file_path = item.get("name", "")
+                filename = file_path.split("/")[-1] if "/" in file_path else file_path
+                file_type = item.get("type", "file")
+                if file_type == "file":
+                    _, ext = os.path.splitext(filename.lower())
+                    if ext in image_extensions:
+                        images.append(
+                            {
+                                "filename": filename,
+                                "path": f"/jobs/{job_id}/image/{filename}",  # API endpoint path
+                                "size": item.get("size", 0),
+                                "modified": item.get("mtime", 0) if "mtime" in item else None,
+                            }
+                        )
+            else:
+                # Fallback for string format - check if it's a file
+                file_path = item if isinstance(item, str) else str(item)
+                if await storage.isfile(file_path):
+                    filename = file_path.split("/")[-1] if "/" in file_path else file_path
+                    _, ext = os.path.splitext(filename.lower())
+                    if ext in image_extensions:
+                        # Try to get file info - for remote storage, stats might not be available
+                        try:
+                            items_detail = await storage.ls(file_path, detail=True)
+                            if items_detail and isinstance(items_detail[0], dict):
+                                file_info = items_detail[0]
+                                images.append(
+                                    {
+                                        "filename": filename,
+                                        "path": f"/jobs/{job_id}/image/{filename}",
+                                        "size": file_info.get("size", 0),
+                                        "modified": file_info.get("mtime", 0) if "mtime" in file_info else None,
+                                    }
+                                )
+                            else:
+                                images.append(
+                                    {
+                                        "filename": filename,
+                                        "path": f"/jobs/{job_id}/image/{filename}",
+                                        "size": None,
+                                        "modified": None,
+                                    }
+                                )
+                        except Exception:
+                            images.append(
+                                {
+                                    "filename": filename,
+                                    "path": f"/jobs/{job_id}/image/{filename}",
+                                    "size": None,
+                                    "modified": None,
+                                }
+                            )
+    except Exception as e:
+        print(f"Error reading images directory {images_dir}: {e}")
+        return {"images": []}
+
+    # Sort by filename for consistent ordering
+    images.sort(key=lambda x: x["filename"])
+    return {"images": images}
+
+
+@router.get("/{job_id}/image/{filename}")
+async def get_eval_image(job_id: str, filename: str, experimentId: str):
+    """Serve individual evaluation image files"""
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+    job_data = job["job_data"]
+
+    # Check if the job has eval_images_dir
+    if "eval_images_dir" not in job_data or not job_data["eval_images_dir"]:
+        return Response("No images directory found for this job", status_code=404)
+
+    images_dir = job_data["eval_images_dir"]
+
+    if not await storage.exists(images_dir):
+        return Response("Images directory not found", status_code=404)
+
+    # Secure the filename to prevent directory traversal
+    filename = secure_filename(filename)
+    file_path = storage.join(images_dir, filename)
+
+    # Ensure the file exists
+    if not await storage.exists(file_path):
+        return Response("Image not found", status_code=404)
+
+    # For security, verify the file path is within the images directory
+    # Normalize paths for comparison
+    images_dir_normalized = images_dir.rstrip("/")
+    file_path_normalized = file_path.rstrip("/")
+    if (
+        not file_path_normalized.startswith(images_dir_normalized + "/")
+        and file_path_normalized != images_dir_normalized
+    ):
+        return Response("Image not found", status_code=404)
+
+    # Determine media type based on file extension
+    _, ext = os.path.splitext(filename.lower())
+    media_type_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+    }
+
+    media_type = media_type_map.get(ext, "application/octet-stream")
+
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+    )
+
+
+@router.get("/{job_id}/checkpoints")
+async def get_checkpoints(job_id: str, experimentId: str, request: Request):
+    if job_id is None or job_id == "" or job_id == "-1":
+        return {"checkpoints": []}
+
+    """Get list of checkpoints for a job"""
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return {"checkpoints": []}
+
+    experiment_id = job.get("experiment_id")
+    job_data = job["job_data"]
+    # First try to use the new SDK method to get checkpoints
+    try:
+        from lab.job import Job
+
+        # Get checkpoints using the SDK method
+        if experiment_id:
+            sdk_job = Job(job_id, experiment_id)
+            checkpoint_paths = await sdk_job.get_checkpoint_paths()
+
+            if checkpoint_paths and len(checkpoint_paths) > 0:
+                checkpoints = []
+                for checkpoint_path in checkpoint_paths:
+                    try:
+                        # Get filename from path
+                        filename = checkpoint_path.split("/")[-1] if "/" in checkpoint_path else checkpoint_path
+                        checkpoints.append({"filename": filename})
+                    except Exception as e:
+                        print(f"Error processing checkpoint {checkpoint_path}: {e}")
+                        continue
+
+                # Sort checkpoints by filename in reverse (descending) order for consistent ordering
+                checkpoints.sort(key=lambda x: x["filename"], reverse=True)
+                return {"checkpoints": checkpoints}
+    except Exception as e:
+        print(f"SDK checkpoint method failed for job {job_id}, falling back to legacy method: {e}")
+
+    # Fallback to the original logic if SDK method doesn't work or returns nothing
+    # Check if the job has a supports_checkpoints flag
+    # if "supports_checkpoints" not in job_data or not job_data["supports_checkpoints"]:
+    #     return {"checkpoints": []}
+
+    # By default we assume the training type is an adaptor training
+    # and the checkpoints are stored alongside the adaptors
+    # this maps to how mlx lora works, which will be the first use case
+    # but we will have to abstract this further in the future
+    config = job_data.get("config", {})
+    if not isinstance(config, dict):
+        try:
+            config = json.loads(config)
+        except Exception:
+            config = {}
+    model_name = config.get("model_name", "")
+    adaptor_name = config.get("adaptor_name", "adaptor")
+    workspace_dir = await get_workspace_dir()
+    default_adaptor_dir = storage.join(workspace_dir, "adaptors", secure_filename(model_name), adaptor_name)
+
+    # Get job directory
+    checkpoints_dir = job_data.get("checkpoints_dir")
+    if not checkpoints_dir:
+        from lab.dirs import get_job_checkpoints_dir
+
+        if not experiment_id:
+            return {"checkpoints": []}
+        checkpoints_dir = await get_job_checkpoints_dir(job_id, experiment_id)
+    if not checkpoints_dir or not await storage.exists(checkpoints_dir):
+        return {"checkpoints": []}
+    elif await storage.isdir(checkpoints_dir):
+        checkpoints = []
+        try:
+            items = await storage.ls(checkpoints_dir, detail=False)
+            for item in items:
+                file_path = item if isinstance(item, str) else str(item)
+                filename = file_path.split("/")[-1] if "/" in file_path else file_path
+
+                if fnmatch(filename, "*_adapters.safetensors"):
+                    checkpoints.append({"filename": filename})
+                # allow directories too
+                elif await storage.isdir(file_path):
+                    checkpoints.append({"filename": filename})
+            if checkpoints:
+                return {"checkpoints": checkpoints}
+        except Exception as e:
+            print(f"Error listing checkpoints directory {checkpoints_dir}: {e}")
+
+    # Fallback to using default adaptor directory as checkpoints directory
+    checkpoints_dir = default_adaptor_dir
+    checkpoints_file_filter = job_data.get("checkpoints_file_filter", "*_adapters.safetensors")
+    if not checkpoints_file_filter:
+        checkpoints_file_filter = "*_adapters.safetensors"
+
+    checkpoints = []
+    try:
+        items = await storage.ls(checkpoints_dir, detail=False)
+        for item in items:
+            file_path = item if isinstance(item, str) else str(item)
+            filename = file_path.split("/")[-1] if "/" in file_path else file_path
+
+            if fnmatch(filename, checkpoints_file_filter):
+                checkpoints.append({"filename": filename})
+    except Exception as e:
+        print(f"Error reading checkpoints directory {checkpoints_dir}: {e}")
+
+    # Sort checkpoints by filename in reverse (descending) order for consistent ordering
+    checkpoints.sort(key=lambda x: x["filename"], reverse=True)
+
+    return {
+        "checkpoints": checkpoints,
+        "model_name": model_name,
+        "adaptor_name": adaptor_name,
+    }
+
+
+@router.get("/{job_id}/artifacts")
+async def get_artifacts(job_id: str, experimentId: str, request: Request):
+    """Get list of artifacts for a job"""
+
+    # Validate job_id
+    if not job_id or job_id in ("", "-1"):
+        return {"artifacts": []}
+
+    """Get list of artifacts for a job"""
+
+    # Use get_job_artifacts_dir to get the artifacts directory directly
+    try:
+        from lab.dirs import get_job_artifacts_dir
+
+        job_dict = await job_service.job_get_cached(job_id, experiment_id=experimentId)
+        experiment_id = job_dict.get("experiment_id") if job_dict else None
+        if not experiment_id:
+            return {"artifacts": []}
+
+        artifacts_dir = await get_job_artifacts_dir(job_id, experiment_id)
+        artifacts = await get_artifacts_from_directory(artifacts_dir)
+    except Exception as e:
+        print(f"Error getting artifacts for job {job_id}: {e}")
+        artifacts = []
+
+    # Sort by filename in descending order for consistent ordering
+    artifacts.sort(key=lambda x: x["filename"], reverse=True)
+
+    return {"artifacts": artifacts}
+
+
+@router.get("/{job_id}/artifacts/download_all")
+async def download_all_artifacts(job_id: str, experimentId: str):
+    """
+    Download a zip file containing all artifacts for a job.
+    """
+    # 1. Gather all artifact file paths using service
+    all_file_paths = await job_service.get_all_artifact_paths(job_id, experimentId, storage)
+
+    if not all_file_paths:
+        return Response("No artifacts found for this job", status_code=404)
+
+    # 2. Create Zip File in memory
+    try:
+        zip_buffer = await zip_utils.create_zip_from_storage(all_file_paths, storage)
+
+        filename = f"artifacts_{job_id}.zip"
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache",
+        }
+
+        return StreamingResponse(iter([zip_buffer.getvalue()]), media_type="application/zip", headers=headers)
+
+    except Exception as e:
+        print(f"Error creating zip file: {e}")
+        return Response("Failed to generate zip file", status_code=500)
+
+
+@router.get("/{job_id}/artifact/{filename}")
+async def get_artifact(job_id: str, experimentId: str, filename: str, task: str = "view"):
+    """
+    Serve individual artifact files for viewing or downloading.
+
+    Args:
+        job_id: The job ID
+        filename: The artifact filename
+        task: Either "view" or "download" (default: "view")
+    """
+    job = await job_service.job_get(job_id, experiment_id=experimentId)
+    if job is None:
+        return Response("Job not found", status_code=404)
+
+    job_data = job["job_data"]
+    experiment_id = job.get("experiment_id")
+
+    # First try to use the new SDK method to get artifact paths
+    artifact_file_path = None
+    try:
+        from lab.job import Job
+
+        # Get artifacts using the SDK method
+        if experiment_id:
+            sdk_job = Job(job_id, experiment_id)
+            artifact_paths = await sdk_job.get_artifact_paths()
+
+            if artifact_paths:
+                # Look for the file in the artifact paths
+                filename_secure = secure_filename(filename)
+                for artifact_path in artifact_paths:
+                    # Check if this path matches the filename
+                    path_filename = artifact_path.split("/")[-1] if "/" in artifact_path else artifact_path
+                    if path_filename == filename_secure:
+                        artifact_file_path = artifact_path
+                        break
+    except Exception as e:
+        print(f"Error using SDK method to get artifact paths: {e}")
+
+    # Fallback to checking the artifacts directory
+    if artifact_file_path is None:
+        if "artifacts_dir" not in job_data or not job_data["artifacts_dir"]:
+            return Response("No artifacts directory found for this job", status_code=404)
+
+        artifacts_dir = job_data["artifacts_dir"]
+
+        if not await storage.exists(artifacts_dir):
+            return Response("Artifacts directory not found", status_code=404)
+
+        # Secure the filename to prevent directory traversal
+        filename_secure = secure_filename(filename)
+        artifact_file_path = storage.join(artifacts_dir, filename_secure)
+
+    # Ensure the file exists
+    if not await storage.exists(artifact_file_path):
+        return Response("Artifact not found", status_code=404)
+
+    # Handle directory artifacts as downloadable zip archives
+    if await storage.isdir(artifact_file_path):
+        if task != "download":
+            return Response("Directory artifacts can only be downloaded", status_code=400)
+        dir_name = posixpath.basename(str(artifact_file_path).rstrip("/")) or secure_filename(filename)
+        zip_buffer = await zip_utils.create_zip_from_directory(artifact_file_path, storage, root_prefix=dir_name)
+        zip_filename = f"{dir_name}.zip"
+        headers = {
+            "Content-Disposition": f'attachment; filename="{zip_filename}"',
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        return StreamingResponse(iter([zip_buffer.getvalue()]), media_type="application/zip", headers=headers)
+
+    # Determine media type based on file extension
+    _, ext = os.path.splitext(filename.lower())
+    media_type_map = {
+        # Images
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        # Videos
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".ogg": "video/ogg",
+        ".avi": "video/x-msvideo",
+        ".mov": "video/quicktime",
+        # Audio
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".m4a": "audio/mp4",
+        ".flac": "audio/flac",
+        # 3D Models
+        ".glb": "model/gltf-binary",
+        ".gltf": "model/gltf+json",
+        # JSON
+        ".json": "application/json",
+        # Text
+        ".txt": "text/plain",
+        ".log": "text/plain",
+        ".csv": "text/csv",
+        # Other
+        ".pdf": "application/pdf",
+        ".zip": "application/zip",
+    }
+
+    media_type = media_type_map.get(ext, "application/octet-stream")
+
+    # For JSON files in view mode, return the parsed content
+    if task == "view" and ext == ".json":
+        try:
+            async with await storage.open(artifact_file_path, "r") as f:
+                content_str = await f.read()
+                content = json.loads(content_str)
+                return content
+        except Exception as e:
+            print(f"Error reading JSON file: {e}")
+            # Fall back to streaming response
+
+    # For download or other file types, stream the file
+    # Use StreamingResponse to support both local and remote files (e.g., s3://)
+    async def generate():
+        async with await storage.open(artifact_file_path, "rb") as f:
+            while True:
+                chunk = await f.read(8192)  # Read in 8KB chunks
+                if not chunk:
+                    break
+                yield chunk
+
+    headers = {}
+    if task == "download":
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    else:
+        headers["Content-Disposition"] = f'inline; filename="{filename}"'
+
+    headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    headers["Pragma"] = "no-cache"
+    headers["Expires"] = "0"
+
+    return StreamingResponse(
+        generate(),
+        media_type=media_type,
+        headers=headers,
+    )
+
+
+@router.get("/{job_id}")
+async def get_training_job_by_path(job_id: str, experimentId: str):
+    return await job_service.job_get(job_id, experiment_id=experimentId)
+
+
+@router.get("/{job_id}/output")
+async def get_training_job_output_jobpath(job_id: str, experimentId: str, sweeps: bool = False):
+    try:
+        job = await job_service.job_get(job_id, experiment_id=experimentId)
+        if job is None:
+            return "Job not found"
+
+        job_data = job.get("job_data", {})
+
+        # Handle both dict and JSON string formats
+        if not isinstance(job_data, dict):
+            try:
+                job_data = json.loads(job_data)
+            except JSONDecodeError:
+                print(f"Error decoding job_data for job {job_id}. Using empty job_data.")
+                job_data = {}
+
+        if sweeps:
+            output_file = job_data.get("sweep_output_file", None)
+            if output_file is not None and await storage.exists(output_file):
+                async with await storage.open(output_file, "r") as f:
+                    output = await f.read()
+                return output
+            else:
+                # Fall back to regular output file logic
+                experiment_id = job["experiment_id"]
+                output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experiment_id)
+        else:
+            # Get experiment information for new job directory structure
+            experiment_id = job["experiment_id"]
+            output_file_name = await shared.get_job_output_file_name(job_id, experiment_name=experiment_id)
+
+        if await storage.exists(output_file_name):
+            async with await storage.open(output_file_name, "r") as f:
+                output = await f.read()
+            return output
+        else:
+            return "Output file not found"
+    except ValueError as e:
+        # Handle specific error
+        print(f"ValueError: {e}")
+        return "An internal error has occurred!"
+    except Exception as e:
+        # Handle general error
+        print(f"Error: {e}")
+        return "An internal error has occurred!"
+
+
+@router.get("/{job_id}/sweep_results")
+async def sweep_results(job_id: str, experimentId: str):
+    try:
+        job = await job_service.job_get(job_id, experiment_id=experimentId)
+        if job is None:
+            return {"status": "error", "message": "Job not found."}
+
+        job_data = job.get("job_data", {})
+
+        # Handle both dict and JSON string formats
+        if not isinstance(job_data, dict):
+            try:
+                job_data = json.loads(job_data)
+            except JSONDecodeError:
+                print(f"Error decoding job_data for job {job_id}. Using empty job_data.")
+                job_data = {}
+
+        output_file = job_data.get("sweep_results_file", None)
+        if output_file and await storage.exists(output_file):
+            try:
+                async with await storage.open(output_file, "r") as f:
+                    content_str = await f.read()
+                    output = json.loads(content_str)
+                return {"status": "success", "data": output}
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error for job {job_id}: {e}")
+                return {"status": "error", "message": "Invalid JSON format in sweep results file."}
+        else:
+            print(f"Sweep results file not found for job {job_id}: {output_file}")
+            return {"status": "error", "message": "Sweep results file not found."}
+
+    except Exception as e:
+        print(f"Error loading sweep results for job {job_id}: {e}")
+        return {"status": "error", "message": "An internal error has occurred!"}
+
+
+@router.get("/{job_id}/datasets")
+async def get_job_datasets(job_id: str, experimentId: str, request: Request):
+    """Get list of datasets in the job's datasets directory"""
+
+    if not job_id or job_id in ("", "-1"):
+        return {"datasets": []}
+
+    try:
+        from lab.dirs import get_job_datasets_dir
+
+        datasets_dir = await get_job_datasets_dir(job_id, experimentId)
+        datasets = await job_service.get_datasets_from_directory(datasets_dir)
+    except Exception as e:
+        print(f"Error getting datasets for job {job_id}: {e}")
+        datasets = []
+
+    datasets.sort(key=lambda x: x["name"], reverse=True)
+
+    return {"datasets": datasets}
+
+
+@router.get("/{job_id}/models")
+async def get_job_models(job_id: str, experimentId: str, request: Request):
+    """Get list of models in the job's models directory"""
+
+    if not job_id or job_id in ("", "-1"):
+        return {"models": []}
+
+    try:
+        from lab.dirs import get_job_models_dir
+
+        models_dir = await get_job_models_dir(job_id, experimentId)
+        models = await job_service.get_models_from_directory(models_dir)
+    except Exception as e:
+        print(f"Error getting models for job {job_id}: {e}")
+        models = []
+
+    models.sort(key=lambda x: x["name"], reverse=True)
+
+    return {"models": models}
+
+
+async def _compute_next_version(group_dir: str) -> str:
+    """Scan a group directory for existing vN folders and return the next version label."""
+    import re
+
+    highest = 0
+    if await storage.exists(group_dir):
+        entries = await storage.ls(group_dir, detail=False)
+        for entry in entries:
+            name = entry.rstrip("/").split("/")[-1]
+            match = re.match(r"^v(\d+)$", name)
+            if match:
+                highest = max(highest, int(match.group(1)))
+    return f"v{highest + 1}"
+
+
+@router.post("/{job_id}/datasets/{dataset_name}/save_to_registry")
+async def save_dataset_to_registry(
+    job_id: str,
+    dataset_name: str,
+    experimentId: str,
+    target_name: Optional[str] = Query(None, description="Group name for the dataset in the registry"),
+    mode: str = Query("new", description="'new' to create a new entry, 'existing' to add version to existing group"),
+    tag: str = Query("latest", description="Tag to assign to the new version"),
+    description: Optional[str] = Query(None, description="Human-readable description for the version"),
+    user_and_team=Depends(get_user_and_team),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Copy a dataset from job's datasets directory to the global datasets registry."""
+
+    try:
+        dataset_name_secure = secure_filename(dataset_name)
+
+        # Get source path (job's datasets directory)
+        job_datasets_dir = await get_job_datasets_dir(job_id, experimentId)
+        source_path = storage.join(job_datasets_dir, dataset_name_secure)
+
+        if not await storage.exists(source_path):
+            raise HTTPException(status_code=404, detail=f"Dataset '{dataset_name}' not found in job directory")
+
+        datasets_registry_dir = await get_datasets_dir()
+
+        # Resolve the group name from target_name or fall back to dataset_name
+        group_name = secure_filename(target_name) if target_name else dataset_name_secure
+
+        if mode == "existing":
+            # Verify the group exists — either in the asset versioning system
+            # or as a physical folder in the registry directory (legacy entries).
+            existing_groups = await asset_version_service.list_groups("dataset")
+            group_in_versions = any(g["group_name"] == group_name for g in existing_groups)
+            group_on_disk = await storage.exists(storage.join(datasets_registry_dir, group_name))
+            if not group_in_versions and not group_on_disk:
+                raise HTTPException(status_code=404, detail=f"Dataset group '{group_name}' not found in registry")
+        else:
+            # For mode="new", check that group name doesn't collide with a flat dataset
+            # (a flat dataset has an index.json at its root level).
+            candidate_path = storage.join(datasets_registry_dir, group_name)
+            index_path = storage.join(candidate_path, "index.json")
+            if await storage.exists(index_path):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"A downloaded dataset named '{group_name}' already exists in the registry",
+                )
+
+        # Compute the next version automatically
+        group_dir = storage.join(datasets_registry_dir, group_name)
+        version_label = await _compute_next_version(group_dir)
+
+        # Build destination path and asset_id
+        dest_path = storage.join(datasets_registry_dir, group_name, version_label)
+        asset_id = f"{group_name}/{version_label}"
+
+        # Eagerly create the destination directory as a reservation to prevent
+        # concurrent saves from computing the same version label (TOCTOU).
+        try:
+            await storage.makedirs(dest_path, exist_ok=False)
+        except FileExistsError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Version '{version_label}' for group '{group_name}' already exists — please retry",
+            )
+
+        asyncio.create_task(
+            _save_dataset_to_registry(
+                job_id=job_id,
+                dataset_name_secure=dataset_name_secure,
+                source_path=source_path,
+                dest_path=dest_path,
+                group_name=group_name,
+                asset_id=asset_id,
+                version_label=version_label,
+                tag=tag,
+                description=description,
+            )
+        )
+
+        return {"status": "started", "message": "Dataset save to registry started"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting dataset save to registry for job {job_id}: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to start dataset save to registry: {str(e)}")
+
+
+async def _save_dataset_to_registry(
+    job_id: str,
+    dataset_name_secure: str,
+    source_path: str,
+    dest_path: str,
+    group_name: str,
+    asset_id: str,
+    version_label: str,
+    tag: str,
+    description: Optional[str],
+):
+    """Coroutine that performs the copy and creates the version entry."""
+    await storage.copy_dir(source_path, dest_path)
+
+    version_description = description if description else f"Created from job {job_id}"
+    await asset_version_service.create_version(
+        asset_type="dataset",
+        group_name=group_name,
+        asset_id=asset_id,
+        version_label=version_label,
+        job_id=job_id,
+        description=version_description,
+        tag=tag,
+    )
+    return asset_id
+
+
+@router.post("/{job_id}/models/{model_name}/save_to_registry")
+async def save_model_to_registry(
+    job_id: str,
+    model_name: str,
+    experimentId: str,
+    target_name: Optional[str] = Query(None, description="Group name for the model in the registry"),
+    mode: str = Query("new", description="'new' to create a new entry, 'existing' to add version to existing group"),
+    tag: str = Query("latest", description="Tag to assign to the new version"),
+    description: Optional[str] = Query(None, description="Human-readable description for the version"),
+    user_and_team=Depends(get_user_and_team),
+    session: AsyncSession = Depends(get_async_session),
+):
+    """Copy a model from job's models directory to the global models registry."""
+
+    try:
+        model_name_secure = secure_filename(model_name)
+
+        # Get source path (job's models directory)
+        job_models_dir = await get_job_models_dir(job_id, experimentId)
+        source_path = storage.join(job_models_dir, model_name_secure)
+
+        if not await storage.exists(source_path):
+            raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found in job directory")
+
+        models_registry_dir = await get_models_dir()
+
+        # Resolve the group name from target_name or fall back to model_name
+        group_name = secure_filename(target_name) if target_name else model_name_secure
+
+        if mode == "existing":
+            # Verify the group exists — either in the asset versioning system
+            # or as a physical folder in the registry directory (legacy entries).
+            existing_groups = await asset_version_service.list_groups("model")
+            group_in_versions = any(g["group_name"] == group_name for g in existing_groups)
+            group_on_disk = await storage.exists(storage.join(models_registry_dir, group_name))
+            if not group_in_versions and not group_on_disk:
+                raise HTTPException(status_code=404, detail=f"Model group '{group_name}' not found in registry")
+        else:
+            # For mode="new", check that group name doesn't collide with a flat downloaded model
+            # (a flat model has an index.json at its root level).
+            candidate_path = storage.join(models_registry_dir, group_name)
+            index_path = storage.join(candidate_path, "index.json")
+            if await storage.exists(index_path):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"A downloaded model named '{group_name}' already exists in the registry",
+                )
+
+        # Compute the next version automatically
+        group_dir = storage.join(models_registry_dir, group_name)
+        version_label = await _compute_next_version(group_dir)
+
+        # Build destination path and asset_id
+        dest_path = storage.join(models_registry_dir, group_name, version_label)
+        asset_id = f"{group_name}/{version_label}"
+
+        # Eagerly create the destination directory as a reservation to prevent
+        # concurrent saves from computing the same version label (TOCTOU).
+        try:
+            await storage.makedirs(dest_path, exist_ok=False)
+        except FileExistsError:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Version '{version_label}' for group '{group_name}' already exists — please retry",
+            )
+
+        asyncio.create_task(
+            _save_model_to_registry(
+                job_id=job_id,
+                model_name_secure=model_name_secure,
+                source_path=source_path,
+                dest_path=dest_path,
+                group_name=group_name,
+                asset_id=asset_id,
+                version_label=version_label,
+                tag=tag,
+                description=description,
+            )
+        )
+
+        return {"status": "started", "message": "Model save to registry started"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error starting model save to registry for job {job_id}: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to start model save to registry: {str(e)}")
+
+
+async def _save_model_to_registry(
+    job_id: str,
+    model_name_secure: str,
+    source_path: str,
+    dest_path: str,
+    group_name: str,
+    asset_id: str,
+    version_label: str,
+    tag: str,
+    description: Optional[str],
+):
+    """Coroutine that performs the copy and creates the version entry."""
+    await storage.copy_dir(source_path, dest_path)
+
+    version_description = description if description else f"Created from job {job_id}"
+    await asset_version_service.create_version(
+        asset_type="model",
+        group_name=group_name,
+        asset_id=asset_id,
+        version_label=version_label,
+        job_id=job_id,
+        description=version_description,
+        tag=tag,
+    )
+
+    return asset_id
+
+
+@router.get("/{job_id}/files")
+async def list_job_files(job_id: str, experimentId: str, subpath: str = ""):
+    """List files and directories in a job's directory."""
+    from lab.dirs import get_job_dir
+
+    job_dir = await get_job_dir(job_id, experimentId)
+    if not await storage.exists(job_dir):
+        return {"files": [], "path": subpath}
+
+    browse_dir = job_dir
+    if subpath:
+        browse_dir = storage.join(job_dir, subpath)
+        if not await storage.exists(browse_dir):
+            return {"files": [], "path": subpath}
+
+    files = []
+    try:
+        entries = await storage.ls(browse_dir, detail=True)
+        for entry in entries:
+            if isinstance(entry, dict):
+                full_path = entry.get("name") or entry.get("path") or ""
+                name = os.path.basename(full_path.rstrip("/"))
+                is_dir = entry.get("type") == "directory"
+                size = int(entry.get("size") or 0)
+            else:
+                full_path = entry
+                name = os.path.basename(full_path.rstrip("/"))
+                is_dir = await storage.isdir(full_path)
+                size = 0
+            files.append(
+                {
+                    "name": name,
+                    "is_dir": is_dir,
+                    "size": size,
+                }
+            )
+    except Exception as e:
+        print(f"Error listing job files: {e}")
+
+    # Sort: directories first, then files, alphabetically
+    files.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+    return {"files": files, "path": subpath}
+
+
+@router.get("/{job_id}/file/{file_path:path}")
+async def get_job_file(job_id: str, file_path: str, experimentId: str):
+    """Serve a file from a job's directory."""
+    from lab.dirs import get_job_dir
+
+    job_dir = await get_job_dir(job_id, experimentId)
+    target = storage.join(job_dir, file_path)
+
+    if not await storage.exists(target) or not await storage.isfile(target):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Determine media type
+    _, ext = os.path.splitext(file_path.lower())
+    media_type_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".json": "application/json",
+        ".txt": "text/plain",
+        ".log": "text/plain",
+        ".csv": "text/csv",
+        ".py": "text/plain",
+        ".yaml": "text/plain",
+        ".yml": "text/plain",
+        ".md": "text/plain",
+        ".sh": "text/plain",
+        ".cfg": "text/plain",
+        ".ini": "text/plain",
+        ".toml": "text/plain",
+        ".pdf": "application/pdf",
+        ".zip": "application/zip",
+    }
+    media_type = media_type_map.get(ext, "application/octet-stream")
+
+    # For text-like files, return content as text
+    text_types = {
+        ".txt",
+        ".log",
+        ".csv",
+        ".py",
+        ".yaml",
+        ".yml",
+        ".md",
+        ".sh",
+        ".cfg",
+        ".ini",
+        ".toml",
+        ".json",
+        ".xml",
+        ".html",
+        ".css",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".sql",
+        ".r",
+        ".ipynb",
+    }
+    if ext in text_types:
+        try:
+            async with await storage.open(target, "r", encoding="utf-8") as f:
+                content = await f.read()
+            return Response(content, media_type=media_type)
+        except Exception:
+            pass
+
+    # For binary files, stream
+    async def generate():
+        async with await storage.open(target, "rb") as f:
+            while True:
+                chunk = await f.read(8192)
+                if not chunk:
+                    break
+                yield chunk
+
+    filename = os.path.basename(file_path)
+    return StreamingResponse(
+        generate(), media_type=media_type, headers={"Content-Disposition": f'inline; filename="{filename}"'}
+    )
+
+
+@router.get("/{job_id}/profiling_report")
+async def get_profiling_report(
+    job_id: str,
+    experimentId: str,
+    session: AsyncSession = Depends(get_async_session),
+    user_and_team: dict = Depends(get_user_and_team),
+):
+    """
+    Return the profiling_report.json from the job's profiling folder (written when
+    _TFL_PROFILING=1 and copied on lab.finish/error or when the remote trap exits).
+
+    Returns 404 if profiling was not enabled or the report is not yet available.
+    """
+    from lab.dirs import get_job_profiling_dir
+
+    profiling_dir = await get_job_profiling_dir(job_id, experimentId)
+    report_path = storage.join(profiling_dir, "profiling_report.json")
+
+    if not await storage.exists(report_path):
+        raise HTTPException(status_code=404, detail="Profiling report not found for this job")
+
+    try:
+        async with await storage.open(report_path, "r", encoding="utf-8") as f:
+            content = await f.read()
+        return json.loads(content)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read profiling report: {exc}") from exc

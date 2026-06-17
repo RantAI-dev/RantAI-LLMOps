@@ -1,0 +1,978 @@
+"""Local compute provider: runs tasks in a uv venv synced with the base environment."""
+
+import contextlib
+import fcntl
+import json
+import logging
+import os
+import re
+import signal
+import shlex
+import subprocess
+import sys
+import time
+import tempfile
+import shutil
+from typing import Any, Dict, List, Optional, Union, Callable
+
+from lab.dirs import HOME_DIR, get_local_provider_config_path, get_local_provider_root
+from transformerlab.services.process_registry import _terminate_process_tree, get_registry
+
+from .base import ComputeProvider
+from .models import (
+    ClusterConfig,
+    JobConfig,
+    ClusterStatus,
+    JobInfo,
+    ResourceInfo,
+    ClusterState,
+    JobState,
+)
+from .sandbox import make_seatbelt_preexec, wrap_command_with_bwrap, get_backend_name
+
+logger = logging.getLogger(__name__)
+
+
+def _read_local_provider_config() -> Optional[Dict[str, Any]]:
+    """
+    Read the local provider config snapshot written by `transformerlab.scripts.local_provider_config`.
+
+    This is the same JSON payload that was previously served by `/server/config`.
+    """
+    config_path = get_local_provider_config_path()
+    if not os.path.exists(config_path):
+        return None
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return json.loads(f.read())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _check_nvidia_gpu() -> bool:
+    """Return True if NVIDIA GPU is available."""
+    import shutil
+
+    if shutil.which("nvidia-smi") is None:
+        return False
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader,nounits"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        return bool(result.stdout.strip())
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
+def _check_amd_gpu() -> bool:
+    """Return True if AMD GPU (ROCm) is available."""
+    import shutil
+
+    if shutil.which("rocminfo") is None:
+        return False
+    try:
+        subprocess.run(["rocminfo"], capture_output=True, check=True, timeout=10)
+        return True
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
+def _is_dgx_spark() -> bool:
+    """Return True if running on NVIDIA DGX Spark (use cu130 PyTorch index)."""
+    try:
+        with open("/etc/dgx-release", encoding="utf-8") as f:
+            return "dgx spark" in f.read().lower()
+    except (OSError, FileNotFoundError):
+        return False
+
+
+def _get_pyproject_extra() -> str:
+    """Return the pyproject extra for the current platform (same as plugin install)."""
+    if _check_nvidia_gpu():
+        return "[nvidia]"
+    if _check_amd_gpu():
+        return "[rocm]"
+    if sys.platform == "darwin":
+        return "[cpu]"
+    return "[cpu]"
+
+
+def _get_uv_pip_install_flags() -> str:
+    """Return extra flags for uv pip install (e.g. ROCm/CUDA index)."""
+    if _check_amd_gpu():
+        return "--index https://download.pytorch.org/whl/rocm6.4 --index-strategy unsafe-best-match"
+    if _check_nvidia_gpu():
+        cuda_index = "cu130" if _is_dgx_spark() else "cu128"
+        if cuda_index == "cu130":
+            return "--index https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match"
+        else:
+            return ""
+    if not sys.platform == "darwin":
+        return "--index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match"
+    return ""
+
+
+_PYTHON_VERSION = "3.11"
+_BASE_STATE_FILE = "local_provider_base_state.json"
+_BASE_SETUP_LOCK_FILE = "local_provider_base_setup.lock"
+_LOCAL_PROVIDER_PYPROJECT = "localprovider_pyproject.toml"
+_TLAB_DIR = os.path.join(os.path.expanduser("~"), ".transformerlab")
+_MINIFORGE_ROOT = os.path.join(_TLAB_DIR, "miniforge3")
+_CONDA_BIN = os.path.join(_MINIFORGE_ROOT, "bin", "conda")
+_CONDA_ENV_DIR = os.path.join(_TLAB_DIR, "envs", "transformerlab")
+_INSTALL_LOG_FILE = "local_provider_install.log"
+
+
+def _get_base_state_path() -> str:
+    return os.path.join(get_local_provider_root(), _BASE_STATE_FILE)
+
+
+@contextlib.contextmanager
+def _base_setup_lock() -> Any:
+    lock_path = os.path.join(get_local_provider_root(), _BASE_SETUP_LOCK_FILE)
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    with open(lock_path, "w", encoding="utf-8") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _read_base_state() -> Optional[Dict[str, Any]]:
+    state_path = _get_base_state_path()
+    if not os.path.exists(state_path):
+        return None
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            return json.loads(f.read())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_base_state(*, ready: bool, message: str) -> None:
+    payload = {
+        "ready": ready,
+        "message": message,
+        "updated_at": time.time(),
+        "python_version": _PYTHON_VERSION,
+    }
+    with open(_get_base_state_path(), "w", encoding="utf-8") as f:
+        f.write(json.dumps(payload))
+
+
+def _get_install_log_path() -> str:
+    root = get_local_provider_root()
+    os.makedirs(root, exist_ok=True)
+    return os.path.join(root, _INSTALL_LOG_FILE)
+
+
+def _resolve_lab_sdk_dir(localprovider_pyproject: str) -> Optional[str]:
+    """Return sibling ``lab-sdk`` next to the api directory (monorepo or ~/.transformerlab/src layout)."""
+    lab_sdk = os.path.join(os.path.dirname(os.path.dirname(localprovider_pyproject)), "lab-sdk")
+    if os.path.exists(os.path.join(lab_sdk, "pyproject.toml")):
+        return lab_sdk
+    return None
+
+
+def _strip_transformerlab_version_pin(pyproject_path: str) -> bool:
+    """
+    Remove the ``transformerlab==...`` dependency line so ``uv pip install .[extra]`` does not
+    pull PyPI after we install from a local tree. Returns True if a line was removed.
+    """
+    text = open(pyproject_path, "r", encoding="utf-8").read()
+    lines = text.splitlines(keepends=True)
+    out: List[str] = []
+    removed = False
+    for line in lines:
+        if re.match(r'^\s*"transformerlab==', line):
+            removed = True
+            continue
+        out.append(line)
+    if removed:
+        open(pyproject_path, "w", encoding="utf-8").write("".join(out))
+    return removed
+
+
+def _run_local_provider_conda_install(source_code_dir: str) -> None:
+    installer_script = os.path.join(source_code_dir, "local_provider_conda_install.sh")
+    if not os.path.exists(installer_script):
+        raise FileNotFoundError(f"local_provider_conda_install.sh not found at {installer_script}")
+
+    cmd = ["/bin/bash", installer_script]
+    log_path = _get_install_log_path()
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        log_file.write(f"\n=== Local provider install start ({time.strftime('%Y-%m-%d %H:%M:%S')}) ===\n")
+        log_file.write(f"Command: {' '.join(cmd)}\n")
+        log_file.flush()
+        result = subprocess.run(
+            cmd,
+            cwd=source_code_dir,
+            stdout=log_file,
+            stderr=log_file,
+            text=True,
+            timeout=3600,
+        )
+        log_file.write(f"=== Local provider install end (exit={result.returncode}) ===\n")
+        log_file.flush()
+    if result.returncode != 0:
+        raise RuntimeError(f"local_provider_conda_install.sh failed with exit code {result.returncode}")
+
+
+def _is_process_zombie(pid: int) -> bool:
+    """
+    Return True if the process is a zombie/defunct process.
+
+    Uses psutil when available; if psutil is not installed or status cannot be
+    determined, returns False so callers can fall back to basic pid checks.
+    """
+    try:
+        import psutil  # type: ignore[import-not-found]
+    except Exception:
+        return False
+
+    try:
+        proc = psutil.Process(pid)
+        try:
+            status = proc.status()
+        except psutil.Error:
+            return False
+    except psutil.NoSuchProcess:
+        # Process went away between checks; treat as non-zombie here and let the
+        # caller handle it as not running.
+        return False
+
+    zombie_status = getattr(psutil, "STATUS_ZOMBIE", "zombie")
+    return status == zombie_status
+
+
+class LocalProvider(ComputeProvider):
+    """
+    Provider that runs each "cluster" (task run) in a dedicated uv venv
+    synced with the base environment (same as plugin install: uv venv + uv pip install .[extra]).
+
+    Resource fields (cpus, memory, accelerators, num_nodes, disk_size) from ClusterConfig
+    are ignored; runs use the local machine. Launches are serialized via a queue so only
+    one local task launch runs at a time.
+    """
+
+    def __init__(self, extra_config: Optional[Dict[str, Any]] = None):
+        self.extra_config = extra_config or {}
+
+    def setup(
+        self,
+        progress_callback: Optional["Callable[[str, int, str], None]"] = None,
+        force_refresh: bool = False,
+    ) -> None:
+        """
+        Perform provider-level setup for local runs.
+
+        This currently ensures the shared base uv virtual environment under
+        HOME_DIR is created and up to date. This can be slow on first run, so callers may choose
+        to invoke it ahead of time and surface progress in the UI.
+
+        Args:
+            progress_callback: Optional callback accepting (phase, percent, message)
+                for reporting coarse-grained progress information. When provided,
+                it is invoked before and after the heavy setup work.
+        """
+        if progress_callback is not None:
+            progress_callback(
+                "provider_setup_start",
+                0,
+                "Refreshing local provider base environment..."
+                if force_refresh
+                else "Preparing local provider base environment (this may take a few minutes)...",
+            )
+
+        ensure_base_venv_and_requirements(progress_callback=progress_callback, force_refresh=force_refresh)
+
+        if progress_callback is not None:
+            progress_callback(
+                "provider_setup_complete",
+                100,
+                "Local provider base environment refreshed."
+                if force_refresh
+                else "Local provider base environment is ready.",
+            )
+
+    def _get_source_code_and_pyproject(self) -> str:
+        """Return path to local-provider pyproject in the transformerlab API source tree."""
+        source_code_dir = os.environ.get("_TFL_SOURCE_CODE_DIR")
+        if not source_code_dir or not os.path.isdir(source_code_dir):
+            raise FileNotFoundError("_TFL_SOURCE_CODE_DIR is not set or not a directory; cannot sync base environment")
+        pyproject_path = os.path.join(source_code_dir, _LOCAL_PROVIDER_PYPROJECT)
+        if not os.path.exists(pyproject_path):
+            raise FileNotFoundError(f"{_LOCAL_PROVIDER_PYPROJECT} not found at {pyproject_path}")
+        return pyproject_path
+
+    def _ensure_job_venv_from_base(self, venv_path: str, localprovider_pyproject: str) -> None:
+        """Create or refresh a per-job venv using the local-provider pinned manifest."""
+        os.makedirs(venv_path, exist_ok=True)
+
+        if not os.path.exists(_CONDA_BIN):
+            raise FileNotFoundError(f"Conda executable not found at {_CONDA_BIN}")
+
+        # Create per-job uv venv while running under the local-provider conda env.
+        subprocess.run(
+            [
+                str(_CONDA_BIN),
+                "run",
+                "--prefix",
+                str(_CONDA_ENV_DIR),
+                "uv",
+                "venv",
+                venv_path,
+                "--python",
+                _PYTHON_VERSION,
+                "--clear",
+            ],
+            cwd=os.path.dirname(venv_path),
+            check=True,
+            capture_output=True,
+            timeout=300,
+        )
+
+        additional_flags = _get_uv_pip_install_flags()
+        extra = _get_pyproject_extra()
+
+        # Use uv pip with an explicit --python target so installs go into this venv.
+        python_bin = os.path.join(venv_path, "bin", "python")
+        env = os.environ.copy()
+
+        tmp_project_dir = tempfile.mkdtemp(prefix="tfl-local-provider-job-")
+        try:
+            shutil.copy2(localprovider_pyproject, os.path.join(tmp_project_dir, "pyproject.toml"))
+            shutil.copytree(
+                os.path.join(os.path.dirname(localprovider_pyproject), "tlab_package_init"),
+                os.path.join(tmp_project_dir, "tlab_package_init"),
+            )
+        except Exception:
+            shutil.rmtree(tmp_project_dir, ignore_errors=True)
+            raise
+
+        tmp_pyproject = os.path.join(tmp_project_dir, "pyproject.toml")
+        lab_sdk_dir = _resolve_lab_sdk_dir(localprovider_pyproject)
+        lab_sdk_editable_cmd: Optional[List[str]] = None
+        if lab_sdk_dir is not None:
+            _strip_transformerlab_version_pin(tmp_pyproject)
+            lab_sdk_editable_cmd = [
+                str(_CONDA_BIN),
+                "run",
+                "--prefix",
+                str(_CONDA_ENV_DIR),
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                python_bin,
+                "-e",
+                str(lab_sdk_dir),
+            ]
+            ed_result = subprocess.run(
+                lab_sdk_editable_cmd,
+                cwd=tmp_project_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            if ed_result.returncode != 0:
+                shutil.rmtree(tmp_project_dir, ignore_errors=True)
+                raise RuntimeError(
+                    "uv pip install -e lab-sdk failed for job venv: "
+                    f"{ed_result.stderr or ed_result.stdout or 'unknown error'}"
+                )
+
+        install_cmd = [str(_CONDA_BIN), "run", "--prefix", str(_CONDA_ENV_DIR), "uv", "pip", "install"]
+        if additional_flags:
+            install_cmd.extend(shlex.split(additional_flags))
+        install_cmd.extend(["--python", python_bin, f".{extra}"])
+
+        result = subprocess.run(
+            install_cmd,
+            cwd=tmp_project_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=900,
+        )
+        if result.returncode != 0:
+            shutil.rmtree(tmp_project_dir, ignore_errors=True)
+            raise RuntimeError(
+                f"uv pip install failed for job venv: {result.stderr or result.stdout or 'unknown error'}"
+            )
+
+        # `uv pip install .[extra]` can pull transformerlab from PyPI as a transitive dep (same version
+        # pin), replacing the editable lab-sdk with a flat site-packages copy. Re-apply -e last.
+        if lab_sdk_editable_cmd is not None:
+            ed_final = subprocess.run(
+                lab_sdk_editable_cmd,
+                cwd=tmp_project_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            if ed_final.returncode != 0:
+                shutil.rmtree(tmp_project_dir, ignore_errors=True)
+                raise RuntimeError(
+                    "uv pip install -e lab-sdk (post-deps) failed for job venv: "
+                    f"{ed_final.stderr or ed_final.stdout or 'unknown error'}"
+                )
+
+        shutil.rmtree(tmp_project_dir, ignore_errors=True)
+
+    def launch_cluster(
+        self,
+        cluster_name: str,
+        config: ClusterConfig,
+        on_status: Optional[Callable[[str], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a uv venv synced with base, run setup (if any), then run command in background.
+        workspace_dir in provider_config is the job directory (per-run workspace).
+        Resource fields (cpus, memory, accelerators, etc.) are ignored.
+        Returns dict with job_id (cluster_name) and pid for status polling.
+
+        on_status: optional callback invoked with a human-readable status string
+        at each lifecycle phase (e.g. "Preparing environment", "Running setup").
+        """
+        job_dir = (config.provider_config or {}).get("workspace_dir")
+        if not job_dir or not os.path.isdir(job_dir):
+            raise ValueError("Local provider requires workspace_dir (job directory) in provider_config")
+
+        def _status(msg: str) -> None:
+            if on_status:
+                try:
+                    on_status(msg)
+                except Exception:
+                    pass
+
+        _status("Preparing environment")
+
+        # Use a per-job workspace directory as HOME for local runs so tools that
+        # rely on ~ and $HOME resolve inside the job workspace instead of the
+        # user's real home directory. This makes it easier to clone and run
+        # code in an isolated workspace for each job.
+        workspace_home = os.path.join(job_dir, "workspace")
+        os.makedirs(workspace_home, exist_ok=True)
+
+        # Create the venv inside the per-job workspace HOME directory so that all
+        # environment state (including Python packages) lives under HOME.
+        venv_path = os.path.join(workspace_home, "venv")
+
+        # Ensure shared local-provider base environment exists (one-time for all orgs),
+        # then create a per-job venv from the pinned local-provider manifest.
+        ensure_base_venv_and_requirements()
+        localprovider_pyproject = self._get_source_code_and_pyproject()
+        self._ensure_job_venv_from_base(venv_path, localprovider_pyproject)
+
+        venv_bin = os.path.join(venv_path, "bin")
+        env = os.environ.copy()
+        env.update(config.env_vars or {})
+        env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
+        env["VIRTUAL_ENV"] = venv_path
+        env["HOME"] = workspace_home
+        env["UV_CACHE_DIR"] = os.path.join(get_local_provider_root(), "uv_cache")
+        # Share the host user's cache directories so that each run does not
+        # re-download large assets (HF models, pip wheels, etc.).  Fixes #1604.
+        real_home = os.path.expanduser("~")
+        env.setdefault("HF_HOME", os.path.join(real_home, ".cache", "huggingface"))
+        env.setdefault("XDG_CACHE_HOME", os.path.join(real_home, ".cache"))
+
+        # Build sandbox helpers for this job.
+        # extra_read_paths: shared caches that need to be visible inside the sandbox.
+        _lab_sdk_dir = _resolve_lab_sdk_dir(localprovider_pyproject)
+        _source_code_dir = os.environ.get("_TFL_SOURCE_CODE_DIR", "")
+        _sandbox_read_paths = [
+            env["UV_CACHE_DIR"],
+            _CONDA_ENV_DIR,
+            venv_path,
+            # user-installed binaries and libs (e.g. ~/.local/bin/uv, ~/.local/share/uv).
+            os.path.join(real_home, ".local"),
+            # lab-sdk is installed as an editable install; the .pth file points back to
+            # this source tree, so the sandbox must be able to read it at import time.
+            _lab_sdk_dir or "",
+            _source_code_dir,
+        ]
+        _sandbox_backend = get_backend_name()
+        if _sandbox_backend != "none":
+            print(f"[LocalProvider] Sandbox backend: {_sandbox_backend} (job_dir={job_dir})")
+        else:
+            print("[LocalProvider] Sandbox backend: none (falling back to HOME-override isolation)")
+
+        # The lab SDK writes job/experiment data under ~/.transformerlab (org workspace).
+        # This path must be writable in both sandbox backends.
+        # HF_HOME and XDG_CACHE_HOME point at the user's real ~/.cache so downloads
+        # are shared across jobs; they need rw so first-time model/asset downloads
+        # can populate the cache.
+        _sandbox_rw_paths = [
+            job_dir,
+            env["UV_CACHE_DIR"],
+            _TLAB_DIR,
+            env.get("HF_HOME", ""),
+            env.get("XDG_CACHE_HOME", ""),
+        ]
+
+        # macOS: preexec_fn applies Seatbelt policy inside the child before exec.
+        # workspace_home is the subprocess CWD (also $HOME) and must be rw; job_dir is rw
+        # so the provider can write stdout.log/stderr.log/pid alongside it.
+        # UV_CACHE_DIR needs rw (uv pip install writes to it) even though it's also in
+        # _sandbox_read_paths (which is used for bwrap ro-bind on Linux).
+        _sandbox_preexec = make_seatbelt_preexec(
+            workspace_home,
+            _sandbox_read_paths,
+            extra_rw_paths=_sandbox_rw_paths,
+        )
+
+        def _wrap(base_cmd: list[str]) -> list[str]:
+            """Wrap command with bwrap on Linux; on macOS preexec_fn handles it."""
+            return wrap_command_with_bwrap(
+                base_cmd,
+                workspace_dir=workspace_home,
+                extra_read_paths=_sandbox_read_paths,
+                extra_rw_paths=_sandbox_rw_paths,
+            )
+
+        # Open log files early so setup output is visible to get_job_logs / tunnel_info
+        # while packages are still being installed.
+        stdout_log = open(os.path.join(job_dir, "stdout.log"), "w")
+        stderr_log = open(os.path.join(job_dir, "stderr.log"), "w")
+        try:
+            if config.setup:
+                _status("Running setup")
+                print(f"[LocalProvider] Running setup in {workspace_home}: {config.setup!r}")
+                strict_setup_script = f"set -e -o pipefail; {config.setup}"
+                setup_cmd = _wrap(["/bin/bash", "-c", strict_setup_script])
+                if setup_cmd[0] != "/bin/bash":
+                    print(f"[LocalProvider] Setup sandboxed via {_sandbox_backend}: {setup_cmd[0]}")
+                setup_result = subprocess.run(
+                    setup_cmd,
+                    cwd=workspace_home,
+                    env=env,
+                    stdout=stdout_log,
+                    stderr=stderr_log,
+                    text=True,
+                    timeout=600,
+                    preexec_fn=_sandbox_preexec,
+                )
+
+                # Flush so tunnel_info can see the output immediately
+                stdout_log.flush()
+                stderr_log.flush()
+
+                if setup_result.returncode != 0:
+                    tail_parts: list[str] = []
+                    _n = 25
+
+                    def _tail_file(label: str, name: str) -> None:
+                        path = os.path.join(job_dir, name)
+                        try:
+                            with open(path) as f:
+                                lines = f.readlines()
+                            chunk = "".join(lines[-_n:])
+                            if chunk.strip():
+                                tail_parts.append(f"--- {label} (last {_n} lines of {name}) ---\n{chunk}")
+                        except OSError:
+                            pass
+
+                    _tail_file("stderr", "stderr.log")
+                    _tail_file("stdout", "stdout.log")
+                    tail = "\n".join(tail_parts) if tail_parts else "(no log output captured)"
+                    print(f"[LocalProvider] Setup failed with code {setup_result.returncode}")
+                    raise RuntimeError(f"Setup failed (exit {setup_result.returncode}). Last lines:\n{tail}")
+
+            # Start main run command in background (detached subprocess)
+            _status("Starting service")
+            print(f"[LocalProvider] Launching run in {workspace_home}: {config.run!r}")
+            run_cmd = _wrap(["/bin/bash", "-c", config.run or "true"])
+            if run_cmd[0] != "/bin/bash":
+                print(f"[LocalProvider] Run sandboxed via {_sandbox_backend}: {run_cmd[0]}")
+            proc = subprocess.Popen(
+                run_cmd,
+                cwd=workspace_home,
+                env=env,
+                stdout=stdout_log,
+                stderr=stderr_log,
+                start_new_session=True,
+                preexec_fn=_sandbox_preexec,
+            )
+        finally:
+            # Close parent-side file descriptors after setup/launch. The child
+            # process keeps its own inherited descriptors for log streaming.
+            stdout_log.close()
+            stderr_log.close()
+
+        pid = proc.pid
+        with open(os.path.join(job_dir, "pid"), "w") as f:
+            f.write(str(pid))
+        print(f"[LocalProvider] Process started with pid={pid}, logs at {job_dir}/stdout.log")
+        _org_id = (config.provider_config or {}).get("org_id", "")
+        _exp_id = (config.provider_config or {}).get("experiment_id", "")
+        _job_id = (config.provider_config or {}).get("job_id", "")
+        if _org_id and _exp_id and _job_id:
+            _reg_key = f"local:{_org_id}:{_exp_id}:{_job_id}"
+            get_registry().register(_reg_key, proc, workspace_dir=job_dir)
+        else:
+            get_registry().register(f"local:{job_dir}", proc, workspace_dir=job_dir)
+
+        return {
+            "cluster_name": cluster_name,
+            "job_id": cluster_name,
+            "pid": pid,
+            "status": "submitted",
+            "message": "Local job started",
+        }
+
+    def stop_cluster(self, cluster_name: str) -> Dict[str, Any]:
+        """Stop the local process tree for this cluster (SIGTERM)."""
+        job_dir = self.extra_config.get("workspace_dir")
+        if not job_dir:
+            return {
+                "cluster_name": cluster_name,
+                "message": "workspace_dir (job dir) not set",
+                "status": "unknown",
+            }
+        pid_file = os.path.join(job_dir, "pid")
+        if not os.path.exists(pid_file):
+            return {
+                "cluster_name": cluster_name,
+                "message": "No pid file found",
+                "status": "stopped",
+            }
+        try:
+            with open(pid_file, "r", encoding="utf-8") as f:
+                pid = int(f.read().strip())
+            get_registry().kill_by_workspace(job_dir)
+            _terminate_process_tree(pid, signal.SIGTERM)
+            return {"cluster_name": cluster_name, "status": "stopped", "message": "Sent SIGTERM to process tree"}
+        except (ValueError, ProcessLookupError, OSError) as e:
+            return {"cluster_name": cluster_name, "status": "stopped", "message": str(e)}
+
+    def get_cluster_status(self, cluster_name: str) -> ClusterStatus:
+        """Return UP if the process is still running, DOWN otherwise."""
+        job_dir = self.extra_config.get("workspace_dir")
+        if not job_dir:
+            return ClusterStatus(
+                cluster_name=cluster_name,
+                state=ClusterState.UNKNOWN,
+                status_message="workspace_dir (job dir) not set",
+            )
+        pid_file = os.path.join(job_dir, "pid")
+        if not os.path.exists(pid_file):
+            return ClusterStatus(
+                cluster_name=cluster_name,
+                state=ClusterState.UNKNOWN,
+                status_message="No pid file (cluster may be starting)",
+            )
+        try:
+            with open(pid_file, "r", encoding="utf-8") as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)
+            if _is_process_zombie(pid):
+                raise ProcessLookupError("Process is zombie/defunct")
+            return ClusterStatus(
+                cluster_name=cluster_name,
+                state=ClusterState.UP,
+                status_message="Process running",
+            )
+        except (ValueError, ProcessLookupError, OSError):
+            return ClusterStatus(
+                cluster_name=cluster_name,
+                state=ClusterState.DOWN,
+                status_message="Process not running",
+            )
+
+    def get_clusters_detailed(self) -> List[Dict[str, Any]]:
+        """
+        Return a single "local machine" cluster snapshot.
+
+        We model the local machine as a fixed (non-elastic) cluster so the UI can use the same
+        response type as remote providers: a list of clusters with nodes + resource summaries.
+        """
+        cfg = _read_local_provider_config()
+        if not cfg:
+            return []
+
+        def _bytes_to_gb(value: Any) -> float:
+            try:
+                v = float(value)
+                return round(v / (1024.0**3), 2)
+            except Exception:
+                return 0.0
+
+        cpu_count = int(cfg.get("cpu_count") or 0)
+
+        mem = cfg.get("memory") or {}
+        mem_total_b = mem.get("total") or 0
+        mem_avail_b = mem.get("available") or 0
+        mem_used_b = max(float(mem_total_b) - float(mem_avail_b), 0.0) if mem_total_b and mem_avail_b else 0.0
+
+        gpu_list = cfg.get("gpu") or []
+        gpu_counts: Dict[str, int] = {}
+        if isinstance(gpu_list, list):
+            for g in gpu_list:
+                if not isinstance(g, dict):
+                    continue
+                name = g.get("name")
+                if not name or name == "cpu":
+                    continue
+                gpu_counts[str(name)] = gpu_counts.get(str(name), 0) + 1
+
+        node_name = str(cfg.get("name") or "local")
+
+        cluster: Dict[str, Any] = {
+            "cluster_id": "local",
+            "cluster_name": "Local Machine",
+            "backend_type": "local",
+            "elastic_enabled": False,
+            "max_nodes": 1,
+            "nodes": [
+                {
+                    "node_name": node_name,
+                    "is_fixed": True,
+                    "is_active": True,
+                    "state": "UP",
+                    "reason": "",
+                    "resources": {
+                        "cpus_total": cpu_count,
+                        "cpus_allocated": 0,
+                        "gpus": gpu_counts,
+                        "memory_gb_total": _bytes_to_gb(mem_total_b),
+                        "memory_gb_allocated": _bytes_to_gb(mem_used_b),
+                    },
+                }
+            ],
+            # Keep the full snapshot for richer UI use (GPU names, CUDA version, etc.)
+            "provider_data": cfg,
+        }
+
+        return [cluster]
+
+    def get_cluster_resources(self, cluster_name: str) -> ResourceInfo:
+        """Return minimal local resource info. Resources are not applicable for local runs."""
+        return ResourceInfo(
+            cluster_name=cluster_name,
+            gpus=[],
+            cpus=None,
+            memory_gb=None,
+            disk_gb=None,
+            num_nodes=1,
+        )
+
+    def submit_job(self, cluster_name: str, job_config: JobConfig) -> Dict[str, Any]:
+        """Not used for local (launch_cluster runs the command directly)."""
+        raise NotImplementedError("Local provider runs the command in launch_cluster; submit_job is not used")
+
+    def get_job_logs(
+        self,
+        cluster_name: str,
+        job_id: Union[str, int],
+        tail_lines: Optional[int] = None,
+        follow: bool = False,
+    ) -> Union[str, Any]:
+        """Read stdout/stderr logs from job directory."""
+        job_dir = self.extra_config.get("workspace_dir")
+        if not job_dir:
+            print(f"[LocalProvider.get_job_logs] workspace_dir not set for cluster={cluster_name}")
+            return "workspace_dir (job dir) not set"
+        job_dir = str(job_dir)
+        log_file = os.path.join(job_dir, "stdout.log")
+        err_file = os.path.join(job_dir, "stderr.log")
+        stdout_exists = os.path.exists(log_file)
+        stderr_exists = os.path.exists(err_file)
+        if not stdout_exists and not stderr_exists:
+            print(f"[LocalProvider.get_job_logs] No log files in {job_dir}")
+            return "No log files found"
+        lines = []
+        # Put stderr first (setup messages like git hints) so that stdout
+        # (which grows with runtime output) is at the end and new content
+        # appears at the bottom of the log view.
+        if stderr_exists:
+            with open(err_file, "r", encoding="utf-8") as f:
+                lines.append(f.read())
+        if stdout_exists:
+            with open(log_file, "r", encoding="utf-8") as f:
+                lines.append(f.read())
+        out = "\n".join(lines)
+        total_lines = out.count("\n")
+        if tail_lines is not None:
+            out_lines = out.splitlines()
+            out = "\n".join(out_lines[-tail_lines:])
+        print(
+            f"[LocalProvider.get_job_logs] cluster={cluster_name}: "
+            f"stdout={stdout_exists} ({os.path.getsize(log_file) if stdout_exists else 0}B), "
+            f"stderr={stderr_exists} ({os.path.getsize(err_file) if stderr_exists else 0}B), "
+            f"total_lines={total_lines}, tail_lines={tail_lines}"
+        )
+        return out
+
+    def cancel_job(self, cluster_name: str, job_id: Union[str, int]) -> Dict[str, Any]:
+        """Send SIGTERM to the local process."""
+        self.stop_cluster(cluster_name)
+        return {"job_id": job_id, "cluster_name": cluster_name, "status": "cancelled"}
+
+    def list_jobs(self, cluster_name: str) -> List[JobInfo]:
+        """Return a single job for this cluster (running or completed)."""
+        status = self.get_cluster_status(cluster_name)
+        state = JobState.RUNNING if status.state == ClusterState.UP else JobState.COMPLETED
+        return [
+            JobInfo(
+                job_id=cluster_name,
+                job_name=cluster_name,
+                state=state,
+                cluster_name=cluster_name,
+            )
+        ]
+
+    def check(self) -> tuple[bool, str | None]:
+        """Local provider is available local config exists."""
+        config_path = get_local_provider_config_path()
+        if os.path.exists(config_path):
+            return True, None
+        # Backward-compat: allow existing installs that still have the file in HOME_DIR.
+        legacy_config_path = os.path.join(HOME_DIR, "local_provider_config.json")
+        if os.path.exists(legacy_config_path):
+            return True, None
+        reason = (
+            f"Local provider check failed: config file not found at {config_path} or legacy path {legacy_config_path}"
+        )
+        logger.warning(reason)
+        return False, reason
+
+
+def ensure_base_venv_and_requirements(
+    progress_callback: Optional[Callable[[str, int, str], None]] = None,
+    force_refresh: bool = False,
+) -> str:
+    """
+    Ensure the shared conda base environment for local provider exists and is up to date.
+
+    This setup is common across all teams and is provisioned at:
+        ~/.transformerlab/envs/transformerlab
+
+    Returns the path to the conda environment directory.
+    """
+    if progress_callback is not None:
+        progress_callback(
+            "provider_setup_resolve_project",
+            10,
+            "Resolving Transformer Lab project metadata...",
+        )
+
+    pyproject_path = LocalProvider()._get_source_code_and_pyproject()
+    local_provider_root = get_local_provider_root()
+    os.makedirs(local_provider_root, exist_ok=True)
+
+    source_code_dir = os.path.dirname(pyproject_path)
+    if not os.path.exists(source_code_dir):
+        raise FileNotFoundError(f"Source code directory not found at {source_code_dir}")
+
+    with _base_setup_lock():
+        base_state = _read_base_state()
+        if not force_refresh and base_state and base_state.get("ready"):
+            if progress_callback is not None:
+                progress_callback(
+                    "provider_setup_reused",
+                    100,
+                    "Reusing existing shared local provider base environment.",
+                )
+            return _CONDA_ENV_DIR
+
+        if force_refresh:
+            if progress_callback is not None:
+                progress_callback(
+                    "provider_setup_clean",
+                    5,
+                    "Cleaning up existing environment for fresh install...",
+                )
+            # Delete the conda environment directory so the install starts from scratch.
+            if os.path.exists(_CONDA_ENV_DIR):
+                shutil.rmtree(_CONDA_ENV_DIR, ignore_errors=True)
+            # Delete the install log so it reflects only the fresh install.
+            install_log = _get_install_log_path()
+            if os.path.exists(install_log):
+                try:
+                    os.unlink(install_log)
+                except OSError:
+                    pass
+            # Delete the config JSON so it is regenerated after the fresh install.
+            config_json = get_local_provider_config_path()
+            if os.path.exists(config_json):
+                try:
+                    os.unlink(config_json)
+                except OSError:
+                    pass
+            # Delete the base state file so there is no stale "ready" marker.
+            base_state_path = _get_base_state_path()
+            if os.path.exists(base_state_path):
+                try:
+                    os.unlink(base_state_path)
+                except OSError:
+                    pass
+
+        if progress_callback is not None:
+            progress_callback(
+                "provider_setup_conda_install",
+                25,
+                "Installing/updating local provider conda base environment...",
+            )
+
+        if progress_callback is not None:
+            progress_callback(
+                "provider_setup_install_deps",
+                60,
+                "Installing conda environment, local provider dependencies, and CUDA (if applicable)...",
+            )
+        _run_local_provider_conda_install(source_code_dir)
+
+        # Always ensure the local provider config snapshot is generated via the base conda env.
+        # This uses the same logic as /server/info but runs inside the shared env and
+        # writes the result to HOME_DIR/local_provider/local_provider_config.json.
+        python_bin = os.path.join(_CONDA_ENV_DIR, "bin", "python")
+        script_path = os.path.join(
+            source_code_dir, "transformerlab", "compute_providers", "services", "local", "local_provider_config.py"
+        )
+        env = os.environ.copy()
+        venv_bin = os.path.join(_CONDA_ENV_DIR, "bin")
+        env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
+
+        if progress_callback is not None:
+            progress_callback(
+                "provider_setup_collect_metrics",
+                90,
+                "Collecting local machine metrics for the provider...",
+            )
+
+        result = subprocess.run(
+            [python_bin, script_path],
+            cwd=source_code_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                "Failed to generate local provider config "
+                f"(exit {result.returncode}): {result.stderr or result.stdout or 'unknown error'}"
+            )
+
+        _write_base_state(
+            ready=True,
+            message="Base environment prepared and local provider config generated.",
+        )
+
+    if progress_callback is not None:
+        progress_callback(
+            "provider_setup_done",
+            100,
+            "Local provider base environment and metrics are ready.",
+        )
+
+    return _CONDA_ENV_DIR
