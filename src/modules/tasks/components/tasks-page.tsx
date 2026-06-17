@@ -3,6 +3,8 @@
 import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useTasks } from "@/modules/tasks/hooks/use-tasks";
 import { cn } from "@/lib/utils";
 
@@ -33,6 +35,9 @@ export function TasksPage() {
     retryTask,
     cloneTask,
     deleteTask,
+    isLoading,
+    isError,
+    reload,
   } = useTasks();
 
   const showEmpty = tasks.length === 0;
@@ -55,13 +60,19 @@ export function TasksPage() {
 
       <TaskSummaryCards tasks={tasks} />
 
-      <TaskFiltersBar
-        filters={filters}
-        onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
-        onReset={resetFilters}
-      />
+      {!isLoading && !isError ? (
+        <TaskFiltersBar
+          filters={filters}
+          onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
+          onReset={resetFilters}
+        />
+      ) : null}
 
-      {showFilteredEmpty ? (
+      {isLoading ? (
+        <LoadingState label="Loading tasks…" />
+      ) : isError ? (
+        <ErrorState onRetry={reload} />
+      ) : showFilteredEmpty ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
           No tasks match your filters.{" "}
           <button

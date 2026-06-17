@@ -1,11 +1,14 @@
 "use client";
 
 import { Boxes, Cpu, Plus, Server, Star, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { USE_REAL_API } from "@/lib/api/config";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
+import { useResourceFetch } from "@/lib/use-resource-fetch";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import {
   fetchComputeProviders,
@@ -43,13 +46,8 @@ function makeId() {
 
 export function ComputePage() {
   const [providers, setProviders] = useState<ComputeProvider[]>(seedComputeProviders);
+  const providersFetch = useResourceFetch(setProviders, fetchComputeProviders);
   const [isAddOpen, setIsAddOpen] = useState(false);
-
-  // Load real data only when the API flag is on; mock seed renders instantly.
-  useEffect(() => {
-    if (!USE_REAL_API) return;
-    fetchComputeProviders().then(setProviders).catch(() => {});
-  }, []);
 
   const summary = useMemo(() => {
     const localGpus = providers
@@ -125,16 +123,33 @@ export function ComputePage() {
         ))}
       </div>
 
-      <div className="space-y-3">
-        {providers.map((provider) => (
-          <ProviderCard
-            key={provider.id}
-            provider={provider}
-            onSetDefault={() => setDefault(provider.id)}
-            onRemove={() => removeProvider(provider.id)}
-          />
-        ))}
-      </div>
+      {providersFetch.isLoading ? (
+        <LoadingState label="Loading compute providers…" />
+      ) : providersFetch.isError ? (
+        <ErrorState onRetry={providersFetch.reload} />
+      ) : providers.length === 0 ? (
+        <EmptyState
+          icon={Server}
+          title="No compute providers"
+          description="Add a provider to start running training & inference jobs."
+          action={
+            <Button type="button" size="sm" onClick={() => setIsAddOpen(true)}>
+              <Plus className="size-4" /> Add provider
+            </Button>
+          }
+        />
+      ) : (
+        <div className="space-y-3">
+          {providers.map((provider) => (
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              onSetDefault={() => setDefault(provider.id)}
+              onRemove={() => removeProvider(provider.id)}
+            />
+          ))}
+        </div>
+      )}
 
       <AddProviderSheet open={isAddOpen} onClose={() => setIsAddOpen(false)} onAdd={addProvider} />
     </div>

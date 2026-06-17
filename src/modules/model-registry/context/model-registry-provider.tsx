@@ -4,14 +4,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
 
-import { USE_REAL_API } from "@/lib/api/config";
+import { useResourceFetch } from "@/lib/use-resource-fetch";
 import { computeSummaryStats, filterModels, generateId } from "@/modules/model-registry/lib/utils";
 import {
   fetchModels,
@@ -84,23 +83,23 @@ type ModelRegistryContextValue = {
     owner: string;
   }) => string;
   showToast: (toast: Omit<ToastMessage, "id">) => void;
+  modelsLoading: boolean;
+  modelsError: boolean;
+  reloadModels: () => void;
 };
 
 const ModelRegistryContext = createContext<ModelRegistryContextValue | null>(null);
 
 export function ModelRegistryProvider({ children }: { children: ReactNode }) {
   const [models, setModels] = useState<RegistryModel[]>(seedModels);
+  const { isLoading: modelsLoading, isError: modelsError, reload: reloadModels } = useResourceFetch(
+    setModels,
+    fetchModels
+  );
   const [filters, setFilters] = useState<ModelFilters>(defaultFilters);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isRegisterLocalOpen, setIsRegisterLocalOpen] = useState(false);
   const [archiveTargetId, setArchiveTargetId] = useState<string | null>(null);
-
-  // Load real data only when the API flag is on. Mock mode uses the sync seed
-  // above, so there's no empty flash.
-  useEffect(() => {
-    if (!USE_REAL_API) return;
-    fetchModels().then(setModels).catch(() => {});
-  }, []);
 
   const showToast = useCallback((message: Omit<ToastMessage, "id">) => {
     const options = message.description ? { description: message.description } : undefined;
@@ -394,6 +393,9 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       runEvaluation,
       registerLocalModel,
       showToast,
+      modelsLoading,
+      modelsError,
+      reloadModels,
       ...hf,
     }),
     [
@@ -412,6 +414,9 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       runEvaluation,
       registerLocalModel,
       showToast,
+      modelsLoading,
+      modelsError,
+      reloadModels,
       hf,
     ]
   );

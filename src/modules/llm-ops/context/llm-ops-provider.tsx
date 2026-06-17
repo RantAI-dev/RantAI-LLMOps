@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { USE_REAL_API } from "@/lib/api/config";
+import { useResourceFetch } from "@/lib/use-resource-fetch";
 import {
   fetchExperiments,
   saveExperimentNotes,
@@ -110,13 +110,28 @@ type LlmOpsContextValue = {
   deleteExperiment: (id: string) => void;
   changeExperimentStatus: (id: string, status: Experiment["status"]) => void;
   appendExperimentActivity: (experimentId: string, type: string, message: string) => void;
+  tasksLoading: boolean;
+  tasksError: boolean;
+  reloadTasks: () => void;
+  experimentsLoading: boolean;
+  experimentsError: boolean;
+  reloadExperiments: () => void;
 };
 
 const LlmOpsContext = createContext<LlmOpsContextValue | null>(null);
 
 export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>(seedTasks);
+  const { isLoading: tasksLoading, isError: tasksError, reload: reloadTasks } = useResourceFetch(
+    setTasks,
+    fetchTasks
+  );
   const [experiments, setExperiments] = useState<Experiment[]>(seedExperiments);
+  const {
+    isLoading: experimentsLoading,
+    isError: experimentsError,
+    reload: reloadExperiments,
+  } = useResourceFetch(setExperiments, fetchExperiments);
   const [taskFilters, setTaskFilters] = useState<TaskFilters>(defaultTaskFilters);
   const [experimentFilters, setExperimentFilters] =
     useState<ExperimentFilters>(defaultExperimentFilters);
@@ -131,14 +146,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const [deleteExperimentTargetId, setDeleteExperimentTargetId] = useState<string | null>(
     null
   );
-
-  // Load real data only when the API flag is on. Mock mode uses the sync seed
-  // above, so there's no empty flash. (async setState in the callback is fine.)
-  useEffect(() => {
-    if (!USE_REAL_API) return;
-    fetchExperiments().then(setExperiments).catch(() => {});
-    fetchTasks().then(setTasks).catch(() => {});
-  }, []);
 
   const getExperimentById = useCallback(
     (id: string) => experiments.find((e) => e.id === id),
@@ -732,6 +739,12 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       deleteExperiment,
       changeExperimentStatus,
       appendExperimentActivity,
+      tasksLoading,
+      tasksError,
+      reloadTasks,
+      experimentsLoading,
+      experimentsError,
+      reloadExperiments,
     }),
     [
       tasks,
@@ -769,6 +782,12 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       deleteExperiment,
       changeExperimentStatus,
       appendExperimentActivity,
+      tasksLoading,
+      tasksError,
+      reloadTasks,
+      experimentsLoading,
+      experimentsError,
+      reloadExperiments,
     ]
   );
 

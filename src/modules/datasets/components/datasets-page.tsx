@@ -4,6 +4,8 @@ import { Database, Download, Plus } from "lucide-react";
 import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
 import { CreateDatasetWizard } from "@/modules/datasets/components/create-dataset-wizard";
 import { ImportHuggingFaceDatasetSheet } from "@/modules/datasets/components/import-huggingface-dataset-sheet";
 import { DatasetCard } from "@/modules/datasets/components/dataset-card";
@@ -69,6 +71,9 @@ export function DatasetsPage({
     removeRagDocument,
     updateRagIndexConfig,
     reindexRagKnowledgeBase,
+    datasetsLoading,
+    datasetsError,
+    reloadDatasets,
   } = useDatasets();
 
   const { setIsCreateExperimentOpen } = useLlmOps();
@@ -142,13 +147,19 @@ export function DatasetsPage({
 
         <DatasetSummaryCards datasets={datasets} />
 
-        <DatasetFiltersBar
-          filters={filters}
-          onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
-          onReset={resetFilters}
-        />
+        {!datasetsLoading && !datasetsError ? (
+          <DatasetFiltersBar
+            filters={filters}
+            onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
+            onReset={resetFilters}
+          />
+        ) : null}
 
-        {showEmpty ? (
+        {datasetsLoading ? (
+          <LoadingState label="Loading datasets…" />
+        ) : datasetsError ? (
+          <ErrorState onRetry={reloadDatasets} />
+        ) : showEmpty ? (
           <EmptyState
             onCreate={() => setIsCreateWizardOpen(true)}
             onImportHf={() => setIsHfImportOpen(true)}

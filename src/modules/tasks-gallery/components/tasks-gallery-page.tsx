@@ -1,10 +1,12 @@
 "use client";
 
 import { CheckCircle2, Search, Sparkles, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import { USE_REAL_API } from "@/lib/api/config";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
+import { useResourceFetch } from "@/lib/use-resource-fetch";
 import { FilterSelect } from "@/modules/tasks/components/filter-select";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
@@ -33,15 +35,10 @@ const DEFAULT_FILTERS: GalleryFilters = {
 export function TasksGalleryPage() {
   const { experiments, createTask } = useLlmOps();
   const [galleryTasks, setGalleryTasks] = useState<GalleryTask[]>(seedGalleryTasks);
+  const galleryFetch = useResourceFetch(setGalleryTasks, fetchGalleryTasks);
   const [filters, setFilters] = useState<GalleryFilters>(DEFAULT_FILTERS);
   const [importTask, setImportTask] = useState<GalleryTask | null>(null);
   const [imported, setImported] = useState<string | null>(null);
-
-  // Load real data only when the API flag is on; mock seed renders instantly.
-  useEffect(() => {
-    if (!USE_REAL_API) return;
-    fetchGalleryTasks().then(setGalleryTasks).catch(() => {});
-  }, []);
 
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
@@ -132,7 +129,11 @@ export function TasksGalleryPage() {
         />
       </div>
 
-      {filtered.length === 0 ? (
+      {galleryFetch.isLoading ? (
+        <LoadingState label="Loading recipes…" />
+      ) : galleryFetch.isError ? (
+        <ErrorState onRetry={galleryFetch.reload} />
+      ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
           No recipes match your filters.{" "}
           <button

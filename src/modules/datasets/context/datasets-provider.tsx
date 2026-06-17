@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { USE_REAL_API } from "@/lib/api/config";
+import { useResourceFetch } from "@/lib/use-resource-fetch";
 import {
   fetchDatasets,
   seedDatasets,
@@ -108,12 +108,20 @@ type DatasetsContextValue = {
   updateRagIndexConfig: (datasetId: string, config: Partial<RagIndexConfig>) => void;
   reindexRagKnowledgeBase: (datasetId: string) => Promise<void>;
   queryRag: (datasetId: string, query: string) => { answer: string; results: RagQueryResult[] } | null;
+  datasetsLoading: boolean;
+  datasetsError: boolean;
+  reloadDatasets: () => void;
 };
 
 const DatasetsContext = createContext<DatasetsContextValue | null>(null);
 
 export function DatasetsProvider({ children }: { children: ReactNode }) {
   const [datasets, setDatasets] = useState<Dataset[]>(seedDatasets);
+  const {
+    isLoading: datasetsLoading,
+    isError: datasetsError,
+    reload: reloadDatasets,
+  } = useResourceFetch(setDatasets, fetchDatasets);
   const [filters, setFilters] = useState<DatasetFilters>(defaultFilters);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [isCreateWizardOpen, setIsCreateWizardOpen] = useState(false);
@@ -124,15 +132,8 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
   const hf = useHuggingFaceDatasetImport(setDatasets);
   const rag = useRagKnowledgeBases(datasets, setDatasets);
 
-  // Load real data only when the API flag is on. Mock mode uses the sync seed
-  // above, so there's no empty flash. (async setState in the callback is fine.)
-  useEffect(() => {
-    if (!USE_REAL_API) return;
-    fetchDatasets().then(setDatasets).catch(() => {});
-  }, []);
-
-  // Persist to localStorage on change. (Initial load is handled by the lazy
-  // useState initializer above — this provider only mounts client-side.)
+  // Persist to localStorage on change. (Initial load is handled by the seeded
+  // resource above — this provider only mounts client-side.)
   useEffect(() => {
     saveDatasetsToStorage(datasets);
   }, [datasets]);
@@ -458,6 +459,9 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
       saveSplit,
       updateSchemaMapping,
       appendActivity,
+      datasetsLoading,
+      datasetsError,
+      reloadDatasets,
       ...hf,
       ...rag,
     }),
@@ -479,6 +483,9 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
       saveSplit,
       updateSchemaMapping,
       appendActivity,
+      datasetsLoading,
+      datasetsError,
+      reloadDatasets,
       hf,
       rag,
     ]

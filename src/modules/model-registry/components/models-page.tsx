@@ -3,6 +3,8 @@
 import { Download, HardDrive } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ArchiveModelDialog } from "@/modules/model-registry/components/archive-model-dialog";
 import { ImportHuggingFaceSheet } from "@/modules/model-registry/components/import-huggingface-sheet";
 import { ModelDetailView } from "@/modules/model-registry/components/model-detail-view";
@@ -57,6 +59,9 @@ export function ModelsPage() {
     runEvaluation,
     registerLocalModel,
     showToast,
+    modelsLoading,
+    modelsError,
+    reloadModels,
   } = useModelRegistry();
 
   const archiveTarget = archiveTargetId
@@ -123,7 +128,7 @@ export function ModelsPage() {
 
       <ModelSummaryCards stats={summaryStats} />
 
-      {!showEmpty ? (
+      {!showEmpty && !modelsLoading && !modelsError ? (
         <ModelFiltersBar
           filters={filters}
           onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
@@ -131,7 +136,11 @@ export function ModelsPage() {
         />
       ) : null}
 
-      {showEmpty ? (
+      {modelsLoading ? (
+        <LoadingState label="Loading models…" />
+      ) : modelsError ? (
+        <ErrorState onRetry={reloadModels} />
+      ) : showEmpty ? (
         <EmptyState
           onImport={() => setIsImportOpen(true)}
           onRegisterLocal={() => setIsRegisterLocalOpen(true)}

@@ -1,10 +1,6 @@
-import { datasetUi } from "@/modules/datasets/constants/dataset-ui";
+import { textUi } from "@/lib/text-ui";
 
-export const documentsUi = {
-  ...datasetUi,
-  title: datasetUi.title,
-  subheading: datasetUi.subheading,
-} as const;
+export const documentsUi = textUi;
 
 export type DocumentsFilters = {
   search: string;

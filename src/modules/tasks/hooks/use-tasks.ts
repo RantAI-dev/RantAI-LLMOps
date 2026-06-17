@@ -29,5 +29,8 @@ export function useTasks() {
     retryTask: ctx.retryTask,
     cloneTask: ctx.cloneTask,
     deleteTask: ctx.deleteTask,
+    isLoading: ctx.tasksLoading,
+    isError: ctx.tasksError,
+    reload: ctx.reloadTasks,
   };
 }

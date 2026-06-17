@@ -1,5 +1,5 @@
 import { USE_REAL_API } from "@/lib/api/config";
-import { initialModels } from "@/modules/model-registry/lib/utils";
+import { initialModels } from "@/modules/model-registry/data/initial-models";
 import type { RegistryModel } from "@/modules/model-registry/types";
 
 /**

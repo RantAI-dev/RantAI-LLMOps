@@ -4,6 +4,8 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useExperiments } from "@/modules/experiments/hooks/use-experiments";
 import { cn } from "@/lib/utils";
 import type { Experiment } from "@/modules/experiments/types";
@@ -38,6 +40,9 @@ export function ExperimentsPage() {
     archiveExperiment,
     deleteExperiment,
     changeExperimentStatus,
+    isLoading,
+    isError,
+    reload,
   } = useExperiments();
 
   const [editingExperiment, setEditingExperiment] = useState<Experiment | null>(null);
@@ -103,13 +108,19 @@ export function ExperimentsPage() {
 
       <ExperimentSummaryCards experiments={experiments} tasks={tasks} />
 
-      <ExperimentFiltersBar
-        filters={filters}
-        onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
-        onReset={resetFilters}
-      />
+      {!isLoading && !isError ? (
+        <ExperimentFiltersBar
+          filters={filters}
+          onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
+          onReset={resetFilters}
+        />
+      ) : null}
 
-      {showEmpty ? (
+      {isLoading ? (
+        <LoadingState label="Loading experiments…" />
+      ) : isError ? (
+        <ErrorState onRetry={reload} />
+      ) : showEmpty ? (
         <EmptyState
           title="No experiments found"
           description="Create your first LLM experiment to start organizing model trials, datasets, and AI tasks."

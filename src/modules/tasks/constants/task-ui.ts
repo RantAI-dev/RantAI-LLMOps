@@ -1,11 +1,6 @@
-export const taskUi = {
-  body: "text-sm leading-5",
-  title: "text-2xl font-semibold leading-8 tracking-tight",
-  subheading: "text-base leading-6 text-ink-soft",
-  section: "text-lg font-semibold leading-7 tracking-tight",
-  metric: "text-2xl font-semibold leading-8 tabular-nums tracking-tight",
-  label: "text-xs font-medium text-ink-soft",
-} as const;
+import { textUi } from "@/lib/text-ui";
+
+export const taskUi = textUi;
 
 /** Figma Input field (node 5:6096) — shared search & filter controls */
 export const fieldClassName =
