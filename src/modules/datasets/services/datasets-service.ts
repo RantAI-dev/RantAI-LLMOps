@@ -26,13 +26,17 @@ type DatasetsResponse = {
 
 /** Async load — real datasets from TL via the datasets BFF. */
 export async function fetchDatasets(): Promise<Dataset[]> {
-  const res = await fetch("/api/datasets/list", { cache: "no-store" });
-  if (!res.ok) throw new Error(`datasets ${res.status}`);
-  const data = (await res.json()) as DatasetsResponse;
-  const now = new Date().toISOString();
-  const real = (data.datasets ?? []).map((d) => tlToDataset(d, now));
-  // Keep the RAG knowledge-base demo present; show real datasets alongside it.
-  // On a fresh TL with no datasets, fall back to the full mock so the page isn't bare.
-  if (real.length === 0) return mergeRagDefaults(initialDatasets);
-  return mergeRagDefaults(real);
+  try {
+    const res = await fetch("/api/datasets/list", { cache: "no-store" });
+    if (!res.ok) throw new Error(`datasets ${res.status}`);
+    const data = (await res.json()) as DatasetsResponse;
+    const now = new Date().toISOString();
+    const real = (data.datasets ?? []).map((d) => tlToDataset(d, now));
+    // On a fresh TL with no datasets, fall back to the full mock so the page isn't bare.
+    if (real.length === 0) return mergeRagDefaults(initialDatasets);
+    return mergeRagDefaults(real);
+  } catch {
+    // BFF unreachable (or non-browser context): degrade to the mock seed.
+    return mergeRagDefaults(initialDatasets);
+  }
 }

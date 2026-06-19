@@ -124,14 +124,15 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>(seedTasks);
   const { isLoading: tasksLoading, isError: tasksError, reload: reloadTasks } = useResourceFetch(
     setTasks,
-    fetchTasks
+    fetchTasks,
+    { always: true }
   );
   const [experiments, setExperiments] = useState<Experiment[]>(seedExperiments);
   const {
     isLoading: experimentsLoading,
     isError: experimentsError,
     reload: reloadExperiments,
-  } = useResourceFetch(setExperiments, fetchExperiments);
+  } = useResourceFetch(setExperiments, fetchExperiments, { always: true });
   const [taskFilters, setTaskFilters] = useState<TaskFilters>(defaultTaskFilters);
   const [experimentFilters, setExperimentFilters] =
     useState<ExperimentFilters>(defaultExperimentFilters);

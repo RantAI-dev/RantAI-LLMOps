@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Copy,
   Download,
@@ -23,7 +24,7 @@ import {
 } from "@/components/ui/sheet";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import { formatDateTime, formatDuration, latestRun, taskStatus } from "@/modules/tasks/lib/utils";
-import type { Task, TaskStatus, TaskTimelineStep } from "@/modules/tasks/types";
+import type { Task, TaskLogEntry, TaskStatus, TaskTimelineStep } from "@/modules/tasks/types";
 import { cn } from "@/lib/utils";
 
 import { TaskStatusBadge } from "./task-status-badge";
@@ -217,17 +218,7 @@ export function TaskDetailDrawer({
           </Section>
 
           <Section title="Logs">
-            <div className="max-h-48 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]">
-              {!run || run.logs.length === 0 ? (
-                <p className="text-ink-faint-strong">No logs yet.</p>
-              ) : (
-                run.logs.map((log, i) => (
-                  <p key={`${log.time}-${i}`}>
-                    <span className="text-ink-faint">[{log.time}]</span> {log.message}
-                  </p>
-                ))
-              )}
-            </div>
+            <TaskLogs taskId={task.id} fallback={run?.logs ?? []} />
           </Section>
 
           <Section title="Output / Artifacts">
@@ -261,6 +252,51 @@ export function TaskDetailDrawer({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * Real job logs from Transformer Lab (`/api/tasks/{id}/output`). Falls back to
+ * the task's mock log entries for demo tasks TL doesn't have.
+ */
+function TaskLogs({ taskId, fallback }: { taskId: string; fallback: TaskLogEntry[] }) {
+  const [output, setOutput] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/tasks/${encodeURIComponent(taskId)}/output`, { cache: "no-store" })
+      .then((r) => r.json() as Promise<{ output?: string }>)
+      .then((d) => {
+        if (cancelled) return;
+        setOutput(typeof d.output === "string" ? d.output : "");
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId]);
+
+  const hasReal = output != null && output.trim().length > 0;
+  return (
+    <div className="max-h-64 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]">
+      {loading ? (
+        <p className="text-ink-faint-strong">Loading logs…</p>
+      ) : hasReal ? (
+        <pre className="whitespace-pre-wrap break-words">{output}</pre>
+      ) : fallback.length > 0 ? (
+        fallback.map((log, i) => (
+          <p key={`${log.time}-${i}`}>
+            <span className="text-ink-faint">[{log.time}]</span> {log.message}
+          </p>
+        ))
+      ) : (
+        <p className="text-ink-faint-strong">No logs yet.</p>
+      )}
+    </div>
   );
 }
 

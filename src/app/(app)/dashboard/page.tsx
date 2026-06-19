@@ -1,197 +1,245 @@
 "use client";
 
-import { useState } from "react";
-import { Cpu, Database, Gauge } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Boxes, Database, FlaskConical, ListTodo, Loader2, Sparkles } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-type AgentModel = {
-  name: string;
-  uptime: number;
-  users: number;
-  latency: number;
-  speedGain: number;
+type CatalogModel = { isGguf: boolean; id: string };
+type Catalog = {
+  loaded: string | null;
+  downloaded?: CatalogModel[];
+  fineTuned?: Array<{ ready: boolean }>;
+};
+type DatasetsResp = { datasets?: unknown[] };
+type Job = { type: string; status: string; score: number | null; template: string; model: string };
+type TasksResp = { jobs?: Job[] };
+
+type Summary = {
+  models: number;
+  gguf: number;
+  fineTuned: number;
+  loaded: string | null;
+  datasets: number;
+  jobsActive: number;
+  jobsTotal: number;
+  lastEval: { score: number; label: string } | null;
+  recent: Job[];
 };
 
-const models: AgentModel[] = [
-  { name: "Customer Service Agents", uptime: 99.31, users: 127, latency: 82, speedGain: 12 },
-  { name: "Developer Agents", uptime: 93.82, users: 80, latency: 120, speedGain: 8 },
-  { name: "Fraud Detection AI", uptime: 89.14, users: 40, latency: 220, speedGain: 12 },
-  { name: "Product Recommender", uptime: 74.58, users: 2, latency: 360, speedGain: 12 },
-];
+const ACTIVE = new Set(["RUNNING", "STARTED", "QUEUED", "NOT_STARTED"]);
 
 const ui = {
   title: "text-2xl font-semibold leading-8 tracking-tight",
   subheading: "text-base leading-6 text-ink-soft",
-  section: "text-lg font-semibold leading-7 tracking-tight",
   metric: "text-2xl font-semibold leading-8 tabular-nums tracking-tight",
   cardHeading: "text-base font-semibold leading-6",
 } as const;
 
+async function loadSummary(): Promise<Summary> {
+  const [cat, ds, tk] = await Promise.all([
+    fetch("/api/models/catalog", { cache: "no-store" }).then((r) => r.json() as Promise<Catalog>),
+    fetch("/api/datasets/list", { cache: "no-store" }).then((r) => r.json() as Promise<DatasetsResp>),
+    fetch("/api/tasks/list", { cache: "no-store" }).then((r) => r.json() as Promise<TasksResp>),
+  ]);
+  const downloaded = cat.downloaded ?? [];
+  const jobs = tk.jobs ?? [];
+  const evalsWithScore = jobs.filter((j) => j.type === "EVAL" && j.score != null);
+  const lastEval = evalsWithScore[0]
+    ? {
+        score: evalsWithScore[0].score as number,
+        label: evalsWithScore[0].model.split("/").pop() ?? evalsWithScore[0].model,
+      }
+    : null;
+  return {
+    models: downloaded.length,
+    gguf: downloaded.filter((m) => m.isGguf).length,
+    fineTuned: (cat.fineTuned ?? []).length,
+    loaded: cat.loaded,
+    datasets: (ds.datasets ?? []).length,
+    jobsActive: jobs.filter((j) => ACTIVE.has(j.status.toUpperCase())).length,
+    jobsTotal: jobs.length,
+    lastEval,
+    recent: jobs.slice(0, 6),
+  };
+}
+
+function MetricCard({
+  title,
+  icon,
+  iconBg,
+  iconColor,
+  value,
+  sub,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  value: React.ReactNode;
+  sub: React.ReactNode;
+}) {
+  return (
+    <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="font-medium text-primary">{title}</CardTitle>
+          <div className={cn("rounded p-1", iconBg)}>
+            <span className={iconColor}>{icon}</span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-1.5">
+        <p className={cn("text-primary", ui.metric)}>{value}</p>
+        <p className="text-sm leading-5 text-ink-soft">{sub}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Page() {
-  const [activeTab, setActiveTab] = useState("list-models");
+  const [data, setData] = useState<Summary | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSummary()
+      .then((s) => {
+        if (!cancelled) setData(s);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
-    <div className="flex min-w-0 flex-1 gap-3">
-      <div className="min-w-0 flex-1 space-y-4">
-        <div className="border-b border-border pb-3">
-          <h1 className={cn("text-primary", ui.title)}>Dashboard</h1>
-          <p className={cn("mt-1", ui.subheading)}>
-            Overview of all your workloads and resources
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
-          <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="font-medium text-primary">Inference Latency</CardTitle>
-                <div className="rounded bg-info-soft p-1">
-                  <Gauge className="size-4 text-info-bright" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className={cn("text-primary", ui.metric)}>82ms</p>
-              <p className="text-sm leading-5 text-success-bright">+12ms faster</p>
-              <p className="text-sm leading-5 text-ink-soft">Active Users : 127</p>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="font-medium text-primary">Active Models</CardTitle>
-                <div className="rounded bg-warning-soft p-1">
-                  <Database className="size-4 text-warning-gold" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              <p className={cn("text-primary", ui.metric)}>12</p>
-              <p className="text-sm leading-5 text-ink-soft">15.420 API Request</p>
-              <p className="text-sm leading-5 text-success-bright">+12 this month</p>
-              <button type="button" className="text-left text-sm leading-5 font-medium text-primary hover:underline">
-                View All
-              </button>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="font-medium text-primary">Cost Summary</CardTitle>
-                <div className="rounded bg-purple-soft p-1">
-                  <span className="text-sm font-medium text-purple-bright">$</span>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <p className={cn("text-primary", ui.metric)}>
-                $2.560<span className="text-lg font-semibold text-ink-soft">/$5.000</span>
-              </p>
-              <Progress value={60} />
-              <p className="text-sm leading-5 text-ink-soft">$94 for yesterday</p>
-              <button type="button" className="text-left text-sm leading-5 font-medium text-primary hover:underline">
-                View All
-              </button>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between gap-2">
-                <CardTitle className="font-medium text-primary">Resource Utilization</CardTitle>
-                <div className="rounded bg-success-soft p-1">
-                  <Cpu className="size-4 text-success-bright" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div>
-                <div className="mb-1 flex justify-between text-sm leading-5 text-ink-soft">
-                  <span>CPU</span>
-                  <span>99.31%</span>
-                </div>
-                <Progress value={99.31} />
-              </div>
-              <div>
-                <div className="mb-1 flex justify-between text-sm leading-5 text-ink-soft">
-                  <span>GPU</span>
-                  <span>62.31%</span>
-                </div>
-                <Progress value={62.31} />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="rounded-lg border border-border">
-          <div className="border-b border-border p-2">
-            <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-[#ffe7d8] p-1">
-              <TabsTrigger value="list-models">List Models</TabsTrigger>
-              <TabsTrigger value="alerts">Alert &amp; Notification</TabsTrigger>
-              <TabsTrigger value="training">Training Models</TabsTrigger>
-              <TabsTrigger value="activity">Recent Activity</TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="list-models" className="grid grid-cols-1 gap-2 p-2 lg:grid-cols-2">
-            {models.map((model) => (
-              <Card key={model.name} className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
-                <CardHeader className="pb-2">
-                  <CardTitle className={cn("text-primary", ui.cardHeading)}>{model.name}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <p className="text-sm leading-5 text-ink-soft">Uptime</p>
-                  <Progress value={model.uptime} />
-                  <p className="text-sm leading-5 text-ink-soft">{model.uptime.toFixed(2)}%</p>
-                  <p className="text-sm leading-5 text-ink-soft">Active Users : {model.users}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </TabsContent>
-
-          <TabsContent value="alerts" className="p-4 text-sm leading-5 text-ink-soft">
-            Alerts and notification panel is ready for upcoming integration.
-          </TabsContent>
-          <TabsContent value="training" className="p-4 text-sm leading-5 text-ink-soft">
-            Training model queue will appear here.
-          </TabsContent>
-          <TabsContent value="activity" className="p-4 text-sm leading-5 text-ink-soft">
-            Recent activity timeline will appear here.
-          </TabsContent>
-        </Tabs>
+    <div className="min-w-0 flex-1 space-y-4">
+      <div className="border-b border-border pb-3">
+        <h1 className={cn("text-primary", ui.title)}>Dashboard</h1>
+        <p className={cn("mt-1", ui.subheading)}>
+          Ringkasan nyata dari Transformer Lab — model, dataset, dan job.
+        </p>
       </div>
 
-      <aside className="w-[260px] shrink-0 rounded-lg border border-border">
-        <div className="flex items-center justify-between gap-2 border-b border-border p-4">
-          <h2 className={cn("text-primary", ui.section)}>Top Models</h2>
-          <span className="text-sm leading-5 text-ink-soft" aria-hidden>
-            i
-          </span>
+      {!data ? (
+        <div className="flex items-center gap-2 px-1 py-10 text-sm text-ink-soft">
+          {error ? (
+            "Gagal memuat ringkasan. Cek koneksi ke Transformer Lab."
+          ) : (
+            <>
+              <Loader2 className="size-4 animate-spin" /> Memuat ringkasan…
+            </>
+          )}
         </div>
-        <div className="space-y-3 p-4">
-          {models.map((model) => (
-            <div
-              key={`${model.name}-top`}
-              className="space-y-1 border-b border-border pb-3 last:border-none last:pb-0"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <p className="text-sm leading-5 font-medium text-primary">{model.name}</p>
-                <p className="shrink-0 text-sm leading-5 tabular-nums text-ink-soft">{model.latency}ms</p>
-              </div>
-              <div className="flex items-center justify-between gap-2 text-sm leading-5 text-ink-soft">
-                <p>Active Users : {model.users}</p>
-                <p className="text-success-bright">+{model.speedGain}ms faster</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </aside>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+            <MetricCard
+              title="Models"
+              icon={<Boxes className="size-4" />}
+              iconBg="bg-warning-soft"
+              iconColor="text-warning-gold"
+              value={data.models}
+              sub={`${data.gguf} GGUF · ${data.models - data.gguf} safetensors`}
+            />
+            <MetricCard
+              title="Fine-tuned"
+              icon={<Sparkles className="size-4" />}
+              iconBg="bg-purple-soft"
+              iconColor="text-purple-bright"
+              value={data.fineTuned}
+              sub={data.loaded ? `Loaded: ${data.loaded.split("/").pop()}` : "Tidak ada model dimuat"}
+            />
+            <MetricCard
+              title="Datasets"
+              icon={<Database className="size-4" />}
+              iconBg="bg-info-soft"
+              iconColor="text-info-bright"
+              value={data.datasets}
+              sub="Di disk Transformer Lab"
+            />
+            <MetricCard
+              title="Jobs"
+              icon={<ListTodo className="size-4" />}
+              iconBg="bg-success-soft"
+              iconColor="text-success-bright"
+              value={
+                <>
+                  {data.jobsActive}
+                  <span className="text-lg font-semibold text-ink-soft"> aktif</span>
+                </>
+              }
+              sub={`${data.jobsTotal} total (train/eval/export)`}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            {/* Last eval */}
+            <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <FlaskConical className="size-4 text-primary" />
+                  <CardTitle className={cn("text-primary", ui.cardHeading)}>
+                    Skor eval terakhir
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {data.lastEval ? (
+                  <div className="space-y-1">
+                    <p className={cn("text-primary", ui.metric)}>
+                      {(data.lastEval.score * 100).toFixed(1)}%
+                    </p>
+                    <p className="text-sm text-ink-soft">{data.lastEval.label}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-soft">Belum ada eval. Jalankan di menu Evals.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Recent jobs */}
+            <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)] lg:col-span-2">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <ListTodo className="size-4 text-primary" />
+                  <CardTitle className={cn("text-primary", ui.cardHeading)}>Job terbaru</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {data.recent.length === 0 ? (
+                  <p className="text-sm text-ink-soft">Belum ada job.</p>
+                ) : (
+                  <ul className="divide-y divide-border">
+                    {data.recent.map((j, i) => (
+                      <li key={i} className="flex items-center justify-between gap-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-ink">{j.template}</p>
+                          <p className="truncate text-[12px] text-ink-soft">
+                            {j.type} · {j.model.split("/").pop()}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {j.score != null ? (
+                            <span className="rounded bg-primary-soft px-1.5 py-0.5 text-[12px] font-semibold text-primary tabular-nums">
+                              {(j.score * 100).toFixed(1)}%
+                            </span>
+                          ) : null}
+                          <span className="text-[12px] text-ink-soft">{j.status}</span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }

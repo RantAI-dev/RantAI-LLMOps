@@ -14,11 +14,23 @@ export function seedExperiments(): Experiment[] {
   return initialExperiments;
 }
 
-/** Async load — mock today, real `GET /experiment/` when enabled. */
+/**
+ * Async load — REAL Transformer Lab experiments via our `/api/experiments/list`
+ * BFF (server-side permanent key, independent of the app's mock login). TL
+ * experiments are thin (id + name); fields the UI shows but TL doesn't track are
+ * filled with sensible defaults by `mapExperiment`.
+ */
 export async function fetchExperiments(): Promise<Experiment[]> {
-  if (!USE_REAL_API) return initialExperiments;
-  const raw = await apiFetch<TlExperiment[]>("/experiment/");
-  return raw.map(mapExperiment);
+  try {
+    const res = await fetch("/api/experiments/list", { cache: "no-store" });
+    if (!res.ok) throw new Error(`experiments ${res.status}`);
+    const data = (await res.json()) as { experiments?: TlExperiment[] };
+    const raw = Array.isArray(data.experiments) ? data.experiments : [];
+    return raw.length > 0 ? raw.map(mapExperiment) : initialExperiments;
+  } catch {
+    // BFF unreachable (or non-browser context): degrade to the mock seed.
+    return initialExperiments;
+  }
 }
 
 /**

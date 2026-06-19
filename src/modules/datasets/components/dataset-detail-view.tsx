@@ -132,6 +132,8 @@ export function DatasetDetailView({
             </div>
           </div>
           <DatasetDetailToolbar
+            datasetId={dataset.id}
+            datasetName={dataset.name}
             onValidateAgain={onValidateAgain}
             onCreateVersion={onCreateVersion}
             onUseInExperiment={onUseInExperiment}

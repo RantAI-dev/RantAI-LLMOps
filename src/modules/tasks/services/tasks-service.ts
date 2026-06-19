@@ -1,26 +1,47 @@
-import { USE_REAL_API } from "@/lib/api/config";
 import { initialMockTasks } from "@/modules/tasks/data/mock-tasks";
+import { tlJobToTask } from "@/modules/tasks/lib/from-tl";
 import type { Task } from "@/modules/tasks/types";
 
 /**
- * The data seam for tasks. Mock today; real wiring later.
+ * The data seam for tasks.
  *
- * NOTE: in Transformer Lab a Task (template) and its Runs (jobs) are scoped per
- * experiment (`/experiment/{id}/task/list`, `/experiment/{id}/jobs/list`).
- * Aggregating every task/run across experiments for the global Tasks page needs
- * experiment-context wiring, so the real path is intentionally a TODO — the seam
- * is here and ready.
+ * `seedTasks()` gives the rich mock for instant first paint. `fetchTasks()`
+ * pulls REAL jobs (train / eval / export) from Transformer Lab via our
+ * `/api/tasks/list` BFF (server-side permanent key, independent of the app's
+ * mock login). Each job becomes a Task with one execution run. Per-job resource
+ * telemetry and hyperparameters stay defaults (TL doesn't expose them per job).
  */
 
-/** Sync seed for instant initial render while the real API is off. */
+/** Sync seed for instant initial render. */
 export function seedTasks(): Task[] {
   return initialMockTasks;
 }
 
-/** Async load — mock today; real per-experiment job aggregation is a TODO. */
+type TasksResponse = {
+  jobs?: Array<{
+    id: string;
+    type: string;
+    status: string;
+    progress: number;
+    model: string;
+    template: string;
+    startTime: string;
+    endTime: string;
+    score: number | null;
+  }>;
+};
+
+/** Async load — real TL jobs via the tasks BFF. */
 export async function fetchTasks(): Promise<Task[]> {
-  if (!USE_REAL_API) return initialMockTasks;
-  // TODO: iterate experiments → GET /experiment/{id}/task/list (+ /jobs/list)
-  // and map TL task+job into our Task/TaskRun shape.
-  return initialMockTasks;
+  try {
+    const res = await fetch("/api/tasks/list", { cache: "no-store" });
+    if (!res.ok) throw new Error(`tasks ${res.status}`);
+    const data = (await res.json()) as TasksResponse;
+    const now = new Date().toISOString();
+    const tasks = (data.jobs ?? []).map((j) => tlJobToTask(j, now));
+    return tasks.length > 0 ? tasks : initialMockTasks;
+  } catch {
+    // BFF unreachable (or non-browser context): degrade to the mock seed.
+    return initialMockTasks;
+  }
 }

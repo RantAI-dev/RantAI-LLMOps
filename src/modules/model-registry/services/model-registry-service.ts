@@ -32,11 +32,16 @@ type CatalogResponse = {
 
 /** Async load — real models from TL via the catalog BFF. */
 export async function fetchModels(): Promise<RegistryModel[]> {
-  const res = await fetch("/api/models/catalog", { cache: "no-store" });
-  if (!res.ok) throw new Error(`catalog ${res.status}`);
-  const data = (await res.json()) as CatalogResponse;
-  const now = new Date().toISOString();
-  const models = (data.downloaded ?? []).map((m) => tlToRegistryModel(m, now));
-  // Keep the page useful even on a fresh TL with nothing downloaded yet.
-  return models.length > 0 ? models : initialModels;
+  try {
+    const res = await fetch("/api/models/catalog", { cache: "no-store" });
+    if (!res.ok) throw new Error(`catalog ${res.status}`);
+    const data = (await res.json()) as CatalogResponse;
+    const now = new Date().toISOString();
+    const models = (data.downloaded ?? []).map((m) => tlToRegistryModel(m, now));
+    // Keep the page useful even on a fresh TL with nothing downloaded yet.
+    return models.length > 0 ? models : initialModels;
+  } catch {
+    // BFF unreachable (or non-browser context): degrade to the mock seed.
+    return initialModels;
+  }
 }
