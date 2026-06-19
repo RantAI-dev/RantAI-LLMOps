@@ -461,3 +461,182 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - Result: `npx vitest run` **51 passed / 9 files**; `npm run lint` **0 problem**; `npm run build` **sukses (15 route, TS bersih)**.
 - Catatan: loading/error hanya AKTIF di real-API mode (mock = idle instan, UX tak berubah) — ini infra integrasi yang sudah siap. Empty state terlihat sekarang di mock (filter ke kosong). Component test membuktikan harness Testing Library + base-ui Button render jalan.
 - Next: integrasi TL vertical slice (login→experiments→jobs) — loading/error/empty kini siap menampung data async nyata.
+
+## 2026-06-18 03:38 (UTC+7) - assistant
+- Task: Bangun fungsi dasar INFERENCE nyata (chat) di halaman Interact, terintegrasi via backend kita sendiri (BFF), engine-agnostic & TL-ready. Keputusan user: jalur "B" (tes pakai engine lokal ringan dulu, swap ke TL nanti).
+- Investigasi BE TL: dikonfirmasi dari kode vendored — `api.py` = "FastChat ChatGPT-Compatible RESTful API server". TL MENYAJIKAN endpoint OpenAI-compatible `:8338/v1/chat/completions` (+ `/v1/completions`), worker FastChat di `:21002/worker_generate`, model di-load via job `LOAD_MODEL` (`job_service.py`). Jadi inference TL = built-in FastChat (bukan cuma "launch job vLLM/Ollama+tunnel" spt catatan lama). PENTING: inference TL TIDAK butuh Unsloth nyala — Unsloth = plugin TRAINING; inference TL pakai FastChat. Unsloth Studio (:8888) = app terpisah, bukan bagian TL.
+- Arsitektur dipilih: BFF (Next route handler) — `UI → /api/chat → engine`. Alasan: integrasi UI↔backend nqrust nyata, hindari CORS, sembunyikan URL engine, tangani streaming/auth di server, engine swappable via env (B→A nol rework di UI & inti streaming; A cuma nambah env URL + token + LOAD_MODEL).
+- Action (kode): (a) `src/app/api/chat/route.ts` — BFF: terima `{messages, model?}`, fetch `${INFERENCE_BASE_URL}/chat/completions` stream:true, passthrough SSE ke browser, error handling (502 bila engine tak terjangkau). (b) `src/lib/inference.ts` — server env `INFERENCE_BASE_URL`/`INFERENCE_MODEL`/`INFERENCE_API_KEY` (default Ollama :11434; doc TL :8338). (c) modul baru `src/modules/playground/`: `types.ts` (ChatMessage), `lib/sse.ts` (`parseChatSseLine` pure) + `lib/sse.test.ts` (4 tes), `components/chat-playground.tsx` (UI chat streaming: AbortController, Enter-to-send, stop, clear, model input, auto-scroll, error banner, empty state), `index.ts`. (d) wire `app/(app)/interact/page.tsx` → `<ChatPlayground/>` (ganti InteractRagPage). (e) `feature-status.ts`: tambah `chat.playground:"live"`, hapus mapping nav `Interact→rag.interact` (titik merah hilang); update `feature-status.test.ts` (`isNavMock("Interact")` → false). (f) `.env.example` + `.env.local` (gitignored).
+- Action (tes live, jalur B): cek mesin — tak ada engine OpenAI nyala (llama-server mati, Ollama tak di PATH, Studio :8888 tak ekspos /v1, GGUF cache cuma vocab). Download model `Llama-3.2-1B-Instruct-Q4_K_M.gguf` (~770MB, bartowski, ungated) ke `d:\Project\models\`. Jalankan `~/.unsloth/llama.cpp/.../llama-server.exe -m <gguf> --host 127.0.0.1 --port 8080 -c 4096 -ngl 99` (GPU offload, RTX 3060 6GB) → `/health` ok, `/v1/models` ok, tes chat langsung OK. Restart dev server (PID lama 7472 start sebelum .env.local, di-kill) → fresh dev :3000 memuat .env.local. **Tes end-to-end `POST :3000/api/chat`** → balasan ter-stream "Hello, how are you? 2+2=4", HTTP 200, text/event-stream. **Chain UI→BFF→engine TERBUKTI.**
+- Files: baru — `src/app/api/chat/route.ts`, `src/lib/inference.ts`, `src/modules/playground/**` (5 file), `.env.local`; ubah — `app/(app)/interact/page.tsx`, `src/lib/feature-status.ts` + `.test.ts`, `.env.example`.
+- Result: `npm run lint` 0, `npm run build` sukses, `npx vitest run` **55 passed / 10 files**. Inference nyata jalan lewat backend kita (BFF) dgn model live. Interact = chat playground beneran.
+- Catatan: streaming inkremental di browser ditangani komponen React (ter-tes + chain stream terbukti); user verifikasi visual di `http://localhost:3000/interact`. Proses background masih hidup: llama-server :8080, dev :3000.
+- Next (B→A): saat backend TL nyala → set `INFERENCE_BASE_URL=http://localhost:8338/v1` + token TL + tambah pra-langkah `LOAD_MODEL`. UI & BFF tak berubah. Lalu fungsi dasar kedua: FINE-TUNING nyata (submit job Unsloth via TL).
+
+## 2026-06-18 05:04 (UTC+7) - assistant
+- Task: LANGKAH A — jadikan engine inference = Transformer Lab beneran (bukan llama-server jalur B). Keputusan user: pakai Docker CUDA (bukan native/WSL).
+- Action (jalankan TL via Docker GPU): Docker Desktop start; verifikasi GPU di Docker (`docker run --gpus all nvidia/cuda:...base nvidia-smi` → RTX 3060 OK). Deploy `backend/docker/gpu/nvidia/deploy.ps1` GAGAL (tag `0.25.0-cuda` tak ada di Docker Hub — script outdated). Cek Docker Hub: tag yang ada = `latest`(5.25GB, =CUDA/default) & `latest-rocm`; suffix `-cuda` sudah dihapus. Edit `docker-compose.yml` → `image: transformerlab/api:latest` + BUANG 2 host-mount Windows (`.cache`/`workspace`, sering bikin permission hang di Windows; named volume `transformerlab_data` sudah cover `/root/.transformerlab/`). `docker compose up -d` → pull 5.25GB → container Up. First-run: container install conda env (lama). `:8338` siap (openapi 200).
+- Action (auth TL): login `POST /auth/jwt/login` (form admin@example.com/admin123) → JWT. TL butuh **`X-Team-Id`** (multi-tenant) → ambil dari `/users/me/teams` (team `913bddd6-...`). `/server/info` dgn Bearer+X-Team-Id → OK, **device: cuda**, GPU RTX 3060 6GB terlihat TL.
+- Action (load model — banyak kendala, semua diatasi): (1) `/model/download_from_huggingface?model=...` (blocking, ~GB) → download unsloth/Llama-3.2-1B & Qwen2.5-0.5B. (2) Inference engine TL = PLUGIN → install `fastchat_server` via `/plugins/gallery/.../install`. (3) `worker_start` butuh `inference_params` JSON valid (default "" → "malformed") + engine di-spesifikasi. (4) **BUG transformers 5.x**: worker crash `kernels/layer.py: Either a revision or a version must be specified` (kernels 0.15.2 + transformers 5.12.1) — terjadi utk SEMUA model (bukan model spesifik). Fix: hapus paket `kernels` dari venv plugin (transformers fallback). (5) Lalu `KeyError: 'factor'` (rope, transformers 5.x lagi) → **downgrade transformers 5.12.1 → 4.53.3** via uv di venv plugin (`uv` ada di `/root/.transformerlab/envs/transformerlab/bin/uv`). (6) `controller_start` 500: `FileNotFoundError workspace/logs/controller.log` (krn host-mount workspace dibuang) → `mkdir -p /root/.transformerlab/workspace/logs`. (7) controller_start OK → worker_start `success` → `/v1/models` = `Qwen2.5-0.5B-Instruct` → **chat langsung ke TL `137+88=225` ✓**.
+- Action (wire app ke TL): BFF perlu `X-Team-Id`. `src/lib/inference.ts`: tambah `INFERENCE_TEAM_ID` + helper `inferenceHeaders()`. Update `app/api/chat/route.ts` & `app/api/models/route.ts` pakai helper. `.env.local` → `INFERENCE_BASE_URL=http://localhost:8338/v1`, `INFERENCE_MODEL=Qwen2.5-0.5B-Instruct`, `INFERENCE_API_KEY=<JWT>`, `INFERENCE_TEAM_ID=<team>`. Restart dev. **Tes end-to-end: `/api/models` → ["Qwen2.5-0.5B-Instruct"], `/api/chat` → stream "..275" (256+19 ✓) lewat App→BFF→TL :8338.**
+- Files: `src/lib/inference.ts`, `src/app/api/chat/route.ts`, `src/app/api/models/route.ts`, `.env.local`; `backend/docker/gpu/nvidia/docker-compose.yml` (image latest + buang host-mount).
+- Result: **Engine inference = Transformer Lab (backend kita), di GPU. Chain App→BFF→TL terbukti.** B→A di KODE kita memang minim (cuma X-Team-Id + env) — sesuai janji.
+- Catatan (penting, jujur): (a) JWT di `.env.local` EXPIRES (~30-60mnt) → nanti chat 401; fix proper = forward token sesi user dari app (auth app sudah login ke TL), bukan token statis. (b) Fix plugin (hapus kernels + downgrade transformers + mkdir logs) dilakukan DI DALAM container; kalau container di-recreate (`compose down/up`), perlu diulang — fix persisten = pin deps plugin / patch setup. (c) Pakai model 0.5B krn diagnosis bug transformers; sekarang bisa load model lebih besar. (d) TL `latest` image ternyata bermasalah (transformers 5.12.1 bleeding-edge) — bug TL, bukan app kita.
+- Next: load model lebih besar (1B+) di TL; auto-refresh token TL dari sesi app; lalu fungsi dasar kedua = FINE-TUNING nyata (job Unsloth via TL).
+
+## 2026-06-18 03:51 (UTC+7) - assistant
+- Task: Rombak UI Interact jadi clean ala Unsloth Studio (user kirim screenshot referensi): (1) buang teks helper verbose, (2) "Select model" di kiri-atas, (3) history chat tersimpan di sidebar "Recents". Engine-agnostic, masih jalur B (llama-server :8080); langkah A (TL) menyusul.
+- Action (persistence + state): `playground/types.ts` tambah `ChatSession{id,title,model?,messages,createdAt,updatedAt}`; `lib/storage.ts` (load/save sessions ke localStorage `nqr.chat.sessions.v1`, generateSessionId, makeEmptySession); `hooks/use-chat-sessions.ts` (single useState `{sessions,activeId}` lazy-init dari storage—aman krn ChatPlayground render client-only di belakang AuthGate, tak SSR → tak ada hydration mismatch dari id random; persist DEBOUNCED 400ms agar streaming token tak thrash localStorage; aksi newChat/selectChat/deleteChat/setActiveMessages + auto-title dari pesan user pertama).
+- Action (model picker): route BFF `app/api/models/route.ts` (proxy `${INFERENCE_BASE_URL}/models`, return `{models:[]}` graceful bila engine mati); komponen `model-select.tsx` (DropdownMenu, fetch `/api/models`, label = value||models[0]||"Select model", kirim `model` di request chat; llama-server abaikan nama model, Ollama/TL pakai).
+- Action (UI clean): pecah `chat-playground.tsx` → compose `chat-sessions-sidebar.tsx` (New chat + Recents list + delete on-hover) + `chat-area.tsx` (model select atas, pesan max-w-3xl, empty state minimal "🦥 Good to see you" TANPA teks INFERENCE_BASE_URL/verbose, input pill ala Unsloth, streaming via /api/chat + parseChatSseLine, AbortController/stop, auto-scroll). Layout: panel ber-border (sidebar | chat). ChatArea di-`key`-kan per session.id → state input/stream reset saat ganti chat.
+- Files: baru — `playground/{lib/storage,hooks/use-chat-sessions,components/{model-select,chat-sessions-sidebar,chat-area}}.ts(x)`, `app/api/models/route.ts`; ubah — `playground/{types,components/chat-playground,index}.ts(x)`.
+- Result: `npm run lint` 0, `npx vitest run` 55 passed, dev server compile `/interact` bersih (200), `/api/models` → `{"models":["Llama-3.2-1B-Instruct-Q4_K_M.gguf"]}` (selector terisi dari engine nyata). History persist localStorage.
+- Catatan: masih engine jalur B (llama-server). UI↔backend nqrust terintegrasi; TL belum. Verifikasi visual oleh user di /interact (refresh).
+- Next: user konfirmasi UI oke → langkah A (engine = Transformer Lab: nyalakan backend TL + LOAD_MODEL + ganti INFERENCE_BASE_URL); lalu fine-tuning nyata.
+
+## 2026-06-18 12:51 (UTC+7) - claude
+- Task: Upgrade model chat dari Qwen2.5-0.5B (jawaban ngawur) ke Qwen2.5-3B di GPU RTX 3060 6GB, via Transformer Lab.
+- Investigasi spek: GPU = RTX 3060 Laptop 6GB VRAM. FP16 3B/4B TIDAK muat; solusi = quantized 4-bit (GGUF) via loader llama.cpp. Cek container: plugin `llama_cpp_server` SUDAH terinstall (venv ada) -> tak perlu install plugin.
+- Action (load 3B):
+  1. Token TL di .env.local masih valid (tak perlu re-login).
+  2. Download GGUF via `GET /model/download_gguf_file?model=Qwen/Qwen2.5-3B-Instruct-GGUF&filename=qwen2.5-3b-instruct-q4_k_m.gguf` (~2GB, job 9).
+  3. `GET /server/worker_stop` (bebasin VRAM 0.5B -> 5.7GB free).
+  4. `GET /server/worker_start` engine=llama_cpp_server, model_filename=<path .gguf absolut>, model_architecture=GGUF, inference_params={"inferenceEngine":"llama_cpp_server","n_gpu_layers":"auto"} -> sukses, model di GPU (4.5GB used). Nama dilayani = `qwen2.5-3b-instruct-q4_k_m.gguf`.
+- Action (fix streaming): chat STREAMING putus setelah chunk pertama. Root cause = `httpx.RemoteProtocolError: peer closed connection` -> worker llama.cpp crash mid-stream. Patch plugin (decode utf-8 errors=ignore) TIDAK cukup (crash di tempat lain yg tak ter-log). Keputusan: JANGAN kejar bug plugin vendored (rabbit hole + ephemeral). Solusi di KODE KITA: BFF fallback non-stream.
+- Action (BFF fallback): `inference.ts` tambah `INFERENCE_STREAM` (default true); `api/chat/route.ts` -> kalau INFERENCE_STREAM=false: minta `stream:false` ke engine (terbukti jalan), baca full message, `synthesizeSseStream()` re-emit jadi SSE chunk OpenAI-format per kata (delay 18ms) -> UI tetap "ngetik", engine-agnostic, imun bug streaming engine apapun. `.env.local` set INFERENCE_STREAM=false + INFERENCE_MODEL=qwen2.5-3b-instruct-q4_k_m.gguf.
+- Files: ubah `src/lib/inference.ts`, `src/app/api/chat/route.ts`, `.env.local`; (ephemeral di container: patch plugin llama_cpp_server/main.py + backup .bak).
+- Result: lint 0. Tes chat 3B via app BFF (localhost:3000/api/chat): curl exit=0, 69 SSE chunk, jawaban koheren multi-paragraf (jauh > 0.5B). Full chain App->BFF->TL llama.cpp(GPU) MULUS.
+- Next: (a) fix ephemeral container (patch plugin + kernels removal + transformers 4.53.3 + mkdir logs hilang kalau `docker compose down/up` -> butuh solusi persisten); (b) auto-refresh JWT TL dari sesi app (token statis expire ~30-60mnt); (c) fungsi dasar kedua = FINE-TUNING nyata (job Unsloth via TL).
+
+## 2026-06-18 13:29 (UTC+7) - claude
+- Task: #1 Auto-refresh / hilangkan masalah token TL expire (chat 401 tiap ~30-60mnt).
+- Investigasi: app sudah punya flow login TL (`lib/api/auth.ts` -> `/auth/jwt/login` -> token di localStorage), TAPI BFF pakai token STATIS terpisah di .env.local (sumber expire). Solusi paling bersih: TL dukung API KEY PERMANEN via `POST /auth/api-keys` (`expires_in_days: null` = never expires). Key format `tl-...` dikirim via `Authorization: Bearer tl-...` (HEADER SAMA yg BFF sudah pakai -> nol perubahan kode). Divalidasi di `shared/api_key_auth.py`.
+- Action: user generate API key dari TL UI (Settings/Swagger `POST /auth/api-keys`), name=nqrust-bff, expires=null. Key dimasukkan ke `.env.local` INFERENCE_API_KEY (ganti JWT lama yg expired).
+- Files: `.env.local` (INFERENCE_API_KEY -> key permanen tl-...). Tidak ada perubahan kode (header BFF sudah cocok).
+- Result: Verified. /v1/models OK, /model/list (tadi 401) OK, /api/models BFF OK, /api/chat BFF curl exit=0 jawaban koheren. Token TL TIDAK akan expire lagi. Bonus: /model/list konfirmasi 0.5B & 1B masih ada di disk (cuma tidak di-load; VRAM 6GB muat 1 model).
+- Next: #2 Bangun model picker ala Unsloth (tab Hub/Fine-tuned + Downloaded + Recommended + download + load-on-select) di atas endpoint TL: /model/list, /model/gallery (flag downloaded), /model/pefts (fine-tuned), download_gguf_file/download_model_from_gallery, /server/worker_start.
+
+## 2026-06-18 13:42 (UTC+7) - claude
+- Task: #2 Model picker ala Unsloth (Hub/Fine-tuned + Downloaded + Recommended + download + load-on-select) di atas API TL.
+- Action (BFF): server-lib `src/lib/models-catalog.ts` (DTO CatalogModel/ModelCatalog; loaderForArchitecture: GGUF->llama_cpp_server, else fastchat_server; RECOMMENDED list GGUF muat <=8GB; fetchDownloaded dari /model/list -> ambil local_path+stored_in_filesystem; fetchLoaded dari /v1/models; loadModel = worker_stop lalu worker_start dgn engine+params benar, GGUF pakai model_filename=local_path; downloadModel = download_gguf_file/download_from_huggingface). 3 route: GET /api/models/catalog, POST /api/models/load, POST /api/models/download (maxDuration 600).
+- Action (UI): hook `use-model-catalog.ts` (catalog+busy+load+downloadAndLoad; pola setState-in-effect aman: getCatalog di .then + cleanup, ref di-update via effect); komponen `model-picker.tsx` (popover custom: tab Hub|Fine-tuned, search, section Downloaded[klik=load] + Recommended[klik=download lalu load], badge GGUF+size, check model aktif via matchesLoaded, busy spinner Loading/Downloading). Wire ke `chat-area.tsx` (ModelSelect -> ModelPicker). Hapus `model-select.tsx` (yatim).
+- Files: baru `src/lib/models-catalog.ts` (+test), `src/app/api/models/{catalog,load,download}/route.ts`, `src/modules/playground/hooks/use-model-catalog.ts`, `src/modules/playground/components/model-picker.tsx`; ubah `chat-area.tsx`; hapus `model-select.tsx`.
+- Result: lint 0, tsc 0, 59 test pass. Verified EMPIRIS via BFF: catalog OK (loaded/downloaded/recommended benar), load 0.5B (fastchat) OK -> /v1/models=Qwen2.5-0.5B-Instruct, load 3B GGUF (llama.cpp) OK -> /v1/models=qwen2.5-3b-instruct-q4_k_m.gguf. Model swapping 1-klik end-to-end JALAN.
+- Catatan iterasi-1: tab Fine-tuned masih placeholder (belum ada hasil training); download blocking (belum ada progress bar realtime); Hub search baru filter Recommended (belum full gallery 247). Semua bisa di-iterasi.
+- Next: user verifikasi visual (refresh /interact, klik selector model). Lalu #3 fine-tuning nyata (Unsloth via TL) -> hasilnya isi tab Fine-tuned.
+
+## 2026-06-18 14:02 (UTC+7) - claude
+- Task: Fix bug "model mismatch" saat ganti model via picker (download+load 1.5B berhasil tapi chat 403).
+- Root cause: TL OpenAI API STRICT soal nama model (error 40301 "Expected model X, Your model Y"). BFF /api/chat fallback ke INFERENCE_MODEL di .env yang masih ketulis 3b (basi) saat client tak kirim model / ada race setelah switch. Ketangkep pas user download+pakai 1.5B lalu chat -> 403 minta 3b.
+- Fix: `src/app/api/chat/route.ts` -> resolve model dari `fetchLoaded()` (TL /v1/models, sumber kebenaran krn TL serve 1 model) DULU, baru fallback body.model/env. Chat jadi anti-mismatch selamanya (imun env basi & race picker).
+- Files: `src/app/api/chat/route.ts` (import fetchLoaded; model = loaded || body.model || INFERENCE_MODEL).
+- Result: lint 0, tsc 0, 59 test pass. Verified: chat tanpa kirim model -> auto pakai qwen2.5-1.5b-instruct-q4_k_m.gguf, jawab "ibukota Indonesia adalah Jakarta" (benar). Switch model via picker (download 1.5B->auto-load->chat) terbukti end-to-end.
+- Next: #3 fine-tuning nyata (Unsloth via TL) -> isi tab Fine-tuned.
+
+## 2026-06-18 14:40 (UTC+7) - claude
+- Task: #3 BUKTIKAN fine-tuning nyata jalan end-to-end via TL (sebelum bangun UI).
+- Temuan trainer: BELUM ada trainer terinstall. Plugin Unsloth yg ada cuma GRPO(RL)+TTS, BUKAN SFT. Untuk SFT/LoRA dasar = plugin `llama_trainer` (support Qwen2/3, Llama, Gemma, Mistral). Install via `GET /plugins/gallery/llama_trainer/install` (deps: bitsandbytes/triton/peft/trl) -> SUKSES.
+- Alur training (hasil reverse-engineer): (1) `GET /experiment/create?name=X`. (2) `PUT /tasks/new_task` body {name,type:TRAIN,plugin,experiment_id,inputs,outputs,config}. PENTING: model_name+dataset_name HARUS di `inputs` (queue_task baca dari situ, bukan config) kalau nggak KeyError. config butuh _tlab_recipe_models/datasets.path + param trainer + formatting_template. (3) `GET /tasks/{id}/queue` -> job_id. (4) job jalan subprocess venv plugin.
+- BUG (sama spt inference): venv trainer punya paket kernels + transformers 5.x -> crash kernels/layer.py soal revision/version. Fix: bersihkan folder paket kernels dari venv trainer.
+- BUG: plugin llama_trainer TIDAK baca max_steps (cuma num_train_epochs) -> Alpaca 52K = 965 step (~70mnt). Solusi proof: dataset mungil Trelis/touch-rugby-rules (10 baris, kolom prompt/completion) + 3 epoch -> 27 step, 33 detik.
+- Dataset: `GET /data/download?dataset_id=X`, preview `/data/preview`. pefts: `POST /model/pefts` body = STRING mentah (bukan objek).
+- HASIL: job COMPLETE 100pct, loss TURUN 3.065 ke 2.618, model saved -> adaptor di workspace/adaptors/Qwen_Qwen2.5-0.5B-Instruct/nqr-rugby-test (adapter_model.safetensors+config). /model/pefts -> [nqr-rugby-test]. FINE-TUNING NYATA TERBUKTI E2E.
+- Catatan: training CPU+GPU, model kecil 0.5B LoRA muat 6GB. Inference worker di-stop saat training. Fix kernels trainer EPHEMERAL. max_steps unsupported = batasi via ukuran dataset/epoch.
+- Next: UI fine-tuning (pilih base model+dataset+hyperparams+submit+monitor loss live + adaptor masuk tab Fine-tuned + load adaptor utk inference). Besar -> konfirmasi scope.
+
+## 2026-06-18 15:38 (UTC+7) - claude
+- Task: #3 (lanjut) Bangun UI fine-tuning PENUH, tetap via backend TL (BFF kita).
+- BFF: server-lib `src/lib/finetune.ts` (FINETUNE_EXPERIMENT=nqr-ft; fetchFinetuneOptions=model trainable non-GGUF + datasets; buildFormattingTemplate auto dari kolom dataset; submitFinetune=ensureExperiment+ensureDatasetDownloaded+PUT new_task(model/dataset di inputs)+queue; fetchTrainingJobs/Job via /jobs/list?experimentId; fetchAdaptors reuse dari models-catalog). Routes: GET /api/finetune/options, POST /api/finetune/submit (maxDuration 600), GET /api/finetune/jobs, GET /api/finetune/jobs/[id].
+- models-catalog: tambah FineTunedAdaptor + fetchAdaptors(/model/pefts) + fetchFineTuned(loop downloaded non-GGUF) + ModelCatalog.fineTuned; loadModel(modelId, adaptor?) -> worker_start param adaptor. catalog route include fineTuned. load route terima adaptor.
+- UI: module `src/modules/finetune` (hook use-finetune: options+jobs polling 3s saat ada job aktif+submit; components finetune-form (select model+dataset+adaptorName auto-suggest+epochs+advanced loraR/lr), job-list (status badge+progress bar live), finetune-page). Route `/finetune`. Nav item "Fine-tune" (Sparkles) di app-shell. Picker tab Fine-tuned: list adaptor + klik = load base+adaptor.
+- Files: baru finetune.ts(+test), 4 route finetune, modules/finetune/*, app/(app)/finetune/page.tsx; ubah models-catalog.ts, catalog/load route, model-picker.tsx, use-model-catalog.ts, app-shell.tsx, feature-status.ts (finetune.train=live).
+- Result: lint 0, tsc 0, 64 test pass. Verified E2E via BFF: /api/finetune/options (model+dataset benar), submit -> jobId 22 RUNNING -> COMPLETE 100pct, /api/models/catalog.fineTuned = [nqr-rugby-test, nqr-bff-test], LOAD base+adaptor -> /v1/models = nqr-rugby-test (adaptor dilayani). Lingkaran train->adaptor->tab Fine-tuned->load->chat TERBUKTI penuh.
+- Catatan iterasi-1: monitor pakai status+progress pct (belum kurva loss realtime). Dataset recommended 3 (touch-rugby/alpaca/dolly), full gallery belum. Stop job belum di-UI. Fix kernels trainer EPHEMERAL.
+- Next opsi: kurva loss live, stop/delete job di UI, dataset upload sendiri, atau beresin ephemeral container jadi persisten.
+
+## 2026-06-19 10:36 (UTC+7) - claude
+- Task: Recovery setelah user matiin PC -> chat error 500 (ECONNREFUSED :8338).
+- Diagnosis: Docker Desktop engine mati (npipe dockerDesktopLinuxEngine not found) -> container TL ikut mati -> /api/chat gagal connect.
+- Action: launch Docker Desktop (Start-Process), engine ready ~8 dtk, container transformerlab-api AUTO-START (restart policy) Up. TL :8338 siap ~12 dtk. Verifikasi: token permanen masih jalan, 0 model loaded (normal abis restart). Load Qwen2.5-1.5B via BFF -> chat OK ("Halo, selamat datang...").
+- TEMUAN PENTING: fix ephemeral (patch llama.cpp decode, kernels trainer dihapus) SELAMAT setelah restart container. Restart (PC off/on, docker start) != recreate (docker compose down/up). Cuma recreate yg hapus fix.
+- Prosedur startup tiap restart PC: (1) buka Docker Desktop (container auto-start), (2) npm run dev kalau belum jalan, (3) load 1 model di picker Interact (VRAM kosong abis restart, model di disk aman).
+- Files: none (operasional).
+
+## 2026-06-19 10:51 (UTC+7) - claude
+- Task: User lapor "model 3B ngga sepinter kemarin" (screenshot: output loop "1 kg sawi hijau" puluhan kali).
+- Diagnosis BERLAPIS: (1) Loop dipicu prompt absurd ("resep rendang 70kg") + tanpa repetition penalty. (2) AKAR UTAMA: worker llama.cpp masuk state RUSAK -- /v1/models bilang model=3B tapi controller serve nama KOSONG (error "Expected model: ."), VRAM cuma 1817 MiB (3B nggak ke-GPU penuh), worker crash exit 1 berulang. Sebabnya: reload model beruntun (aku + user switch) -> banyak worker rebutan port/VRAM.
+- Fix 1 (kode kita): tambah frequency_penalty 0.4 + presence_penalty 0.3 default di `src/app/api/chat/route.ts` -> anti degenerasi loop di model kecil quantized.
+- Fix 2 (state): reset bersih = docker restart transformerlab-api (restart != recreate, fix & data aman) -> VRAM 27 MiB, lalu load 3B SEKALI bersih -> VRAM 4230 MiB (GPU penuh), /v1/models benar.
+- Result: chat 0.7s ("Tokyo"), resep rendang 9.7s koheren NO LOOP. tsc 0, test pass. 3B normal lagi.
+- PELAJARAN: jangan reload model beruntun cepat (race bikin worker zombie). Kalau chat error "Expected model: ." / VRAM aneh -> restart container + load 1 model bersih.
+- Files: `src/app/api/chat/route.ts` (frequency/presence penalty).
+
+## 2026-06-19 10:56 (UTC+7) - claude
+- Task: Fix VRAM contention training vs inference + panduan test fine-tuning.
+- Masalah: di GPU 6GB, training + inference worker nggak muat barengan. submitFinetune sebelumnya nggak stop worker inference -> kalau ada model loaded (mis 3B 4.2GB), training OOM.
+- Fix: `src/lib/finetune.ts` submitFinetune -> panggil /server/worker_stop (best-effort) sebelum queue training. Konsekuensi UX: mulai training otomatis pause inference (chat); abis training user load model lagi di picker.
+- Files: `src/lib/finetune.ts`. lint 0.
+- Catatan: test fine-tune disarankan Qwen2.5-0.5B + Touch Rugby Rules (10 baris) + 3 epoch (~30 detik). Efek pada 0.5B/10 baris subtle -- ini demo mekanik pipeline, bukan transformasi model.
+
+## 2026-06-19 11:55 (UTC+7) - claude
+- Task: Bikin model fine-tuned BISA DICHAT (sebelumnya gagal load di fastchat & fused). GAS export GGUF.
+- ROOT CAUSE DITEMUKAN (menjelaskan SEMUA kegagalan inference fine-tuned): trainer simpan tokenizer_config.json dgn `extra_special_tokens` sbg LIST (token Qwen), tapi transformers (inference/export) harap DICT -> `AttributeError: 'list' object has no attribute 'keys'`. Ini yg bikin BAIK fastchat load BAIK gguf export crash.
+- FIX: set extra_special_tokens = {} (dict) di tokenizer_config.json model fused.
+- Pipeline yg TERBUKTI jalan (manual): (1) fine-tune fuse_model:true -> merged safetensors. (2) fix tokenizer_config. (3) gguf_exporter convert_hf_to_gguf.py --outtype q8_0 -> rugby-fused-q8_0.gguf (507M). (4) register: bikin subdir models/rugby-fused-q8_0/ + index.json (model_id,model_filename,architecture:GGUF). (5) muncul di /model/list -> picker Downloaded. (6) load via llama.cpp + chat -> JAWAB soal touch rugby (domain training). E2E SUKSES via UI flow.
+- BUG TL lain ketemu: export job-runner RUSAK (run_exporter_script bikin job tapi job "Started" selamanya, nggak jalan). Makanya export dijalankan manual via docker exec. import_from_local_path -> 500.
+- gguf_exporter terinstall (llama.cpp source + convert_hf_to_gguf.py). Plugin support Qwen2/3,Llama,Gemma,Mistral,Phi.
+- Files: kode -> `src/lib/finetune.ts` (fuse_model:true), `src/lib/models-catalog.ts` (model_filename utk semua localPath). Container (EPHEMERAL): fix tokenizer + GGUF + register manual.
+- STATUS: kemampuan fine-tune->pakai TERBUKTI. Otomasi penuh (fix tokenizer+export+register otomatis dari UI) BELUM -- terblokir TL export-runner rusak; konversi harus in-container (BFF cuma HTTP). Next: patch trainer plugin auto-fix tokenizer + cari cara trigger konversi via HTTP, atau pre-build script.
+
+## 2026-06-19 12:15 (UTC+7) - claude
+- Task: Bikin fix container persisten (user pilih ini sebelum bangun UI Fine-tuned).
+- TEMUAN PENTING (koreksi): patch TL (llama.cpp decode, kernels dibersihkan, transformers 4.53.3) + semua data ada di bawah /root/.transformerlab = NAMED VOLUME transformerlab_data. Diverifikasi via docker inspect. Named volume SURVIVE docker compose down lalu up (cuma hilang kalau pakai flag hapus-volume atau volume dihapus manual atau mesin baru). Jadi patch SEBENARNYA UDAH PERSISTEN buat pemakaian normal. Klaim ephemeral-saat-recreate sebelumnya SALAH.
+- Deliverable: backend/docker/gpu/nvidia/apply-fixes.sh = script idempotent re-apply patch (discover org plugins dir, bersihkan paket kernels dari 3 plugin venv, pin fastchat transformers 4.53.3, apply llama.cpp decode patch, bikin workspace/logs). Tested jalan + idempotent. Encoding LF tanpa BOM.
+- Doc: section NQRust patches+persistence di backend/docker/gpu/nvidia/README.md (tabel apa yang survive, cara recovery, prosedur reboot).
+- Files: baru apply-fixes.sh; ubah README.md docker dir. Memori nqrust-startup-procedure dikoreksi.
+- Catatan: apply-fixes.sh belum include patch gguf_exporter (model_path + tokenizer) = bagian B, ditambah pas bangun B.
+- Next: fondasi persisten beres. Bisa lanjut B (UI Fine-tuned + export otomatis) di atas fondasi solid.
+
+## 2026-06-19 14:04 (UTC+7) - claude
+- Task: B - UI Fine-tuned tab redesign + export GGUF OTOMATIS (di atas fondasi persisten).
+- HTTP export di-unblock: run_exporter_script harus dipanggil 2x (bikin job + job_id buat eksekusi; job-runner TL nggak auto-run export). Workaround di BFF.
+- 6 bug TL ditemukan+diatasi sepanjang chain fine-tuned->chat: (1) fastchat adaptor size mismatch, (2) tokenizer extra_special_tokens list vs dict, (3) export job-runner nggak auto-run, (4) exporter pakai model_name bukan model_path (HF 401), (5) sama dgn 2 di exporter, (6) GGUF export local_path kosong + file nested nama beda.
+- Patch plugin (masuk apply-fixes.sh, persisten): gguf_exporter -> pakai model_path lokal + fix tokenizer + RENAME file .gguf == output_model_id (biar app bisa construct path).
+- Kode kita (persisten): models-catalog.ts loadModel construct path GGUF export (TL local_path rusak: <models>/<id>/<id>); fetchFineTuned baru = model fused (prefix TransformerLab/) + match GGUF export -> status ready/needs-export. finetune.ts exportFineTunedToGguf (set foundation construct path + run_exporter twice) + route /api/finetune/export. use-model-catalog exportModel action. model-picker tab Fine-tuned: list + status + tombol Export (needs-export) / Use (ready) + check aktif.
+- Files: ubah models-catalog.ts, finetune.ts, catalog/load route, use-model-catalog.ts, model-picker.tsx; baru api/finetune/export/route.ts; apply-fixes.sh (gguf_exporter patches).
+- Result: lint 0, tsc 0, 64 test, interact 200. VERIFIED FULL AUTO (nol manual): train rugby-v3 -> needs-export -> POST /api/finetune/export -> ready -> load via BFF -> chat "touchdown is scored when a player touches..." (on-topic). UI: Fine-tune menu train -> tab Fine-tuned "Export to use" -> "Use" -> chat.
+- B SELESAI. Fine-tuning end-to-end (train->export->pakai) tuntas via UI, semua patch persisten.
+
+## 2026-06-19 14:30 (UTC+7) - claude
+- Task: A - fitur upload dataset + dataset 'gaya' buat bukti fine-tuning kelihatan (before/after).
+- DIBANGUN (jalan): BFF createDataset (/data/new + /data/fileupload JSONL prompt/completion) + route /api/datasets/create; fetchFinetuneOptions sekarang include dataset LOKAL (dari /data/list) -> dataset buatan user muncul di dropdown fine-tune. Dataset nqr-style-demo (50 baris, tiap jawaban diakhiri "🦥 Salam dari NQR!") berhasil dibuat via BFF + muncul di options + preview kolom prompt/completion benar.
+- EKSPERIMEN bukti (GAGAL kelihatan): fine-tune 0.5B di nqr-style-demo: (1) raw template "### Q/A" 5 epoch -> tanda tangan TIDAK muncul (bahkan di pertanyaan training). (2) chat-format template Qwen <|im_start|> 8 epoch LoRA r=16 lr 3e-4 -> MASIH tidak muncul. Model belajar jawaban tapi TIDAK generalisasi suffix.
+- TEMUAN JUJUR: 0.5B + 50 baris terlalu sedikit buat nanam/generalisasi pola gaya secara kelihatan. Ini batas wajar (model kecil + data kecil = efek halus/tak terlihat), BUKAN bug pipeline. Pipeline train->export->load->chat tetap terbukti jalan; fitur upload dataset jalan.
+- Untuk efek KELIHATAN beneran: butuh dataset jauh lebih besar (ratusan+) dan/atau model lebih besar (1.5B/3B). Itu proyek fine-tuning beneran, bukan demo cepat.
+- Files: ubah src/lib/finetune.ts (createDataset, fetchLocalDatasets array, fetchFinetuneOptions include local, ensureDatasetDownloaded fix .some); baru src/app/api/datasets/create/route.ts. lint/tsc/test 0/0/64.
+- Next: UI form upload dataset (belum) ATAU terima temuan + lanjut item lain. Bukti dramatis perlu data besar/model besar.
+
+## 2026-06-19 15:03 (UTC+7) - claude
+- Task: #1 selesaikan fitur upload dataset + #2 coba fine-tune efek kelihatan pakai model lebih besar.
+- DELIVERED (#1, jalan): UI form "New dataset" (DatasetForm: nama + baris prompt|completion -> /api/datasets/create) di Fine-tune page; useFinetune.createDataset + refreshOptions. Fix: base-model dropdown sekarang EXCLUDE fused (TransformerLab/) + GGUF -> cuma base asli (Llama-1B, Qwen-0.5B/1.5B). Download Qwen2.5-1.5B-Instruct safetensors buat training.
+- #2 PERCOBAAN EFEK KELIHATAN: 6 percobaan total (0.5B & 1.5B; fakta & gaya-signature; raw & chat-format Qwen; data 50 & 156 baris; packing on/off). Hasil: TIDAK ada efek jelas-kelihatan. Signature "Salam Tim NQR" tidak pernah muncul.
+- TEMUAN TEKNIS: plugin llama_trainer pakai packing=True + completion_only_loss=False -> bikin gaya/format susah ke-imprint. Patch packing=False (masuk apply-fixes.sh) -> SEDIKIT ngefek (math jawab "X tambah Y sama dengan Z" niru format training), TAPI base 1.5B juga sebagian besar bilang "sama dengan" (Bahasa natural) jadi beda marginal. Signature tetap nggak muncul. Kemungkinan butuh completion_only_loss=True (tapi nggak jalan dgn formatting_template single-text; butuh kirim kolom prompt/completion ke TRL) + data jauh lebih banyak.
+- KESIMPULAN JUJUR: PIPELINE fine-tuning (train->export->load->chat) TERBUKTI JALAN berkali-kali. Tapi MENGHASILKAN model fine-tuned yg behaviour-nya jelas berubah = tugas ML beneran (kurasi data ratusan-ribuan baris + config loss + tuning + eval), bukan demo cepat. Bukan bug pipeline.
+- Files: baru dataset-form.tsx, api/datasets/create/route.ts; ubah finetune.ts (createDataset, exclude fused, fetchLocalDatasets), use-finetune.ts (createDataset/refreshOptions), finetune-page.tsx; apply-fixes.sh (+packing=False). lint/tsc/test 0/0/64.
+- 3B GGUF di-reload buat chat normal.
+
+## 2026-06-19 15:13 (UTC+7) - claude
+- Task: Polish UX (a) - stop/delete job + delete model fine-tuned + bersihin sampah tes.
+- BFF: models-catalog.deleteModels (GET /model/delete?model_id=X, multi); finetune.stopTrainingJob (GET /jobs/{id}/stop?experimentId=nqr-ft) + deleteTrainingJob (GET /jobs/delete/{id}?experimentId). Routes: POST /api/models/delete {modelIds}, POST /api/finetune/jobs/[id]/stop, DELETE /api/finetune/jobs/[id].
+- UI: use-finetune stopJob/deleteJob; job-list tombol Stop (job aktif) + Trash (job selesai). use-model-catalog deleteFineTuned (hapus fused + GGUF); model-picker tab Fine-tuned tombol trash per model (muncul on-hover, group-hover). Restructure row jadi div + 2 button (main + delete).
+- Dogfood: hapus 7 model fine-tuned tes + 11 job tes via fitur baru -> fineTuned 0, jobs 0, base models utuh. Tab Fine-tuned & job list bersih sekarang.
+- Files: ubah models-catalog.ts, finetune.ts, use-finetune.ts, use-model-catalog.ts, job-list.tsx, finetune-page.tsx, model-picker.tsx; baru api/models/delete + api/finetune/jobs/[id]/stop. lint/tsc/test 0/0/64. pages 200.
+- Belum: progress bar download (perlu refactor download jadi async + poll job TL) -- defer.
+
+## 2026-06-19 15:32 (UTC+7) - claude
+- Task: Polish (iii) hapus dataset, (ii) loading states, (i) progress download.
+- (iii) JADI: finetune.deleteDataset (/data/delete); route POST /api/datasets/delete; FinetuneForm tombol trash di sebelah dropdown Dataset (muncul kalau dataset terpilih = local/downloaded); use-finetune.deleteDataset+refreshOptions. Dogfood: hapus 2 junk dataset (nqr-style-demo, nqr-style-big) -> dropdown bersih.
+- (ii) JADI: finetune-page pakai LoadingState pas loading (nggak flash form kosong). Picker + chat-area udah punya error/loading state sebelumnya.
+- (i) INVESTIGASI -> true % progress bar TIDAK FEASIBLE via API TL: no /job/createId, download blocking, DOWNLOAD_MODEL job (experiment_id=None) nggak ke-list di /jobs/list experiment manapun, jobs nggak di DB utama (per-org storage). Jadi pakai alternatif RELIABLE: useElapsed hook -> tampilkan waktu berjalan di label download ("Downloading… 12s") + export ("Exporting… 8s") biar op lama keliatan hidup bukan beku. Jujur: indikator waktu, bukan %.
+- Files: ubah finetune.ts, use-finetune.ts, finetune-form.tsx, finetune-page.tsx, model-picker.tsx; baru api/datasets/delete. lint/tsc/test 0/0/64. pages interact+finetune 200.
+- Catatan: true % download bisa kalau nanti gali storage job per-org TL (di luar scope sekarang).

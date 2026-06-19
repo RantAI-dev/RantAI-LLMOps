@@ -20,6 +20,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Sparkles,
   Table2,
   TestTubes,
 } from "lucide-react";
@@ -50,6 +51,7 @@ const mainNav: NavItem[] = [
   { label: "Experiments", href: "/experiments", icon: TestTubes },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Interact", href: "/interact", icon: MessageSquareMore },
+  { label: "Fine-tune", href: "/finetune", icon: Sparkles },
   { label: "Evals", href: "/evals", icon: FlaskConical },
   { label: "Documents", href: "/documents", icon: FileText },
   { label: "Notes", href: "/notes", icon: NotebookPen },

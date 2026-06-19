@@ -10,9 +10,9 @@ describe("feature-status", () => {
   });
 
   it("flags mock nav labels and ignores live/unknown ones", () => {
-    expect(isNavMock("Interact")).toBe(true);
     expect(isNavMock("Documents")).toBe(true);
     expect(isNavMock("Dashboard")).toBe(false);
+    expect(isNavMock("Interact")).toBe(false); // now a real chat playground (chat.playground = live)
     expect(isNavMock("Not a real menu")).toBe(false);
   });
 });

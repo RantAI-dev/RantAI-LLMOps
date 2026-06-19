@@ -11,6 +11,35 @@ Below you will find detailed instructions for setting up and running the deploym
 
 ---
 
+## NQRust-LLMOps: patches & persistence (read this)
+
+`transformerlab/api:latest` ships bleeding-edge deps that break model
+load / train / stream. We patch the plugin venvs once via **[`apply-fixes.sh`](./apply-fixes.sh)**
+(removes the broken `kernels` package, pins fastchat's `transformers` to 4.53.3,
+fixes the llama.cpp GGUF streaming decode). Root cause of each is documented in
+the script.
+
+**You usually don't need to run anything.** Everything lives under
+`/root/.transformerlab/` = the named volume `transformerlab_data`:
+
+| Action | Models / adaptors / API key / patches |
+|---|---|
+| `docker stop`/`start`, host reboot, `docker compose down` + `up` | ✅ kept (volume reattaches) |
+| `docker compose down -v`, `docker volume rm`, volume prune, new machine | ❌ wiped |
+
+Only an explicit volume delete loses the patches. If that happens: start the
+stack, install the plugins via the app (fastchat_server, llama_cpp_server,
+llama_trainer, gguf_exporter), then re-apply (idempotent):
+
+```bash
+docker exec -i transformerlab-api bash < apply-fixes.sh
+```
+
+After a host reboot: start Docker Desktop (container auto-starts) → `npm run dev`
+if needed → load a model in the Interact picker (VRAM is empty after a restart).
+
+---
+
 ## Table of Contents
 
 - [Pre-requisites](#pre-requisites)

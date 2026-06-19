@@ -34,6 +34,15 @@ export const FEATURE_STATUS = {
   // connectors (only file upload + Hugging Face download).
   "dataset.qualityScan": "mock",
   "dataset.externalSources": "mock",
+
+  // Interact — real chat playground: the UI streams from an OpenAI-compatible
+  // engine (Ollama / llama.cpp / vLLM / Transformer Lab) via our `/api/chat` BFF.
+  "chat.playground": "live",
+
+  // Fine-tune — real LoRA training via TL's `llama_trainer` plugin: submit a
+  // job, watch it live, and the adaptor appears in the model picker's
+  // Fine-tuned tab (loadable for inference). All through `/api/finetune/*`.
+  "finetune.train": "live",
 } as const satisfies Record<string, FeatureStatus>;
 
 export type FeatureKey = keyof typeof FEATURE_STATUS;
@@ -51,7 +60,7 @@ export function isMock(key: FeatureKey): boolean {
  * that are still mock. Labels must match `mainNav` / `workspaceNav` in the shell.
  */
 export const NAV_FEATURE: Partial<Record<string, FeatureKey>> = {
-  Interact: "rag.interact",
+  // Interact is now a real chat playground (chat.playground = "live") — no red dot.
   Evals: "rag.evals",
   Documents: "rag.documents",
 };

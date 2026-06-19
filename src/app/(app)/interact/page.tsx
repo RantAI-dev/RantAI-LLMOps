@@ -1,5 +1,5 @@
-import { InteractRagPage } from "@/modules/datasets";
+import { ChatPlayground } from "@/modules/playground";
 
 export default function Page() {
-  return <InteractRagPage />;
+  return <ChatPlayground />;
 }
