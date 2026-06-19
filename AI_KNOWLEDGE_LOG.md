@@ -640,3 +640,13 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - (i) INVESTIGASI -> true % progress bar TIDAK FEASIBLE via API TL: no /job/createId, download blocking, DOWNLOAD_MODEL job (experiment_id=None) nggak ke-list di /jobs/list experiment manapun, jobs nggak di DB utama (per-org storage). Jadi pakai alternatif RELIABLE: useElapsed hook -> tampilkan waktu berjalan di label download ("Downloading… 12s") + export ("Exporting… 8s") biar op lama keliatan hidup bukan beku. Jujur: indikator waktu, bukan %.
 - Files: ubah finetune.ts, use-finetune.ts, finetune-form.tsx, finetune-page.tsx, model-picker.tsx; baru api/datasets/delete. lint/tsc/test 0/0/64. pages interact+finetune 200.
 - Catatan: true % download bisa kalau nanti gali storage job per-org TL (di luar scope sekarang).
+
+## 2026-06-19 16:08 (UTC+7) - claude
+- Task: Wire EVALS ke backend TL (lengkapi loop train->eval->serve).
+- Backend: install plugin eleuther-ai-lm-evaluation-harness; bersihkan kernels venv-nya. Eval pakai task EVAL (pola SAMA training). Gotcha: (1) limit harus FRAKSI 0-1 (bukan count); (2) model diambil dari FOUNDATION experiment (bukan param) -> harus set foundation dulu (kayak export); kalau foundation nunjuk model rusak, lm_eval nggak nulis output. Set foundation bersih -> JALAN: arc_easy acc 0.625/0.604. Skor di job_data.score = JSON "[{type,score}]".
+- BFF: src/lib/evals.ts (BENCHMARKS curated; fetchEvalOptions=model non-GGUF base+fused; submitEval=set foundation+create EVAL task+queue; fetchEvalJobs=parse job_data.score). Routes GET /api/evals/options, POST /api/evals/submit, GET /api/evals/jobs.
+- UI: module src/modules/evals (use-evals hook poll+submit, eval-form select model+benchmark+coverage slider, eval-job-list dgn skor % badge, evals-page). Route /evals diganti dari EvalsRagPage(mock) ke EvalsPage(real). Nav Evals nggak mock lagi (hapus dari NAV_FEATURE). feature-status: eval.run=live.
+- apply-fixes.sh: tambah eleuther ke daftar kernels-removal (persisten).
+- Files: baru evals.ts, 3 route evals, modules/evals/*; ubah evals/page.tsx, feature-status.ts, apply-fixes.sh. lint/tsc/test 0/0/64. /evals 200.
+- VERIFIED E2E via BFF: submit 0.5B+arc_easy -> job COMPLETE -> skor 60.4% muncul di /api/evals/jobs. Use-case: bandingin base vs fine-tuned (eval model fused juga bisa, by local_path).
+- Loop LLMOps lengkap: inference + manajemen model + fine-tune + EVAL. Next opsi: wire Dataset/Model Registry page, auth real, eval compare base-vs-finetuned side by side.

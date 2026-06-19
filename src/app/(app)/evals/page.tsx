@@ -1,5 +1,5 @@
-import { EvalsRagPage } from "@/modules/datasets";
+import { EvalsPage } from "@/modules/evals";
 
 export default function Page() {
-  return <EvalsRagPage />;
+  return <EvalsPage />;
 }

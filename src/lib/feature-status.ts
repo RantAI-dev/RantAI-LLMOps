@@ -43,6 +43,10 @@ export const FEATURE_STATUS = {
   // job, watch it live, and the adaptor appears in the model picker's
   // Fine-tuned tab (loadable for inference). All through `/api/finetune/*`.
   "finetune.train": "live",
+
+  // Evals — real benchmark accuracy via TL's EleutherAI LM-Eval-Harness plugin:
+  // pick a model + benchmark, run it, read the score. Through `/api/evals/*`.
+  "eval.run": "live",
 } as const satisfies Record<string, FeatureStatus>;
 
 export type FeatureKey = keyof typeof FEATURE_STATUS;
@@ -60,8 +64,7 @@ export function isMock(key: FeatureKey): boolean {
  * that are still mock. Labels must match `mainNav` / `workspaceNav` in the shell.
  */
 export const NAV_FEATURE: Partial<Record<string, FeatureKey>> = {
-  // Interact is now a real chat playground (chat.playground = "live") — no red dot.
-  Evals: "rag.evals",
+  // Interact (chat) + Evals (benchmark) are now live — no red dot.
   Documents: "rag.documents",
 };
 

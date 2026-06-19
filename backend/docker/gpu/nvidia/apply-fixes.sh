@@ -42,7 +42,7 @@ remove_kernels() {
 }
 
 # 1. Remove the broken `kernels` package from every plugin venv.
-for plug in fastchat_server llama_cpp_server llama_trainer; do
+for plug in fastchat_server llama_cpp_server llama_trainer eleuther-ai-lm-evaluation-harness; do
   remove_kernels "$ORG_PLUGINS/$plug/venv"
 done
 
