@@ -257,7 +257,8 @@ export function TaskDetailDrawer({
 
 /**
  * Real job logs from Transformer Lab (`/api/tasks/{id}/output`). Falls back to
- * the task's mock log entries for demo tasks TL doesn't have.
+ * the task's mock log entries for demo tasks TL doesn't have. Real logs can be
+ * downloaded as a .log file (the one job artifact TL reliably serves).
  */
 function TaskLogs({ taskId, fallback }: { taskId: string; fallback: TaskLogEntry[] }) {
   const [output, setOutput] = useState<string | null>(null);
@@ -281,21 +282,44 @@ function TaskLogs({ taskId, fallback }: { taskId: string; fallback: TaskLogEntry
   }, [taskId]);
 
   const hasReal = output != null && output.trim().length > 0;
+
+  const downloadLog = () => {
+    if (!output) return;
+    const blob = new Blob([output], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `job-${taskId}.log`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="max-h-64 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]">
-      {loading ? (
-        <p className="text-ink-faint-strong">Loading logs…</p>
-      ) : hasReal ? (
-        <pre className="whitespace-pre-wrap break-words">{output}</pre>
-      ) : fallback.length > 0 ? (
-        fallback.map((log, i) => (
-          <p key={`${log.time}-${i}`}>
-            <span className="text-ink-faint">[{log.time}]</span> {log.message}
-          </p>
-        ))
-      ) : (
-        <p className="text-ink-faint-strong">No logs yet.</p>
-      )}
+    <div className="space-y-2">
+      {hasReal ? (
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5" onClick={downloadLog}>
+            <Download className="size-3.5" /> Download .log
+          </Button>
+        </div>
+      ) : null}
+      <div className="max-h-64 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]">
+        {loading ? (
+          <p className="text-ink-faint-strong">Loading logs…</p>
+        ) : hasReal ? (
+          <pre className="whitespace-pre-wrap break-words">{output}</pre>
+        ) : fallback.length > 0 ? (
+          fallback.map((log, i) => (
+            <p key={`${log.time}-${i}`}>
+              <span className="text-ink-faint">[{log.time}]</span> {log.message}
+            </p>
+          ))
+        ) : (
+          <p className="text-ink-faint-strong">No logs yet.</p>
+        )}
+      </div>
     </div>
   );
 }

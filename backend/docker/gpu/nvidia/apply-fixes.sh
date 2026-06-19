@@ -53,6 +53,37 @@ LT_MAIN="$ORG_PLUGINS/llama_trainer/main.py"
 if [ -f "$LT_MAIN" ]; then
   sed -i 's/packing=True,/packing=False,  # NQRUST: per-response boundaries/' "$LT_MAIN"
   echo "  - llama_trainer packing disabled"
+
+  # 1c. After the trainer fuses + saves a model, normalize the fused tokenizer's
+  # extra_special_tokens (transformers saves it as a LIST, but later transformers
+  # expects a DICT -> 'list' object has no attribute 'keys' when ANY consumer
+  # loads it: eval (eleuther harness), fastchat inference, gguf export). Fixing it
+  # at the source makes every fused model usable everywhere.
+  python3 - "$LT_MAIN" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+anchor = 'tokenizer.save_pretrained(fused_model_location)'
+fix = (
+    '\n'
+    '            # NQRUST_FUSED_TOKENIZER_FIX: normalize extra_special_tokens list -> dict\n'
+    '            try:\n'
+    '                import json as _json, os as _os\n'
+    '                _tc = _os.path.join(fused_model_location, "tokenizer_config.json")\n'
+    '                if _os.path.isfile(_tc):\n'
+    '                    _d = _json.load(open(_tc))\n'
+    '                    if isinstance(_d.get("extra_special_tokens"), list):\n'
+    '                        _d["extra_special_tokens"] = {}\n'
+    '                        _json.dump(_d, open(_tc, "w"), ensure_ascii=False, indent=2)\n'
+    '            except Exception:\n'
+    '                pass'
+)
+if 'NQRUST_FUSED_TOKENIZER_FIX' not in s and anchor in s:
+    s = s.replace(anchor, anchor + fix, 1)
+    open(p, 'w').write(s)
+    print("    patched")
+PYEOF
+  echo "  - llama_trainer fused-tokenizer fix"
 fi
 
 # 2. fastchat_server: pin transformers 4.53.3 (5.x breaks Qwen rope config).

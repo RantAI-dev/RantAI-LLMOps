@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
   Bell,
+  BookTemplate,
   Boxes,
   BrainCog,
   ChevronUp,
@@ -19,6 +20,7 @@ import {
   NotebookPen,
   PanelLeftClose,
   PanelLeftOpen,
+  Radio,
   Search,
   Sparkles,
   Table2,
@@ -53,11 +55,13 @@ const mainNav: NavItem[] = [
   { label: "Interact", href: "/interact", icon: MessageSquareMore },
   { label: "Fine-tune", href: "/finetune", icon: Sparkles },
   { label: "Evals", href: "/evals", icon: FlaskConical },
+  { label: "Serve", href: "/serve", icon: Radio },
   { label: "Documents", href: "/documents", icon: FileText },
   { label: "Notes", href: "/notes", icon: NotebookPen },
 ];
 
 const workspaceNav: NavItem[] = [
+  { label: "Recipes", href: "/recipes", icon: BookTemplate },
   { label: "Model Registry", href: "/models", icon: Boxes },
   { label: "Dataset", href: "/datasets", icon: Database },
   { label: "Tasks Gallery", href: "/tasks-gallery", icon: Table2 },
