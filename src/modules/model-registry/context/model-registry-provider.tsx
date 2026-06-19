@@ -94,7 +94,8 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
   const [models, setModels] = useState<RegistryModel[]>(seedModels);
   const { isLoading: modelsLoading, isError: modelsError, reload: reloadModels } = useResourceFetch(
     setModels,
-    fetchModels
+    fetchModels,
+    { always: true }
   );
   const [filters, setFilters] = useState<ModelFilters>(defaultFilters);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);

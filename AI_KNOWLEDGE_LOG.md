@@ -650,3 +650,24 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - Files: baru evals.ts, 3 route evals, modules/evals/*; ubah evals/page.tsx, feature-status.ts, apply-fixes.sh. lint/tsc/test 0/0/64. /evals 200.
 - VERIFIED E2E via BFF: submit 0.5B+arc_easy -> job COMPLETE -> skor 60.4% muncul di /api/evals/jobs. Use-case: bandingin base vs fine-tuned (eval model fused juga bisa, by local_path).
 - Loop LLMOps lengkap: inference + manajemen model + fine-tune + EVAL. Next opsi: wire Dataset/Model Registry page, auth real, eval compare base-vs-finetuned side by side.
+
+## 2026-06-19 16:41 (UTC+7) - claude
+- Task: Wire halaman Dataset Registry + Model Registry ke data nyata TL (sebelumnya mock fantasi-berat).
+- Konteks: RegistryModel = 153 field (deploy/usage/eval/audit = FANTASI, TL nggak dukung). Dataset type juga kaya (validation/quality-scan/versions/usage = fantasi). Keputusan jujur: wire LIST/TABEL-nya aja ke data nyata; sub-bagian fantasi tetap default kosong (sesuai feature-status: model.deployment/usage/evaluation + dataset.qualityScan/externalSources = mock). Bukan rebuild.
+- Pola: BFF jalan independen via permanent key (lepas dari mock-login app). Tambah opsi { always: true } ke useResourceFetch supaya fetch data nyata walau USE_REAL_API=false. Default lama (gated) tetap aman buat service lain.
+- Model Registry: lib/from-tl.ts tlToRegistryModel(CatalogModel->RegistryModel) reuse template default + override field NYATA (id, name, format GGUF/Safetensors, parameterSize regex dari nama, totalModelSize, localPath, quantization, vllm/transformers-compat). fetchModels() fetch /api/models/catalog -> map downloaded. Provider { always:true }. Fallback ke initialModels kalau TL kosong.
+- Dataset Registry: finetune.ts listTlDatasets() (TlDatasetRow id/description/sizeMb dari /data/list). Route baru GET /api/datasets/list. lib/from-tl.ts tlToDataset(row->Dataset) pakai builder helper (buildValidationSummary/buildReadiness/deriveValidationStatus); totalRows=0 (jujur: TL list nggak kasih row count, jadi "unscanned" bukan metrik palsu). fetchDatasets() fetch route -> map + mergeRagDefaults. Provider { always:true }.
+- Files: baru src/modules/model-registry/lib/from-tl.ts, src/modules/datasets/lib/from-tl.ts, src/app/api/datasets/list/route.ts; ubah use-resource-fetch.ts, model-registry-service.ts + provider, datasets-service.ts + provider, finetune.ts. lint/tsc 0/0.
+- VERIFIED via BFF: /api/models/catalog -> 5 model nyata (Qwen GGUF/safetensors, Llama-1B); /api/datasets/list -> 2 dataset nyata (Trelis/touch-rugby-rules, tatsu-lab/alpaca). Mapper typecheck valid -> halaman render data nyata on-mount.
+- Jujur ke user: tabel/kartu = NYATA; drawer detail deploy/usage/eval/quality-scan = tetap fantasi (TL nggak punya backend-nya).
+- Next opsi: auth real (per-session token forwarding multi-user), eval compare base-vs-finetuned side-by-side.
+
+## 2026-06-19 17:18 (UTC+7) - claude
+- Task: Eval COMPARE — bandingin beberapa model side-by-side di benchmark sama (base vs fine-tuned).
+- Insight kunci (race): harness baca model dari FOUNDATION experiment saat RUN-time (bukan param submit). Queue banyak eval sekaligus -> semua kebaca foundation terakhir = salah. Solusi: compare runner SEKUENSIAL — submit model i -> poll job-nya sampai terminal -> baru submit i+1. (pollUntilDone cap ~10mnt biar job nyangkut nggak nge-hang.)
+- Hook use-evals: tambah comparing, compareProgress {done,total}, submitCompare(models[], benchmark, limit) sekuensial + pollUntilDone(jobId).
+- Komponen baru eval-compare.tsx: (1) runner form (pilih benchmark + coverage + checkbox >=2 model + progress done/total); (2) Scoreboard matrix = pivot job COMPLETE ber-skor jadi model x benchmark, primaryScore prefer type 'acc', dedup newest-first (job list udah newest-first), best-per-kolom di-bold, baseline selector buat Δ (+/-, hijau=lebih baik). Pure, no backend baru.
+- evals-page: tab "Single run" / "Compare" (state lokal). Single = EvalForm lama; Compare = EvalCompare. Results list tetap di bawah.
+- Files: ubah use-evals.ts, evals-page.tsx; baru eval-compare.tsx. lint/tsc 0/0.
+- VERIFIED nyata via BFF: submit model kedua (Qwen2.5-1.5B, arc_easy 3%) -> job 77 COMPLETE. Pivot (algoritma sama dgn komponen) hasil 2 baris: 0.5B=62.5% vs 1.5B=76.4% (Δ +13.9). /evals 200. Compare side-by-side jalan beneran.
+- Next opsi: auth real (per-session token forwarding multi-user).

@@ -17,9 +17,15 @@ export type ResourceStatus = "idle" | "loading" | "error";
  */
 export function useResourceFetch<T>(
   setData: Dispatch<SetStateAction<T>>,
-  fetcher: () => Promise<T>
+  fetcher: () => Promise<T>,
+  options?: { always?: boolean }
 ) {
-  const [status, setStatus] = useState<ResourceStatus>(USE_REAL_API ? "loading" : "idle");
+  // Some resources (Model Registry, Datasets) are served by our BFF, which talks
+  // to Transformer Lab with a server-side permanent key — independent of the
+  // app's mock login. Those pass `always: true` to fetch real data even though
+  // `USE_REAL_API` (the app-auth flag) is off.
+  const enabled = options?.always === true || USE_REAL_API;
+  const [status, setStatus] = useState<ResourceStatus>(enabled ? "loading" : "idle");
 
   // Kick off a fetch; setState happens in the async `.then`/`.catch` (never
   // synchronously in an effect body) and is guarded against post-unmount writes.
@@ -40,17 +46,17 @@ export function useResourceFetch<T>(
   }, [fetcher, setData]);
 
   useEffect(() => {
-    if (!USE_REAL_API) return;
+    if (!enabled) return;
     return run();
-  }, [run]);
+  }, [enabled, run]);
 
   // Manual retry (called from an event handler, so a synchronous status update
   // here is fine).
   const reload = useCallback(() => {
-    if (!USE_REAL_API) return;
+    if (!enabled) return;
     setStatus("loading");
     run();
-  }, [run]);
+  }, [enabled, run]);
 
   return {
     isLoading: status === "loading",

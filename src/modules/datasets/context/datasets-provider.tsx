@@ -121,7 +121,7 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
     isLoading: datasetsLoading,
     isError: datasetsError,
     reload: reloadDatasets,
-  } = useResourceFetch(setDatasets, fetchDatasets);
+  } = useResourceFetch(setDatasets, fetchDatasets, { always: true });
   const [filters, setFilters] = useState<DatasetFilters>(defaultFilters);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
   const [isCreateWizardOpen, setIsCreateWizardOpen] = useState(false);

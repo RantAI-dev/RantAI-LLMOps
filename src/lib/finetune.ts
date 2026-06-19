@@ -88,6 +88,23 @@ async function fetchLocalDatasets(): Promise<TlDataset[]> {
   }
 }
 
+/** Lean dataset row shape for the Dataset Registry page. */
+export type TlDatasetRow = {
+  id: string;
+  description: string;
+  sizeMb: number | null;
+};
+
+/** Real datasets on disk, shaped for the Dataset Registry. */
+export async function listTlDatasets(): Promise<TlDatasetRow[]> {
+  const rows = await fetchLocalDatasets();
+  return rows.map((d) => ({
+    id: d.dataset_id as string,
+    description: d.json_data?.description || "",
+    sizeMb: typeof d.size === "number" && d.size > 0 ? d.size / (1024 * 1024) : null,
+  }));
+}
+
 /** Form data for the Fine-tune page: trainable models + datasets (local + recommended). */
 export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
   const [downloaded, local] = await Promise.all([fetchDownloaded(), fetchLocalDatasets()]);
