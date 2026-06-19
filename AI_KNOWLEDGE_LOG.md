@@ -671,3 +671,13 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - Files: ubah use-evals.ts, evals-page.tsx; baru eval-compare.tsx. lint/tsc 0/0.
 - VERIFIED nyata via BFF: submit model kedua (Qwen2.5-1.5B, arc_easy 3%) -> job 77 COMPLETE. Pivot (algoritma sama dgn komponen) hasil 2 baris: 0.5B=62.5% vs 1.5B=76.4% (Δ +13.9). /evals 200. Compare side-by-side jalan beneran.
 - Next opsi: auth real (per-session token forwarding multi-user).
+
+## 2026-06-19 17:52 (UTC+7) - claude
+- Task: Dataset PREVIEW nyata — drawer detail dataset nampilin baris asli dari TL (ganti mock INVOICE_PREVIEW_ROWS).
+- Penemuan penting: probe openapi TL = 349 endpoint. BANYAK yang dulu kutandai "fantasi" ternyata NYATA: /data/preview (+_with_template/_with_chat_template/info/download), RAG (/rag/embed,/rag/query,/rag/reindex + /documents/*), job introspection (/jobs/{id}/output, get_eval_results, get_figure_json, checkpoints, artifacts, provider_logs, tunnel_info). Koreksi: feature-status rag.* = mock itu KELIRU (TL dukung RAG; cuma butuh embedding model + setup, docs/list 500 -> belum kebukti jalan).
+- /data/preview balikin COLUMN-oriented ({data:{columns:{col:[vals]}}}) + tiap dataset kolomnya beda (rugby=prompt/completion, alpaca=instruction/input/output/text) -> perlu tabel DINAMIS, bukan skema hardcoded.
+- BFF: finetune.ts previewTlDataset(id,limit) transpose column-dict -> row objects (stringify cell non-string), cap limit 100. Route GET /api/datasets/preview?id=&limit= (degrade ke {columns:[],rows:[]} kalau TL nggak punya).
+- UI: hook use-dataset-preview.ts (state loading/ready/empty/error; setState cuma di callback async biar lolos react-hooks/set-state-in-effect). dataset-detail-view: kalau ready -> RealPreviewTable (kolom dinamis + badge "Live from Transformer Lab", sembunyiin filter valid/invalid karena TL nggak validasi, search tetap jalan); kalau empty/mock -> PreviewTable lama (fallback).
+- Files: ubah finetune.ts, dataset-detail-view.tsx; baru api/datasets/preview/route.ts, hooks/use-dataset-preview.ts. lint/tsc 0/0.
+- VERIFIED via BFF: rugby -> [prompt,completion] 2 baris asli; alpaca -> [instruction,input,output,text] 2 baris (kolom dinamis OK); mock id ds-invoice-validation -> 0 baris -> fallback ke mock. 
+- Catatan buat next: RAG NYATA di TL (koreksi besar) -> kandidat fitur "ask your docs" beneran, tapi perlu verifikasi embedding model jalan di GPU 6GB dulu. Juga: Tasks page (job monitor + logs real), Dashboard (agregat real). Auth ditunda (kata user).

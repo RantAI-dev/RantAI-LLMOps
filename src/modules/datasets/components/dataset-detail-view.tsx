@@ -29,6 +29,7 @@ import {
   searchFieldClassName,
 } from "@/modules/datasets/constants/dataset-ui";
 import { INVOICE_PREVIEW_ROWS } from "@/modules/datasets/data/preview-rows";
+import { useDatasetPreview } from "@/modules/datasets/hooks/use-dataset-preview";
 import {
   formatDate,
   formatDateTime,
@@ -86,6 +87,10 @@ export function DatasetDetailView({
   const [mapping, setMapping] = useState(dataset.schemaMapping);
   const [previewFilter, setPreviewFilter] = useState<"all" | "valid" | "invalid">("all");
   const [previewSearch, setPreviewSearch] = useState("");
+  // Real rows from Transformer Lab; falls back to the mock sample for datasets
+  // TL doesn't have (the demo fixtures).
+  const { state: previewState, preview: realPreview } = useDatasetPreview(dataset.id);
+  const useRealPreview = previewState === "ready";
 
   const splitSum = splitTotal(split);
   const splitError = splitSum > 100;
@@ -98,6 +103,13 @@ export function DatasetDetailView({
     if (previewFilter === "invalid" && !r.hasIssue) return false;
     if (!q) return true;
     return Object.values(r).some((v) => String(v).toLowerCase().includes(q));
+  });
+
+  // Real TL rows: no validity concept (TL doesn't validate), so only search.
+  const realFilteredRows = realPreview.rows.filter((r) => {
+    const q = previewSearch.trim().toLowerCase();
+    if (!q) return true;
+    return Object.values(r).some((v) => v.toLowerCase().includes(q));
   });
 
   return (
@@ -235,22 +247,36 @@ export function DatasetDetailView({
                 className={searchFieldClassName}
               />
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(["all", "valid", "invalid"] as const).map((f) => (
-                <Button
-                  key={f}
-                  type="button"
-                  size="sm"
-                  variant={previewFilter === f ? "default" : "outline"}
-                  className="h-8"
-                  onClick={() => setPreviewFilter(f)}
-                >
-                  {f === "all" ? "All rows" : f === "valid" ? "Valid only" : "Invalid only"}
-                </Button>
-              ))}
-            </div>
+            {!useRealPreview ? (
+              <div className="flex flex-wrap gap-1.5">
+                {(["all", "valid", "invalid"] as const).map((f) => (
+                  <Button
+                    key={f}
+                    type="button"
+                    size="sm"
+                    variant={previewFilter === f ? "default" : "outline"}
+                    className="h-8"
+                    onClick={() => setPreviewFilter(f)}
+                  >
+                    {f === "all" ? "All rows" : f === "valid" ? "Valid only" : "Invalid only"}
+                  </Button>
+                ))}
+              </div>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+                <span className="size-1.5 rounded-full bg-emerald-500" /> Live from Transformer Lab
+              </span>
+            )}
           </div>
-          <PreviewTable rows={filteredRows} />
+          {previewState === "loading" ? (
+            <p className="rounded-lg border border-dashed border-hairline px-4 py-8 text-center text-[13px] text-ink-soft">
+              Memuat baris dataset…
+            </p>
+          ) : useRealPreview ? (
+            <RealPreviewTable columns={realPreview.columns} rows={realFilteredRows} />
+          ) : (
+            <PreviewTable rows={filteredRows} />
+          )}
         </TabsContent>
 
         <TabsContent value="schema" className="mt-4 space-y-3">
@@ -577,6 +603,49 @@ function PreviewTable({
               <TableCell className="max-w-[180px] truncate">{row.input}</TableCell>
               <TableCell>{row.expected_output}</TableCell>
               <TableCell>{row.category}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/** Renders real TL rows with whatever columns the dataset actually has. */
+function RealPreviewTable({
+  columns,
+  rows,
+}: {
+  columns: string[];
+  rows: Array<Record<string, string>>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed border-hairline px-4 py-8 text-center text-[13px] text-ink-soft">
+        Tidak ada baris yang cocok.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-lg border border-hairline bg-white">
+      <Table className="text-[13px]">
+        <TableHeader>
+          <TableRow className="bg-surface">
+            {columns.map((c) => (
+              <TableHead key={c} className="whitespace-nowrap">
+                {c}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((row, i) => (
+            <TableRow key={i}>
+              {columns.map((c) => (
+                <TableCell key={c} className="max-w-[280px] truncate align-top" title={row[c]}>
+                  {row[c] || "—"}
+                </TableCell>
+              ))}
             </TableRow>
           ))}
         </TableBody>

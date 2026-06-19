@@ -105,6 +105,37 @@ export async function listTlDatasets(): Promise<TlDatasetRow[]> {
   }));
 }
 
+export type DatasetPreview = { columns: string[]; rows: Array<Record<string, string>> };
+
+/**
+ * Real rows from a dataset (TL `/data/preview`). TL returns column-oriented
+ * data (`{ data: { columns: { col: [values] } } }`); we transpose it into row
+ * objects and stringify cell values so the UI can render arbitrary schemas.
+ */
+export async function previewTlDataset(id: string, limit = 25): Promise<DatasetPreview> {
+  const url = `${TL_ROOT}/data/preview?dataset_id=${encodeURIComponent(id)}&limit=${limit}`;
+  const res = await fetch(url, { headers: inferenceHeaders() });
+  if (!res.ok) throw new Error(`preview ${res.status}`);
+  const body = (await res.json().catch(() => ({}))) as {
+    status?: string;
+    data?: { columns?: Record<string, unknown[]> };
+  };
+  const cols = body.data?.columns ?? {};
+  const columns = Object.keys(cols);
+  if (columns.length === 0) return { columns: [], rows: [] };
+  const n = Math.max(0, ...columns.map((c) => (Array.isArray(cols[c]) ? cols[c].length : 0)));
+  const rows: Array<Record<string, string>> = [];
+  for (let i = 0; i < n; i++) {
+    const row: Record<string, string> = {};
+    for (const c of columns) {
+      const v = (cols[c] as unknown[])[i];
+      row[c] = v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
+    }
+    rows.push(row);
+  }
+  return { columns, rows };
+}
+
 /** Form data for the Fine-tune page: trainable models + datasets (local + recommended). */
 export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
   const [downloaded, local] = await Promise.all([fetchDownloaded(), fetchLocalDatasets()]);
