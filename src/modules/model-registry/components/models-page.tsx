@@ -54,9 +54,6 @@ export function ModelsPage() {
     startImport,
     resetImportFlow,
     archiveModel,
-    deployModel,
-    stopDeployment,
-    runEvaluation,
     registerLocalModel,
     showToast,
     modelsLoading,
@@ -85,7 +82,6 @@ export function ModelsPage() {
               variant: "info",
             })
           }
-          onDeploy={(env) => deployModel(selectedModel.id, env)}
           onFineTune={() =>
             showToast({ title: "Fine-tune workflow", description: "Fine-tune setup will open here.", variant: "info" })
           }
@@ -93,8 +89,6 @@ export function ModelsPage() {
             showToast({ title: "Compare models", description: "Model comparison view will open here.", variant: "info" })
           }
           onArchive={() => setArchiveTargetId(selectedModel.id)}
-          onStopDeployment={() => stopDeployment(selectedModel.id)}
-          onRunEvaluation={() => runEvaluation(selectedModel.id)}
         />
         <ArchiveModelDialog
           model={archiveTarget}
@@ -158,7 +152,6 @@ export function ModelsPage() {
               variant: "info",
             })
           }
-          onDeploy={(id) => deployModel(id, "Staging")}
           onFineTune={() =>
             showToast({ title: "Fine-tune workflow", description: "Fine-tune setup will open here.", variant: "info" })
           }

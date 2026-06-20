@@ -1,13 +1,6 @@
 "use client";
 
-import {
-  Archive,
-  GitCompare,
-  MoreHorizontal,
-  Play,
-  Rocket,
-  Sparkles,
-} from "lucide-react";
+import { Archive, GitCompare, MoreHorizontal, Play, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,31 +14,22 @@ import type { RegistryModel } from "@/modules/model-registry/types";
 type ModelDetailToolbarProps = {
   model: RegistryModel;
   onTest: () => void;
-  onDeploy: () => void;
   onFineTune: () => void;
   onCompare: () => void;
   onArchive: () => void;
 };
 
 export function ModelDetailToolbar({
-  model,
   onTest,
-  onDeploy,
   onFineTune,
   onCompare,
   onArchive,
 }: ModelDetailToolbarProps) {
-  const canDeploy = model.deploymentReadiness === "Ready" || model.status === "Available";
-
   return (
     <div className="flex flex-wrap items-center gap-2">
       <Button type="button" variant="outline" size="sm" onClick={onTest}>
         <Play className="size-4" />
         Test in Playground
-      </Button>
-      <Button type="button" size="sm" onClick={onDeploy} disabled={!canDeploy}>
-        <Rocket className="size-4" />
-        Deploy
       </Button>
       <Button type="button" variant="outline" size="sm" onClick={onFineTune}>
         <Sparkles className="size-4" />

@@ -14,10 +14,6 @@ export const DETAIL_TABS = [
   { id: "huggingface", label: "Hugging Face Source" },
   { id: "files", label: "Files" },
   { id: "compatibility", label: "Compatibility" },
-  { id: "deployment", label: "Deployment" },
-  { id: "evaluation", label: "Evaluation" },
-  { id: "usage", label: "Usage & Monitoring" },
-  { id: "audit", label: "Audit Log" },
 ] as const;
 
 export const IMPORT_STEPS = [

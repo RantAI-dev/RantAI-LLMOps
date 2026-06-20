@@ -64,8 +64,9 @@ export function isMock(key: FeatureKey): boolean {
  * that are still mock. Labels must match `mainNav` / `workspaceNav` in the shell.
  */
 export const NAV_FEATURE: Partial<Record<string, FeatureKey>> = {
-  // Interact (chat) + Evals (benchmark) are now live — no red dot.
-  Documents: "rag.documents",
+  // Compute is kept as an honest placeholder for a possible future cloud build;
+  // mark it mock (no realtime GPU metrics today) so the sidebar flags it.
+  Compute: "task.resourceMonitor",
 };
 
 export function isNavMock(label: string): boolean {

@@ -13,7 +13,6 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MockBadge } from "@/components/ui/mock-badge";
 import { Progress } from "@/components/ui/progress";
 import {
   Sheet,
@@ -29,7 +28,6 @@ import { cn } from "@/lib/utils";
 
 import { TaskStatusBadge } from "./task-status-badge";
 
-const ZERO_RESOURCE = { gpu: 0, vram: 0, cpu: 0, memory: 0, tokensProcessed: 0, estimatedCost: 0 };
 
 type TaskDetailDrawerProps = {
   task: Task | null;
@@ -61,7 +59,6 @@ export function TaskDetailDrawer({
   const canStop = status === "Running" || status === "Paused" || status === "Retrying";
   const canRetry = status === "Failed";
   const hp = task.hyperparameters;
-  const ru = run?.resourceUsage ?? ZERO_RESOURCE;
   const startLabel = status === "Draft" ? "Run" : status === "Paused" ? "Resume" : "Start";
 
   return (
@@ -195,28 +192,6 @@ export function TaskDetailDrawer({
             )}
           </Section>
 
-          <Section title="Resource Usage">
-            <div className="mb-3 flex items-center gap-2">
-              <MockBadge />
-              <p className="text-xs text-ink-soft">
-                TL tidak meng-expose metrik GPU realtime maupun estimasi biaya per job — angka di
-                bawah masih contoh.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <ResourceBar label="GPU" value={ru.gpu} />
-              <ResourceBar label="VRAM" value={ru.vram} />
-              <ResourceBar label="CPU" value={ru.cpu} />
-              <ResourceBar label="Memory" value={ru.memory} />
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-ink-soft">
-              <span>Tokens: {ru.tokensProcessed.toLocaleString()}</span>
-              <span className="inline-flex items-center gap-1.5">
-                Est. cost: ${ru.estimatedCost.toFixed(2)} <MockBadge />
-              </span>
-            </div>
-          </Section>
-
           <Section title="Logs">
             <TaskLogs taskId={task.id} fallback={run?.logs ?? []} />
           </Section>
@@ -340,18 +315,6 @@ function Meta({ label, value, full }: { label: string; value: string; full?: boo
         {label}
       </dt>
       <dd className="mt-0.5 text-ink">{value}</dd>
-    </div>
-  );
-}
-
-function ResourceBar({ label, value }: { label: string; value: number }) {
-  return (
-    <div>
-      <div className="mb-1 flex justify-between text-[13px] text-ink-soft">
-        <span>{label}</span>
-        <span className="tabular-nums">{value}%</span>
-      </div>
-      <Progress value={value} />
     </div>
   );
 }

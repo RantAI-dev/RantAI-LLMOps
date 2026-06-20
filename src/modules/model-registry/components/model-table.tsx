@@ -6,7 +6,6 @@ import {
   GitCompare,
   MoreHorizontal,
   Play,
-  Rocket,
   Sparkles,
 } from "lucide-react";
 
@@ -38,7 +37,6 @@ type ModelTableProps = {
   models: RegistryModel[];
   onView: (id: string) => void;
   onTest: (id: string) => void;
-  onDeploy: (id: string) => void;
   onFineTune: (id: string) => void;
   onCompare: (id: string) => void;
   onArchive: (id: string) => void;
@@ -48,7 +46,6 @@ export function ModelTable({
   models,
   onView,
   onTest,
-  onDeploy,
   onFineTune,
   onCompare,
   onArchive,
@@ -120,9 +117,6 @@ export function ModelTable({
                       <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={() => onTest(model.id)}>
                           <Play className="size-3.5" /> Test in Playground
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onDeploy(model.id)}>
-                          <Rocket className="size-3.5" /> Deploy
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onFineTune(model.id)}>
                           <Sparkles className="size-3.5" /> Fine-tune

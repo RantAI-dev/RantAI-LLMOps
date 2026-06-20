@@ -5,7 +5,6 @@ import { fetchTasks, seedTasks } from "@/modules/tasks/services/tasks-service";
 import { fetchModels, seedModels } from "@/modules/model-registry/services/model-registry-service";
 import { fetchDatasets, seedDatasets } from "@/modules/datasets/services/datasets-service";
 import { fetchComputeProviders, seedComputeProviders } from "@/modules/compute/services/compute-service";
-import { fetchGalleryTasks, seedGalleryTasks } from "@/modules/tasks-gallery/services/gallery-service";
 
 /**
  * Default (mock) mode: every service's sync seed returns non-empty data and the
@@ -18,7 +17,6 @@ const seeds = [
   ["models", seedModels, fetchModels],
   ["datasets", seedDatasets, fetchDatasets],
   ["compute", seedComputeProviders, fetchComputeProviders],
-  ["gallery", seedGalleryTasks, fetchGalleryTasks],
 ] as const;
 
 describe("service seam (mock mode)", () => {

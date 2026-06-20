@@ -6,17 +6,19 @@ import { ArrowLeft, ExternalLink, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { MockBadge } from "@/components/ui/mock-badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
 import { MarkdownPreview } from "@/modules/experiments/components/markdown-preview";
+import { loadNote, saveNote } from "@/modules/experiments/lib/notes-storage";
 
 export function ExperimentNotesEditor({ experimentId }: { experimentId: string }) {
   const { getExperimentById, updateExperimentNotes } = useLlmOps();
   const experiment = getExperimentById(experimentId);
 
-  const saved = experiment?.notes ?? "";
-  const [draft, setDraft] = useState(() => saved);
+  // Persisted notes live in localStorage; fall back to whatever the provider
+  // holds for this session.
+  const [saved, setSaved] = useState(() => loadNote(experimentId) ?? experiment?.notes ?? "");
+  const [draft, setDraft] = useState(saved);
   const dirty = draft !== saved;
 
   if (!experiment) {
@@ -37,7 +39,9 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
   }
 
   const handleSave = () => {
-    updateExperimentNotes(experimentId, draft);
+    saveNote(experimentId, draft);
+    setSaved(draft);
+    updateExperimentNotes(experimentId, draft); // keep the session/list in sync
     toast.success("Notes saved", { description: experiment.name });
   };
 
@@ -51,21 +55,18 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
           >
             <ArrowLeft className="size-3.5" /> Notes
           </Link>
-          <div className="mt-1 flex items-center gap-2">
-            <h1 className="truncate text-2xl font-semibold leading-8 tracking-tight text-primary">
-              {experiment.name}
-            </h1>
-            <MockBadge label="Mock" />
-          </div>
+          <h1 className="mt-1 truncate text-2xl font-semibold leading-8 tracking-tight text-primary">
+            {experiment.name}
+          </h1>
           <p className="mt-1 text-sm leading-5 text-ink-soft">
-            Lab notebook for this experiment — maps to TL{" "}
-            <code className="text-xs">notes/readme.md</code> (markdown).
+            Lab notebook (markdown) for this experiment — tersimpan di browser ini.
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button
             type="button"
             variant="outline"
+            nativeButton={false}
             render={
               <Link href="/experiments">
                 <ExternalLink className="size-4" /> Open experiment

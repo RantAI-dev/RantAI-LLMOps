@@ -4,11 +4,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
-  Cloud,
-  Database,
   Download,
   FileUp,
-  Globe,
   PenLine,
   Search,
 } from "lucide-react";
@@ -102,25 +99,6 @@ const SOURCE_OPTIONS: {
     title: "Hugging Face",
     description: "Import from Hugging Face Hub (load_dataset)",
     icon: Download,
-  },
-  {
-    source: "Database",
-    title: "Connect Database",
-    description: "PostgreSQL, MySQL, MongoDB",
-    icon: Database,
-    disabled: true,
-  },
-  {
-    source: "Cloud Storage",
-    title: "Connect Storage",
-    description: "S3, GCS, Azure Blob",
-    icon: Cloud,
-  },
-  {
-    source: "API",
-    title: "API",
-    description: "Import from internal or external API",
-    icon: Globe,
   },
   {
     source: "Manual Input",

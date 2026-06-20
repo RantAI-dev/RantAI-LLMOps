@@ -11,7 +11,6 @@ import {
   BrainCog,
   ChevronUp,
   Database,
-  FileText,
   FlaskConical,
   House,
   ListTodo,
@@ -23,7 +22,6 @@ import {
   Radio,
   Search,
   Sparkles,
-  Table2,
   TestTubes,
 } from "lucide-react";
 
@@ -56,7 +54,6 @@ const mainNav: NavItem[] = [
   { label: "Fine-tune", href: "/finetune", icon: Sparkles },
   { label: "Evals", href: "/evals", icon: FlaskConical },
   { label: "Serve", href: "/serve", icon: Radio },
-  { label: "Documents", href: "/documents", icon: FileText },
   { label: "Notes", href: "/notes", icon: NotebookPen },
 ];
 
@@ -64,7 +61,6 @@ const workspaceNav: NavItem[] = [
   { label: "Recipes", href: "/recipes", icon: BookTemplate },
   { label: "Model Registry", href: "/models", icon: Boxes },
   { label: "Dataset", href: "/datasets", icon: Database },
-  { label: "Tasks Gallery", href: "/tasks-gallery", icon: Table2 },
   { label: "Compute", href: "/compute", icon: BrainCog },
 ];
 

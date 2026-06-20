@@ -6,7 +6,6 @@ import { useState } from "react";
 import { BreadcrumbNav } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MockBanner } from "@/components/ui/mock-banner";
 import { Progress } from "@/components/ui/progress";
 import {
   Table,
@@ -199,9 +198,6 @@ export function DatasetDetailView({
               ["Total Rows", formatNumber(dataset.totalRows)],
               ["Valid Rows", formatNumber(dataset.validRows)],
               ["Invalid Rows", formatNumber(dataset.invalidRows)],
-              ["Quality Score", `${dataset.validationSummary.dataQualityScore}%`],
-              ["PII Detected", String(dataset.validationSummary.piiDetected)],
-              ["Duplicates", formatNumber(dataset.validationSummary.duplicateRows)],
               ["Version", dataset.currentVersion],
               ["Usage Count", String(dataset.usageCount)],
             ]}
@@ -297,39 +293,6 @@ export function DatasetDetailView({
             </Button>
           </div>
           <SchemaTable mapping={mapping} />
-        </TabsContent>
-
-        <TabsContent value="validation" className="mt-4 space-y-4">
-          <MockBanner>
-            Validasi & skor kualitas otomatis (PII, konten toksik, quality score) belum ada di
-            backend Transformer Lab — angka di bawah masih contoh (mock).
-          </MockBanner>
-          <MetricGrid
-            items={[
-              ["Quality Score", `${dataset.validationSummary.dataQualityScore}%`],
-              ["Missing Value", String(dataset.validationSummary.missingValues)],
-              ["Duplicate", String(dataset.validationSummary.duplicateRows)],
-              ["Invalid Format", "12"],
-              ["PII Detected", String(dataset.validationSummary.piiDetected)],
-              ["Toxic Content", String(dataset.validationSummary.toxicContent)],
-              ["Schema Mismatch", "3"],
-            ]}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline">
-              Fix Issues
-            </Button>
-            <Button type="button" size="sm" variant="outline">
-              Create Cleaned Version
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={onValidateAgain}>
-              Re-run Validation
-            </Button>
-            <Button type="button" size="sm" variant="outline">
-              Download Issue Report
-            </Button>
-          </div>
-          <IssuesTable issues={dataset.issues} />
         </TabsContent>
 
         <TabsContent value="versions" className="mt-4">
@@ -679,41 +642,6 @@ function SchemaTable({ mapping }: { mapping: SchemaMappingRow[] }) {
               <TableCell>{row.dataType}</TableCell>
               <TableCell className="max-w-[140px] truncate">{row.exampleValue}</TableCell>
               <TableCell>{row.mappingStatus}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function IssuesTable({
-  issues,
-}: {
-  issues: Dataset["issues"];
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-hairline bg-white">
-      <Table className="text-[13px]">
-        <TableHeader>
-          <TableRow className="bg-surface">
-            <TableHead>Row</TableHead>
-            <TableHead>Issue Type</TableHead>
-            <TableHead>Column</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Severity</TableHead>
-            <TableHead>Action</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {issues.map((issue) => (
-            <TableRow key={issue.id}>
-              <TableCell>{issue.rowNumber}</TableCell>
-              <TableCell>{issue.issueType}</TableCell>
-              <TableCell>{issue.column}</TableCell>
-              <TableCell>{issue.description}</TableCell>
-              <TableCell>{issue.severity}</TableCell>
-              <TableCell>{issue.action}</TableCell>
             </TableRow>
           ))}
         </TableBody>

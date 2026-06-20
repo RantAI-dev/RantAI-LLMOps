@@ -10,7 +10,7 @@ describe("feature-status", () => {
   });
 
   it("flags mock nav labels and ignores live/unknown ones", () => {
-    expect(isNavMock("Documents")).toBe(true);
+    expect(isNavMock("Compute")).toBe(true); // kept as an honest placeholder (no realtime GPU metrics)
     expect(isNavMock("Dashboard")).toBe(false);
     expect(isNavMock("Interact")).toBe(false); // now a real chat playground (chat.playground = live)
     expect(isNavMock("Not a real menu")).toBe(false);

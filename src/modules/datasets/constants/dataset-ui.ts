@@ -41,7 +41,6 @@ export const DETAIL_TABS = [
   { id: "rag-chunks", label: "Passages", ragOnly: true },
   { id: "preview", label: "Preview" },
   { id: "schema", label: "Schema" },
-  { id: "validation", label: "Validation" },
   { id: "huggingface", label: "Hugging Face Source" },
   { id: "versions", label: "Versions" },
   { id: "split", label: "Split" },
