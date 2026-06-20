@@ -8,6 +8,9 @@ export const dynamic = "force-dynamic";
 /** Ask a running fine-tune job to stop. */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  await stopTrainingJob(id);
+  const ok = await stopTrainingJob(id);
+  if (!ok) {
+    return Response.json({ ok: false, error: "Transformer Lab menolak permintaan stop" }, { status: 502 });
+  }
   return Response.json({ ok: true });
 }

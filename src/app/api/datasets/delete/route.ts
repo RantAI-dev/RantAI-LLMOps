@@ -16,6 +16,9 @@ export async function POST(req: NextRequest) {
   if (!body.datasetId) {
     return Response.json({ error: "`datasetId` is required" }, { status: 400 });
   }
-  await deleteDataset(body.datasetId);
+  const ok = await deleteDataset(body.datasetId);
+  if (!ok) {
+    return Response.json({ ok: false, error: "Transformer Lab menolak penghapusan dataset" }, { status: 502 });
+  }
   return Response.json({ ok: true });
 }

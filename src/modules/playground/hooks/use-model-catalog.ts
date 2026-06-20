@@ -137,7 +137,8 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ modelIds: [fusedModelId, loadModelId].filter(Boolean) }),
         });
-        if (!res.ok) throw new Error("Delete failed");
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(data.error || "Delete failed");
         await refresh();
       } catch (err) {
         setError((err as Error).message);

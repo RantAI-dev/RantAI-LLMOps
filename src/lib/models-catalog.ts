@@ -137,8 +137,11 @@ type TlLocalModel = {
 /** Models already downloaded to disk (TL `/model/list`). */
 export async function fetchDownloaded(): Promise<CatalogModel[]> {
   const res = await fetch(`${TL_ROOT}/model/list`, { headers: inferenceHeaders() });
-  if (!res.ok) return [];
-  const rows = (await res.json()) as TlLocalModel[];
+  // Don't silently return [] on failure — that makes a TL outage or a bad/expired
+  // INFERENCE_API_KEY (401/403) look like "you have no models". Throw so the caller
+  // (a route that degrades to empty) logs the real cause.
+  if (!res.ok) throw new Error(`TL /model/list ${res.status}`);
+  const rows = (await res.json().catch(() => null)) as TlLocalModel[] | null;
   if (!Array.isArray(rows)) return [];
   return rows.map((r) => {
     const j = r.json_data ?? {};
@@ -156,17 +159,27 @@ export async function fetchDownloaded(): Promise<CatalogModel[]> {
   });
 }
 
-/** Delete local models (best-effort, ignores ones already gone). */
-export async function deleteModels(ids: string[]): Promise<void> {
-  await Promise.all(
-    ids
-      .filter(Boolean)
-      .map((id) =>
-        fetch(`${TL_ROOT}/model/delete?model_id=${encodeURIComponent(id)}`, {
+/** Delete local models. Reports which ids succeeded vs failed (so callers don't
+ * show a blanket success when TL rejected a delete). */
+export async function deleteModels(
+  ids: string[]
+): Promise<{ deleted: string[]; failed: string[] }> {
+  const results = await Promise.all(
+    ids.filter(Boolean).map(async (id) => {
+      try {
+        const res = await fetch(`${TL_ROOT}/model/delete?model_id=${encodeURIComponent(id)}`, {
           headers: inferenceHeaders(),
-        }).catch(() => {})
-      )
+        });
+        return { id, ok: res.ok };
+      } catch {
+        return { id, ok: false };
+      }
+    })
   );
+  return {
+    deleted: results.filter((r) => r.ok).map((r) => r.id),
+    failed: results.filter((r) => !r.ok).map((r) => r.id),
+  };
 }
 
 /** Fine-tuned adaptors for a base model (TL `/model/pefts`; body is a raw string). */

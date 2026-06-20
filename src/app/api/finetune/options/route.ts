@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     return Response.json(await fetchFinetuneOptions());
-  } catch {
+  } catch (err) {
+    console.error("[api/finetune/options] Transformer Lab unreachable or rejected the request:", err);
     return Response.json({ models: [], datasets: [] } satisfies FinetuneOptions);
   }
 }

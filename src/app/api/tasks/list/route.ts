@@ -11,7 +11,8 @@ export async function GET() {
   try {
     const jobs = await listAllJobs();
     return Response.json({ jobs });
-  } catch {
+  } catch (err) {
+    console.error("[api/tasks/list] Transformer Lab unreachable or rejected the request:", err);
     return Response.json({ jobs: [] });
   }
 }

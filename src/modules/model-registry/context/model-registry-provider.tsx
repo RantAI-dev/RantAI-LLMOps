@@ -73,9 +73,6 @@ type ModelRegistryContextValue = {
   startImport: () => Promise<string | null>;
   resetImportFlow: () => void;
   archiveModel: (id: string) => void;
-  deployModel: (id: string, environment: "Staging" | "Production") => void;
-  stopDeployment: (id: string) => void;
-  runEvaluation: (id: string) => void;
   registerLocalModel: (input: {
     modelName: string;
     task: RegistryModel["task"];
@@ -154,120 +151,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       showToast({ title: "Model archived", variant: "info" });
     },
     [selectedModelId, showToast]
-  );
-
-  const deployModel = useCallback(
-    (id: string, environment: "Staging" | "Production") => {
-      const now = new Date().toISOString();
-      setModels((prev) =>
-        prev.map((m) => {
-          if (m.id !== id) return m;
-          const slug = m.modelName.toLowerCase().replace(/\s+/g, "-").slice(0, 30);
-          return {
-            ...m,
-            status: environment === "Production" ? ("Production" as const) : m.status,
-            updatedAt: now,
-            deployment: {
-              ...m.deployment,
-              environment,
-              status: "Running" as const,
-              endpointUrl: `https://${environment === "Production" ? "api" : "staging"}.llm-ops.internal/v1/models/${slug}`,
-              gpuCluster: environment === "Production" ? "gpu-cluster-prod-01" : "gpu-cluster-staging-01",
-              replica: environment === "Production" ? 3 : 2,
-              lastDeployment: now,
-            },
-            auditLogs: [
-              {
-                id: generateId("audit"),
-                modelId: id,
-                action: `Deployed to ${environment.toLowerCase()}`,
-                actor: "Admin-NQR",
-                timestamp: now,
-                status: "Success" as const,
-                notes: `Model deployed to ${environment}.`,
-              },
-              ...m.auditLogs,
-            ],
-          };
-        })
-      );
-      showToast({
-        title: `Deployed to ${environment}`,
-        description: "Deployment initiated successfully.",
-        variant: "success",
-      });
-    },
-    [showToast]
-  );
-
-  const stopDeployment = useCallback(
-    (id: string) => {
-      const now = new Date().toISOString();
-      setModels((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                updatedAt: now,
-                deployment: { ...m.deployment, status: "Stopped" as const },
-                auditLogs: [
-                  {
-                    id: generateId("audit"),
-                    modelId: id,
-                    action: "Deployment stopped",
-                    actor: "Admin-NQR",
-                    timestamp: now,
-                    status: "Warning" as const,
-                    notes: "Deployment stopped by user.",
-                  },
-                  ...m.auditLogs,
-                ],
-              }
-            : m
-        )
-      );
-      showToast({ title: "Deployment stopped", variant: "warning" });
-    },
-    [showToast]
-  );
-
-  const runEvaluation = useCallback(
-    (id: string) => {
-      const now = new Date().toISOString();
-      setModels((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                updatedAt: now,
-                evaluation: {
-                  ...m.evaluation,
-                  accuracy: 85 + Math.random() * 10,
-                  hallucinationRate: 2 + Math.random() * 5,
-                  safetyScore: 90 + Math.random() * 8,
-                  latencyMs: 80 + Math.floor(Math.random() * 100),
-                  costEstimate: "$0.002 / 1K tokens",
-                  lastEvaluationRun: now,
-                },
-                auditLogs: [
-                  {
-                    id: generateId("audit"),
-                    modelId: id,
-                    action: "Evaluation run completed",
-                    actor: "System",
-                    timestamp: now,
-                    status: "Success" as const,
-                    notes: "Evaluation metrics updated.",
-                  },
-                  ...m.auditLogs,
-                ],
-              }
-            : m
-        )
-      );
-      showToast({ title: "Evaluation completed", description: "Metrics have been updated.", variant: "success" });
-    },
-    [showToast]
   );
 
   const registerLocalModel = useCallback(
@@ -389,9 +272,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       archiveTargetId,
       setArchiveTargetId,
       archiveModel,
-      deployModel,
-      stopDeployment,
-      runEvaluation,
       registerLocalModel,
       showToast,
       modelsLoading,
@@ -410,9 +290,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       isRegisterLocalOpen,
       archiveTargetId,
       archiveModel,
-      deployModel,
-      stopDeployment,
-      runEvaluation,
       registerLocalModel,
       showToast,
       modelsLoading,

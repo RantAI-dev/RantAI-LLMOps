@@ -17,6 +17,12 @@ export async function POST(req: NextRequest) {
   if (ids.length === 0) {
     return Response.json({ error: "`modelIds` is required" }, { status: 400 });
   }
-  await deleteModels(ids);
-  return Response.json({ ok: true });
+  const { deleted, failed } = await deleteModels(ids);
+  if (failed.length > 0) {
+    return Response.json(
+      { ok: false, deleted, failed, error: `Gagal hapus: ${failed.join(", ")}` },
+      { status: 502 }
+    );
+  }
+  return Response.json({ ok: true, deleted });
 }

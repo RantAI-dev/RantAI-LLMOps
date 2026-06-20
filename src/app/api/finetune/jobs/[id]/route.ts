@@ -16,6 +16,9 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 /** Delete a fine-tune job from the list. */
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  await deleteTrainingJob(id);
+  const ok = await deleteTrainingJob(id);
+  if (!ok) {
+    return Response.json({ ok: false, error: "Transformer Lab menolak penghapusan job" }, { status: 502 });
+  }
   return Response.json({ ok: true });
 }

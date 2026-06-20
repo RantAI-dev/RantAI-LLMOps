@@ -11,7 +11,8 @@ export async function GET() {
   try {
     const datasets = await listTlDatasets();
     return Response.json({ datasets });
-  } catch {
+  } catch (err) {
+    console.error("[api/datasets/list] Transformer Lab unreachable or rejected the request:", err);
     return Response.json({ datasets: [] });
   }
 }

@@ -85,8 +85,12 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
   const localPath = model?.localPath ?? "";
   const architecture = p.modelArchitecture ?? model?.architecture ?? "";
 
-  // Point the experiment's foundation at the model (the harness reads it).
-  await fetch(`${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/update_configs`, {
+  // Point the experiment's foundation at the model (the harness reads it at run
+  // time). NOTE: `nqr-ft` is a shared experiment, so this mutation isn't safe
+  // against concurrent eval/export submits — the last writer wins. We at least
+  // fail loudly if the foundation update is rejected, rather than queuing a job
+  // that would silently evaluate the wrong (stale) model.
+  const cfgRes = await fetch(`${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/update_configs`, {
     method: "POST",
     headers: inferenceHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
@@ -95,6 +99,10 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
       foundation_model_architecture: architecture,
     }),
   });
+  if (!cfgRes.ok) {
+    const detail = await cfgRes.text().catch(() => "");
+    throw new Error(`Could not set eval model (${cfgRes.status})${detail ? `: ${detail}` : ""}`);
+  }
 
   const name = `eval-${slug(p.model)}-${p.benchmark}`;
   const task = {
@@ -114,18 +122,25 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
     },
   };
 
-  await fetch(`${TL_ROOT}/tasks/new_task`, {
+  const createRes = await fetch(`${TL_ROOT}/tasks/new_task`, {
     method: "PUT",
     headers: inferenceHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(task),
   });
+  if (!createRes.ok) {
+    const detail = await createRes.text().catch(() => "");
+    throw new Error(`Could not create eval task (${createRes.status})${detail ? `: ${detail}` : ""}`);
+  }
 
-  // Find + queue it.
+  // Find + queue it. Task names aren't unique (re-running the same model+benchmark
+  // re-uses the name), so pick the NEWEST matching task by id, not the first.
   const listRes = await fetch(`${TL_ROOT}/tasks/list_by_type?type=EVAL`, {
     headers: inferenceHeaders(),
   });
-  const tasks = (await listRes.json().catch(() => [])) as Array<{ id?: string; name?: string }>;
-  const created = (Array.isArray(tasks) ? tasks : []).find((t) => t.name === name);
+  const tasks = (await listRes.json().catch(() => [])) as Array<{ id?: string | number; name?: string }>;
+  const created = (Array.isArray(tasks) ? tasks : [])
+    .filter((t) => t.name === name && t.id != null)
+    .sort((a, b) => Number(b.id) - Number(a.id))[0];
   if (!created?.id) throw new Error("Eval task was created but could not be found to queue");
 
   const queued = await fetch(`${TL_ROOT}/tasks/${created.id}/queue`, { headers: inferenceHeaders() });

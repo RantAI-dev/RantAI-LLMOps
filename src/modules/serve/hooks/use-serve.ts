@@ -6,12 +6,13 @@ export type ServeModel = { id: string; name: string; isGguf: boolean };
 export type ServeInfo = {
   baseUrl: string;
   teamId: string;
-  apiKey: string;
+  /** Whether a real TL key is configured server-side. The key itself is never sent to the client. */
+  hasKey: boolean;
   loaded: string | null;
   models: ServeModel[];
 };
 
-const EMPTY: ServeInfo = { baseUrl: "", teamId: "", apiKey: "", loaded: null, models: [] };
+const EMPTY: ServeInfo = { baseUrl: "", teamId: "", hasKey: false, loaded: null, models: [] };
 
 /**
  * Drives the Serve page: connection details for the served model, switching

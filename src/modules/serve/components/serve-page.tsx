@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Eye, EyeOff, Loader2, Play, Radio, Send } from "lucide-react";
+import { Check, Copy, Loader2, Play, Radio, Send } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -97,7 +97,6 @@ function Field({ label, value, mono = true }: { label: string; value: string; mo
 export function ServePage() {
   const { info, loading, switching, error, testReply, testing, serveModel, test } = useServe();
   const [lang, setLang] = useState<Lang>("curl");
-  const [showKey, setShowKey] = useState(false);
   const [picked, setPicked] = useState("");
   const [prompt, setPrompt] = useState("Say hello in one short sentence.");
 
@@ -110,7 +109,6 @@ export function ServePage() {
   }
 
   const served = info.loaded;
-  const maskedKey = info.apiKey ? `${info.apiKey.slice(0, 6)}${"•".repeat(10)}` : "—";
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
@@ -195,27 +193,22 @@ export function ServePage() {
               <p className="text-[11px] font-medium uppercase tracking-wide text-ink-soft">
                 API Key (Authorization: Bearer …)
               </p>
-              <p className="truncate font-mono text-[13px] text-ink">
-                {showKey ? info.apiKey || "—" : maskedKey}
+              <p className="truncate text-[13px] text-ink">
+                {info.hasKey ? (
+                  <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                    <span className="size-1.5 rounded-full bg-emerald-500" /> Terkonfigurasi di server
+                  </span>
+                ) : (
+                  <span className="text-ink-soft">Belum diset</span>
+                )}
               </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5"
-                onClick={() => setShowKey((s) => !s)}
-              >
-                {showKey ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                {showKey ? "Hide" : "Show"}
-              </Button>
-              <CopyButton value={info.apiKey} />
             </div>
           </div>
         </div>
         <p className="mt-2 text-[11px] text-ink-soft">
-          Key ini = <code>INFERENCE_API_KEY</code> di server. Jangan sebar ke publik.
+          Demi keamanan, key <strong>tidak</strong> dikirim ke browser. Ambil sendiri dari{" "}
+          <code>INFERENCE_API_KEY</code> di <code>.env.local</code> (atau TL settings) buat dipakai di
+          kode di bawah.
         </p>
       </div>
 
@@ -250,7 +243,7 @@ export function ServePage() {
           {snippet(lang, info.baseUrl, served ?? "<model-id>", info.teamId)}
         </pre>
         <p className="mt-2 text-[11px] text-ink-soft">
-          Ganti <code>{KEY_PLACEHOLDER}</code> dengan API Key di atas.
+          Ganti <code>{KEY_PLACEHOLDER}</code> dengan API Key dari <code>.env.local</code>.
         </p>
       </div>
 

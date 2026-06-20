@@ -25,7 +25,8 @@ export async function GET() {
       fineTuned: fetchFineTuned(downloaded),
     };
     return Response.json(body);
-  } catch {
+  } catch (err) {
+    console.error("[api/models/catalog] Transformer Lab unreachable or rejected the request:", err);
     return Response.json({
       loaded: null,
       downloaded: [],

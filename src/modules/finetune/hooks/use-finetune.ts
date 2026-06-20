@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import type { FinetuneOptions, TrainingJob } from "@/lib/finetune";
 
@@ -20,7 +21,6 @@ export function useFinetune() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -53,20 +53,16 @@ export function useFinetune() {
     };
   }, []);
 
-  // Poll while any job is active.
+  // Poll while any job is active. Keyed on the derived boolean (not the whole
+  // `jobs` array) so the interval is created once per active/idle transition
+  // instead of being torn down and rebuilt on every poll, and the interval id is
+  // local to the effect (no shared ref to race between body and cleanup).
+  const anyActive = jobs.some((j) => isJobActive(j.status));
   useEffect(() => {
-    const anyActive = jobs.some((j) => isJobActive(j.status));
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (anyActive) {
-      pollRef.current = setInterval(loadJobs, 3000);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [jobs, loadJobs]);
+    if (!anyActive) return;
+    const id = setInterval(loadJobs, 3000);
+    return () => clearInterval(id);
+  }, [anyActive, loadJobs]);
 
   const refreshOptions = useCallback(async () => {
     try {
@@ -95,11 +91,16 @@ export function useFinetune() {
 
   const deleteDataset = useCallback(
     async (datasetId: string) => {
-      await fetch("/api/datasets/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ datasetId }),
-      }).catch(() => {});
+      try {
+        const res = await fetch("/api/datasets/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ datasetId }),
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        toast.error("Gagal menghapus dataset");
+      }
       await refreshOptions();
     },
     [refreshOptions]
@@ -107,7 +108,12 @@ export function useFinetune() {
 
   const stopJob = useCallback(
     async (id: string) => {
-      await fetch(`/api/finetune/jobs/${id}/stop`, { method: "POST" }).catch(() => {});
+      try {
+        const res = await fetch(`/api/finetune/jobs/${id}/stop`, { method: "POST" });
+        if (!res.ok) throw new Error();
+      } catch {
+        toast.error("Gagal menghentikan job");
+      }
       await loadJobs();
     },
     [loadJobs]
@@ -115,7 +121,12 @@ export function useFinetune() {
 
   const deleteJob = useCallback(
     async (id: string) => {
-      await fetch(`/api/finetune/jobs/${id}`, { method: "DELETE" }).catch(() => {});
+      try {
+        const res = await fetch(`/api/finetune/jobs/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error();
+      } catch {
+        toast.error("Gagal menghapus job");
+      }
       await loadJobs();
     },
     [loadJobs]

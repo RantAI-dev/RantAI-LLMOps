@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { EvalJob, EvalOptions } from "@/lib/evals";
 
@@ -19,7 +19,6 @@ export function useEvals() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -52,21 +51,17 @@ export function useEvals() {
   }, []);
 
   // Poll while any job is active, plus one extra cycle after the last finishes
-  // (the score is written just after COMPLETE).
+  // (the score is written just after COMPLETE). Keyed on the derived boolean (not
+  // the whole `jobs` array) so the interval is created once per active/idle
+  // transition; the interval id is local so cleanup can't race a shared ref.
+  const shouldPoll =
+    jobs.some((j) => isEvalActive(j.status)) ||
+    jobs.some((j) => !isEvalActive(j.status) && j.scores.length === 0);
   useEffect(() => {
-    const anyActive = jobs.some((j) => isEvalActive(j.status));
-    const scoresPending = jobs.some((j) => !isEvalActive(j.status) && j.scores.length === 0);
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    if (anyActive || scoresPending) {
-      pollRef.current = setInterval(loadJobs, 3000);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [jobs, loadJobs]);
+    if (!shouldPoll) return;
+    const id = setInterval(loadJobs, 3000);
+    return () => clearInterval(id);
+  }, [shouldPoll, loadJobs]);
 
   const submit = useCallback(
     async (body: { model: string; modelArchitecture?: string; benchmark: string; limit: number }) => {

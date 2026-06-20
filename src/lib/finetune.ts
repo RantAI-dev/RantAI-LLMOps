@@ -162,11 +162,16 @@ export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
   return { models, datasets: [...localDatasets, ...recommended] };
 }
 
-/** Delete a local dataset (TL `/data/delete`). */
-export async function deleteDataset(datasetId: string): Promise<void> {
-  await fetch(`${TL_ROOT}/data/delete?dataset_id=${encodeURIComponent(datasetId)}`, {
-    headers: inferenceHeaders(),
-  }).catch(() => {});
+/** Delete a local dataset (TL `/data/delete`). Returns whether TL accepted it. */
+export async function deleteDataset(datasetId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${TL_ROOT}/data/delete?dataset_id=${encodeURIComponent(datasetId)}`, {
+      headers: inferenceHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -205,16 +210,27 @@ export async function createDataset(
 
 /** Column names of a dataset (TL `/data/preview`). */
 async function datasetColumns(datasetId: string): Promise<string[]> {
-  try {
-    const res = await fetch(
-      `${TL_ROOT}/data/preview?dataset_id=${encodeURIComponent(datasetId)}`,
-      { headers: inferenceHeaders() }
+  // Do NOT swallow failures here: an empty column list would make
+  // buildFormattingTemplate() produce an empty template and the trainer would
+  // run on garbage. Fail loudly so submitFinetune aborts before queuing.
+  const res = await fetch(
+    `${TL_ROOT}/data/preview?dataset_id=${encodeURIComponent(datasetId)}`,
+    { headers: inferenceHeaders() }
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `Could not read columns for dataset "${datasetId}" (${res.status})${detail ? `: ${detail}` : ""}`
     );
-    const body = (await res.json()) as { data?: { columns?: Record<string, unknown> } };
-    return Object.keys(body?.data?.columns ?? {});
-  } catch {
-    return [];
   }
+  const body = (await res.json().catch(() => ({}))) as {
+    data?: { columns?: Record<string, unknown> };
+  };
+  const columns = Object.keys(body?.data?.columns ?? {});
+  if (columns.length === 0) {
+    throw new Error(`Dataset "${datasetId}" has no readable columns — cannot build a training template.`);
+  }
+  return columns;
 }
 
 /**
@@ -376,8 +392,11 @@ export async function exportFineTunedToGguf(fusedModelId: string): Promise<void>
   }
   if (!localPath) throw new Error(`Could not resolve a local path for "${fusedModelId}"`);
 
-  // Point the experiment's foundation at the fused model (the exporter reads it).
-  await fetch(`${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/update_configs`, {
+  // Point the experiment's foundation at the fused model (the exporter reads it
+  // at run time). `nqr-ft` is shared, so this isn't concurrency-safe — but we
+  // fail loudly if it's rejected rather than exporting whatever foundation was
+  // left set by a previous/concurrent operation.
+  const cfgRes = await fetch(`${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/update_configs`, {
     method: "POST",
     headers: inferenceHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({
@@ -386,6 +405,10 @@ export async function exportFineTunedToGguf(fusedModelId: string): Promise<void>
       foundation_model_architecture: model.json_data?.architecture ?? "",
     }),
   });
+  if (!cfgRes.ok) {
+    const detail = await cfgRes.text().catch(() => "");
+    throw new Error(`Could not set export model (${cfgRes.status})${detail ? `: ${detail}` : ""}`);
+  }
 
   const params = new URLSearchParams({
     plugin_name: "gguf_exporter",
@@ -441,20 +464,30 @@ export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   }
 }
 
-/** Ask a running training job to stop (TL flags `stop` in its job data). */
-export async function stopTrainingJob(jobId: string): Promise<void> {
-  await fetch(
-    `${TL_ROOT}/jobs/${encodeURIComponent(jobId)}/stop?experimentId=${FINETUNE_EXPERIMENT}`,
-    { headers: inferenceHeaders() }
-  ).catch(() => {});
+/** Ask a running training job to stop. Returns whether TL accepted the request. */
+export async function stopTrainingJob(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${TL_ROOT}/jobs/${encodeURIComponent(jobId)}/stop?experimentId=${FINETUNE_EXPERIMENT}`,
+      { headers: inferenceHeaders() }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
-/** Delete a training job record. */
-export async function deleteTrainingJob(jobId: string): Promise<void> {
-  await fetch(
-    `${TL_ROOT}/jobs/delete/${encodeURIComponent(jobId)}?experimentId=${FINETUNE_EXPERIMENT}`,
-    { headers: inferenceHeaders() }
-  ).catch(() => {});
+/** Delete a training job record. Returns whether TL accepted it. */
+export async function deleteTrainingJob(jobId: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${TL_ROOT}/jobs/delete/${encodeURIComponent(jobId)}?experimentId=${FINETUNE_EXPERIMENT}`,
+      { headers: inferenceHeaders() }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Single training job status (TL `/jobs/{id}`). */

@@ -8,7 +8,8 @@ export async function GET() {
   try {
     const recipes = await listRecipes();
     return Response.json({ recipes });
-  } catch {
+  } catch (err) {
+    console.error("[api/recipes/list] Transformer Lab unreachable or rejected the request:", err);
     return Response.json({ recipes: [] });
   }
 }

@@ -11,7 +11,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const output = await jobOutput(id);
     return Response.json({ output });
-  } catch {
+  } catch (err) {
+    console.error("[api/tasks/[id]/output] Transformer Lab unreachable or rejected the request:", err);
     return Response.json({ output: "" });
   }
 }
