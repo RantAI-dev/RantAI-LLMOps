@@ -1,12 +1,12 @@
 import {
   fetchDownloaded,
-  fetchFineTuned,
   fetchLoaded,
   fetchServable,
   ollamaRecommendedWithStatus,
   recommendedWithStatus,
   type ModelCatalog,
 } from "@/lib/models-catalog";
+import { fetchFineTuned } from "@/lib/finetune";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,16 +20,17 @@ export const dynamic = "force-dynamic";
  * Degrades to empty lists (never 500s) when a backend is down.
  */
 export async function GET() {
-  const [downloaded, loaded, servable] = await Promise.all([
+  const [downloaded, loaded, servable, fineTuned] = await Promise.all([
     fetchDownloaded().catch(() => []),
     fetchLoaded().catch(() => null),
     fetchServable().catch(() => []),
+    fetchFineTuned().catch(() => []),
   ]);
   const body: ModelCatalog = {
     loaded,
     downloaded,
     recommended: recommendedWithStatus(downloaded),
-    fineTuned: fetchFineTuned(downloaded),
+    fineTuned,
     servable,
     ollamaRecommended: ollamaRecommendedWithStatus(servable),
   };

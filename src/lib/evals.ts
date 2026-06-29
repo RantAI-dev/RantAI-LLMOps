@@ -116,7 +116,18 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
     },
     envVars: env_vars,
     description: `Eval ${p.model} on ${p.benchmark}`,
+    subtype: "EVAL",
   });
+}
+
+/** Harness dir basename — used to recognise our EVAL jobs (all are type=REMOTE). */
+const EVAL_DIR_TAG = "eleutherai-lm-evaluation-harness";
+
+/** A job is one of our evals if it ran the harness (or is tagged EVAL). */
+function isEvalJob(j: TlEvalJob): boolean {
+  const d = j.job_data ?? {};
+  if (d.subtype === "EVAL") return true;
+  return typeof d.run === "string" && d.run.includes(EVAL_DIR_TAG);
 }
 
 type TlEvalJob = {
@@ -133,6 +144,8 @@ type TlEvalJob = {
     task_name?: string;
     parameters?: { model_name?: string; tasks?: string };
     launch_progress?: { percent?: number };
+    subtype?: string;
+    run?: string;
   };
 };
 
@@ -198,15 +211,20 @@ async function fetchEvalScores(jobId: string): Promise<EvalScore[]> {
   }
 }
 
-/** All eval jobs in the experiment, newest first, with scores for finished ones. */
+/**
+ * All eval jobs in the experiment, newest first, with scores for finished ones.
+ * v0.40.0 provider jobs are all type=REMOTE, so we list everything (no `slim` —
+ * it strips the job_data we classify on) and keep the ones that ran the harness.
+ */
 export async function fetchEvalJobs(): Promise<EvalJob[]> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/jobs/list?slim=true&type=EVAL`,
+      `${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/jobs/list`,
       { headers: inferenceHeaders() }
     );
-    const rows = (await res.json().catch(() => [])) as TlEvalJob[];
-    const jobs = (Array.isArray(rows) ? rows : []).map(normalize).reverse();
+    const raw = (await res.json().catch(() => [])) as TlEvalJob[] | { data?: TlEvalJob[] };
+    const rows = Array.isArray(raw) ? raw : (raw.data ?? []);
+    const jobs = rows.filter(isEvalJob).map(normalize).reverse();
     // Scores live in a per-job artifact, not the list payload — fetch them for
     // finished jobs (eval jobs are few, so the extra calls are cheap).
     await Promise.all(

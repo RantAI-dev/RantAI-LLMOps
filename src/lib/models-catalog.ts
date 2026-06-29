@@ -249,33 +249,6 @@ export async function fetchAdaptors(baseModelId: string): Promise<string[]> {
   }
 }
 
-const FUSED_PREFIX = "TransformerLab/";
-
-/**
- * Fine-tuned models = the merged ("fused") training outputs TL stores under the
- * `TransformerLab/` prefix. Each is matched to its GGUF export (same prefix,
- * GGUF arch, id starting with the fused id) to decide `ready` vs needs-export.
- */
-export function fetchFineTuned(downloaded: CatalogModel[]): FineTunedModel[] {
-  const fused = downloaded.filter((m) => m.id.startsWith(FUSED_PREFIX) && !m.isGguf);
-  const ggufExports = downloaded.filter((m) => m.id.startsWith(FUSED_PREFIX) && m.isGguf);
-
-  return fused.map((m) => {
-    const stripped = m.id.slice(FUSED_PREFIX.length); // e.g. "Qwen2.5-0.5B-Instruct_my-run"
-    const sep = stripped.indexOf("_");
-    const baseModelName = sep >= 0 ? stripped.slice(0, sep) : stripped;
-    const name = sep >= 0 ? stripped.slice(sep + 1) : stripped;
-    const gguf = ggufExports.find((g) => g.id.startsWith(`${m.id}-`));
-    return {
-      name,
-      baseModelName,
-      fusedModelId: m.id,
-      ready: Boolean(gguf),
-      loadModelId: gguf?.id ?? null,
-    } satisfies FineTunedModel;
-  });
-}
-
 /**
  * Swap the loaded model: stop the current worker, then start the requested one
  * with the right loader (GGUF → llama.cpp with the local file; otherwise

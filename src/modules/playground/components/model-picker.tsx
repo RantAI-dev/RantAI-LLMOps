@@ -97,7 +97,7 @@ export function ModelPicker({
                   {catalog.fineTuned.map((ft) => {
                     const busyHere = busy?.id === ft.fusedModelId ? busy.action : null;
                     const ggufModel = ft.loadModelId
-                      ? catalog.downloaded.find((m) => m.id === ft.loadModelId)
+                      ? catalog.servable.find((m) => m.id === ft.loadModelId)
                       : undefined;
                     const active = ggufModel && matchesLoaded(ggufModel, catalog.loaded);
                     const onClick = () => {

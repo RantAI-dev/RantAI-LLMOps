@@ -49,6 +49,12 @@ export type ProviderLaunchSpec = {
   envVars?: Record<string, string>;
   minutesRequested?: number;
   description?: string;
+  /**
+   * Logical kind of work ("TRAIN" | "EVAL") for filtering. All provider jobs are
+   * type=REMOTE at the TL layer, so we tag them with a subtype to tell training
+   * runs from evals when listing.
+   */
+  subtype?: string;
 };
 
 /**
@@ -69,6 +75,7 @@ export async function launchProviderTask(spec: ProviderLaunchSpec): Promise<stri
     env_vars: spec.envVars ?? { PYTHONUNBUFFERED: "1" },
     minutes_requested: spec.minutesRequested ?? 120,
     description: spec.description,
+    subtype: spec.subtype,
   };
   const res = await fetch(`${TL_ROOT}/compute_provider/providers/${providerId}/launch/`, {
     method: "POST",

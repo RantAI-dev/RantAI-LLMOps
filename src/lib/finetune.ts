@@ -17,8 +17,16 @@
  *  - The trainer saves a fused model via `lab.save_model(...)` into the job's
  *    artifacts; progress/log stream to the job via the `lab` SDK.
  */
-import { fetchDownloaded, TL_ROOT, type CatalogModel } from "@/lib/models-catalog";
+import { execFile } from "node:child_process";
+
+import {
+  fetchDownloaded,
+  TL_ROOT,
+  type CatalogModel,
+  type FineTunedModel,
+} from "@/lib/models-catalog";
 import { inferenceHeaders } from "@/lib/inference";
+import { listOllamaModels } from "@/lib/ollama";
 import { launchProviderTask } from "@/lib/tl-provider";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
@@ -348,7 +356,30 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
     },
     envVars: env_vars,
     description: `LoRA fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
+    subtype: "TRAIN",
   });
+}
+
+/** Trainer dir basename — used to recognise our TRAIN jobs (all are type=REMOTE). */
+const TRAINER_DIR_TAG = "unsloth-llm-train";
+
+/** A job is one of our fine-tune runs if it ran the trainer (or is tagged TRAIN). */
+function isTrainJob(j: TlJob): boolean {
+  const d = j.job_data ?? {};
+  if (d.subtype === "TRAIN") return true;
+  return typeof d.run === "string" && d.run.includes(TRAINER_DIR_TAG);
+}
+
+/**
+ * Ollama tag for a fine-tune, derived from its adaptor/task name. Must match
+ * between listing (to detect "ready") and export (to create the tag).
+ */
+export function fineTuneTag(name: string): string {
+  const slug = (name || "model")
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return slug.startsWith("nqr-") ? slug : `nqr-${slug || "model"}`;
 }
 
 type TlListModel = {
@@ -358,66 +389,96 @@ type TlListModel = {
 };
 
 /**
- * Export a fused (merged) fine-tuned model to GGUF so it can be served by
- * llama.cpp (TL's safetensors inference path is buggy). Drives TL's exporter:
- * point the experiment at the fused model, then call `run_exporter_script`
- * twice — once to create the job, once with the job id to actually run it
- * (TL's job runner doesn't auto-run export jobs). Returns when the GGUF exists.
+ * Serve a fine-tune by exporting it to GGUF and importing it into Ollama. Takes
+ * the TRAIN job id and returns the Ollama tag, ready to chat.
+ *
+ * v0.40.0: the trainer saves a LoRA adapter under the train job's models dir. We
+ * merge it into the fp16 base, convert to GGUF (llama.cpp), and `ollama create`.
+ * The heavy ML tooling and Ollama both live on the host, so the BFF drives a
+ * host-side WSL script rather than doing it in-process. Long-running (minutes).
  */
-export async function exportFineTunedToGguf(fusedModelId: string): Promise<void> {
-  // Resolve the fused model's local dir + architecture.
-  const listRes = await fetch(`${TL_ROOT}/model/list`, { headers: inferenceHeaders() });
-  const all = (await listRes.json().catch(() => [])) as TlListModel[];
-  const model = (Array.isArray(all) ? all : []).find((m) => m.model_id === fusedModelId);
-  if (!model) throw new Error(`Fused model "${fusedModelId}" not found`);
-
-  // TL is flaky about populating local_path; reconstruct the dir if missing.
-  let localPath = model.local_path;
-  if (!localPath) {
-    const ref = all.find((m) => m.local_path?.includes("/models/"));
-    if (ref?.local_path) {
-      const modelsDir = ref.local_path.replace(/\/models\/.*$/, "/models");
-      localPath = `${modelsDir}/${fusedModelId.replace(/^TransformerLab\//, "")}`;
-    }
+export async function exportFineTunedToGguf(jobId: string): Promise<string> {
+  // Resolve the base model + adaptor name from the train job.
+  const jobRes = await fetch(
+    `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
+    { headers: inferenceHeaders() }
+  );
+  if (!jobRes.ok) throw new Error(`Training job "${jobId}" not found (${jobRes.status})`);
+  const job = (await jobRes.json()) as TlJob;
+  const d = job.job_data ?? {};
+  const base = d.parameters?.model_name;
+  const name = d.task_name;
+  if (!base || !name) {
+    throw new Error("Could not resolve the base model / name for this fine-tune");
   }
-  if (!localPath) throw new Error(`Could not resolve a local path for "${fusedModelId}"`);
+  const tag = fineTuneTag(name);
 
-  // Point the experiment's foundation at the fused model (the exporter reads it
-  // at run time). `nqr-ft` is shared, so this isn't concurrency-safe — but we
-  // fail loudly if it's rejected rather than exporting whatever foundation was
-  // left set by a previous/concurrent operation.
-  const cfgRes = await fetch(`${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/update_configs`, {
-    method: "POST",
-    headers: inferenceHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      foundation: fusedModelId,
-      foundation_filename: localPath,
-      foundation_model_architecture: model.json_data?.architecture ?? "",
-    }),
-  });
-  if (!cfgRes.ok) {
-    const detail = await cfgRes.text().catch(() => "");
-    throw new Error(`Could not set export model (${cfgRes.status})${detail ? `: ${detail}` : ""}`);
+  // Guard before handing arguments to the shell.
+  const safe = (s: string) => /^[a-zA-Z0-9._:/-]+$/.test(s);
+  if (![jobId, base, tag].every(safe)) {
+    throw new Error("Invalid characters in export arguments");
   }
 
-  const params = new URLSearchParams({
-    plugin_name: "gguf_exporter",
-    plugin_architecture: "GGUF",
-    plugin_params: JSON.stringify({ outtype: "q8_0" }),
-  });
-  const url = `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/export/run_exporter_script?${params.toString()}`;
+  await runWslExport(jobId, base, tag);
+  return tag;
+}
 
-  // 1) create the export job
-  const createRes = await fetch(url, { headers: inferenceHeaders() });
-  const jobId = String(await createRes.json().catch(() => "")).replace(/"/g, "");
-  if (!jobId || jobId === "null") throw new Error("Could not create export job");
-
-  // 2) run it (blocks until the conversion finishes)
-  const runRes = await fetch(`${url}&job_id=${encodeURIComponent(jobId)}`, {
-    headers: inferenceHeaders(),
+/** Run the host-side serve-fine-tune pipeline in WSL; reject with its output tail. */
+function runWslExport(jobId: string, base: string, tag: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cmd = `bash ~/nqr_serve_finetune.sh ${jobId} ${base} ${tag}`;
+    execFile(
+      "wsl.exe",
+      ["-d", "Ubuntu", "--", "bash", "-lc", cmd],
+      { timeout: 9 * 60_000, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const tail = `${stdout}\n${stderr}`.trim().split("\n").slice(-6).join("\n");
+          reject(new Error(`GGUF export/import failed: ${tail || err.message}`));
+        } else {
+          resolve();
+        }
+      }
+    );
   });
-  const data = (await runRes.json().catch(() => ({}))) as { status?: string; message?: string };
-  if (data.status === "error") throw new Error(data.message || "Export failed");
+}
+
+/**
+ * Fine-tunes for the model picker: our completed TRAIN jobs, each flagged with
+ * whether it's been served to Ollama yet (`ready` + its `loadModelId` tag).
+ * `fusedModelId` carries the train job id — the input to {@link exportFineTunedToGguf}.
+ */
+export async function fetchFineTuned(): Promise<FineTunedModel[]> {
+  let rows: TlJob[] = [];
+  try {
+    const res = await fetch(`${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/list`, {
+      headers: inferenceHeaders(),
+    });
+    const raw = (await res.json().catch(() => [])) as TlJob[] | { data?: TlJob[] };
+    rows = Array.isArray(raw) ? raw : (raw.data ?? []);
+  } catch {
+    return [];
+  }
+  const servable = new Set(
+    (await listOllamaModels()).map((m) => m.id.replace(/:latest$/, ""))
+  );
+  return rows
+    .filter(isTrainJob)
+    .filter((j) => String(j.status ?? "").toUpperCase() === "COMPLETE")
+    .map((j) => {
+      const d = j.job_data ?? {};
+      const name = d.task_name ?? `Job ${j.id}`;
+      const tag = fineTuneTag(name);
+      const ready = servable.has(tag);
+      return {
+        name,
+        baseModelName: d.parameters?.model_name ?? "",
+        fusedModelId: String(j.id ?? ""), // = train job id (export input)
+        ready,
+        loadModelId: ready ? tag : null,
+      } satisfies FineTunedModel;
+    })
+    .reverse();
 }
 
 type TlJob = {
@@ -433,6 +494,8 @@ type TlJob = {
     task_name?: string;
     parameters?: { model_name?: string; dataset?: string };
     launch_progress?: { percent?: number };
+    subtype?: string;
+    run?: string;
   };
 };
 
@@ -458,15 +521,20 @@ function normalizeJob(j: TlJob): TrainingJob {
   };
 }
 
-/** All training jobs in our fine-tune experiment, newest first. */
+/**
+ * All training jobs in our fine-tune experiment, newest first. v0.40.0 provider
+ * jobs are all type=REMOTE, so we list everything (no `slim` — it strips the
+ * job_data we classify on) and keep the ones that ran our trainer.
+ */
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/list?slim=true&type=TRAIN`,
+      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/list`,
       { headers: inferenceHeaders() }
     );
-    const rows = (await res.json().catch(() => [])) as TlJob[];
-    const jobs = (Array.isArray(rows) ? rows : []).map(normalizeJob);
+    const raw = (await res.json().catch(() => [])) as TlJob[] | { data?: TlJob[] };
+    const rows = Array.isArray(raw) ? raw : (raw.data ?? []);
+    const jobs = rows.filter(isTrainJob).map(normalizeJob);
     return jobs.reverse();
   } catch {
     return [];

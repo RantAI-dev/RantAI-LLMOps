@@ -9,8 +9,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
 /**
- * Exports a fused fine-tuned model to GGUF so it becomes loadable for chat.
- * Called from the Fine-tuned tab's "Export" action.
+ * Serves a fine-tune by exporting it to GGUF and importing it into Ollama.
+ * Called from the Fine-tuned tab's "Export to use" action. `fusedModelId` is the
+ * TRAIN job id. Returns the new Ollama tag.
  */
 export async function POST(req: NextRequest) {
   let body: { fusedModelId?: string };
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "`fusedModelId` is required" }, { status: 400 });
   }
   try {
-    await exportFineTunedToGguf(body.fusedModelId);
-    return Response.json({ ok: true });
+    const tag = await exportFineTunedToGguf(body.fusedModelId);
+    return Response.json({ ok: true, tag });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Export failed";
     return Response.json({ error: message }, { status: 502 });
