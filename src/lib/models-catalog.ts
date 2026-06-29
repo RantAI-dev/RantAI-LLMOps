@@ -13,6 +13,7 @@
  */
 import { INFERENCE_BASE_URL, inferenceHeaders } from "@/lib/inference";
 import {
+  deleteOllamaModel,
   listOllamaModels,
   loadedOllamaModel,
   pullOllamaModel,
@@ -215,8 +216,20 @@ export async function fetchDownloaded(): Promise<CatalogModel[]> {
 export async function deleteModels(
   ids: string[]
 ): Promise<{ deleted: string[]; failed: string[] }> {
+  // Two namespaces: Ollama tags (served models, incl. fine-tunes) vs TL registry
+  // ids. Delete each from the right place. Ids that are neither (e.g. a train job
+  // id passed alongside its served tag) are treated as no-ops, not failures.
+  const ollamaTags = new Set(
+    (await listOllamaModels().catch(() => [])).map((m) => m.id.replace(/:latest$/, ""))
+  );
   const results = await Promise.all(
     ids.filter(Boolean).map(async (id) => {
+      const tag = id.replace(/:latest$/, "");
+      if (ollamaTags.has(tag)) {
+        return { id, ok: await deleteOllamaModel(tag) };
+      }
+      // TL registry ids look like "Org/Model"; anything else isn't a model.
+      if (!id.includes("/")) return { id, ok: true };
       try {
         const res = await fetch(`${TL_ROOT}/model/delete?model_id=${encodeURIComponent(id)}`, {
           headers: inferenceHeaders(),

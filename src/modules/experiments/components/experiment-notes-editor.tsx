@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ExternalLink, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -9,17 +9,35 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
 import { MarkdownPreview } from "@/modules/experiments/components/markdown-preview";
-import { loadNote, saveNote } from "@/modules/experiments/lib/notes-storage";
 
 export function ExperimentNotesEditor({ experimentId }: { experimentId: string }) {
   const { getExperimentById, updateExperimentNotes } = useLlmOps();
   const experiment = getExperimentById(experimentId);
 
-  // Persisted notes live in localStorage; fall back to whatever the provider
-  // holds for this session.
-  const [saved, setSaved] = useState(() => loadNote(experimentId) ?? experiment?.notes ?? "");
+  // Notes are stored server-side (Transformer Lab) per experiment. Seed from the
+  // provider's session value, then load the authoritative copy from the BFF.
+  const [saved, setSaved] = useState(experiment?.notes ?? "");
   const [draft, setDraft] = useState(saved);
+  const [saving, setSaving] = useState(false);
   const dirty = draft !== saved;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/experiments/${encodeURIComponent(experimentId)}/notes`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { notes?: string } | null) => {
+        if (cancelled || data?.notes == null) return;
+        // Only overwrite if the user hasn't started editing.
+        setSaved((prev) => {
+          setDraft((d) => (d === prev ? data.notes! : d));
+          return data.notes!;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [experimentId]);
 
   if (!experiment) {
     return (
@@ -38,11 +56,26 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
     );
   }
 
-  const handleSave = () => {
-    saveNote(experimentId, draft);
-    setSaved(draft);
-    updateExperimentNotes(experimentId, draft); // keep the session/list in sync
-    toast.success("Notes saved", { description: experiment.name });
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/experiments/${encodeURIComponent(experimentId)}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: draft }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error || "Gagal menyimpan notes");
+      }
+      setSaved(draft);
+      updateExperimentNotes(experimentId, draft); // keep the session/list in sync
+      toast.success("Notes saved", { description: experiment.name });
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -59,7 +92,7 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
             {experiment.name}
           </h1>
           <p className="mt-1 text-sm leading-5 text-ink-soft">
-            Lab notebook (markdown) for this experiment — tersimpan di browser ini.
+            Lab notebook (markdown) for this experiment — tersimpan di server (Transformer Lab).
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -73,8 +106,8 @@ export function ExperimentNotesEditor({ experimentId }: { experimentId: string }
               </Link>
             }
           />
-          <Button type="button" onClick={handleSave} disabled={!dirty}>
-            <Save className="size-4" /> {dirty ? "Save notes" : "Saved"}
+          <Button type="button" onClick={handleSave} disabled={!dirty || saving}>
+            <Save className="size-4" /> {saving ? "Saving…" : dirty ? "Save notes" : "Saved"}
           </Button>
         </div>
       </div>

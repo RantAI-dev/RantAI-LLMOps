@@ -4,7 +4,6 @@ import Link from "next/link";
 import { ChevronRight, NotebookPen } from "lucide-react";
 
 import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
-import { loadNote } from "@/modules/experiments/lib/notes-storage";
 
 function snippet(notes: string): string {
   const text = notes.replace(/[#*`>\-]/g, "").replace(/\s+/g, " ").trim();
@@ -21,7 +20,7 @@ export default function Page() {
         <h1 className="text-2xl font-semibold leading-8 tracking-tight text-primary">Notes</h1>
         <p className="mt-1 max-w-2xl text-base leading-6 text-ink-soft">
           A markdown lab notebook lives inside each experiment. Pick one to read or edit its notes.
-          Tersimpan di browser ini.
+          Tersimpan di server (Transformer Lab).
         </p>
       </div>
 
@@ -50,7 +49,7 @@ export default function Page() {
                     </span>
                   </span>
                   <span className="mt-0.5 line-clamp-1 text-[13px] text-ink-soft">
-                    {snippet(loadNote(experiment.id) ?? experiment.notes)}
+                    {snippet(experiment.notes)}
                   </span>
                 </span>
                 <ChevronRight className="size-4 shrink-0 text-ink-faint" aria-hidden />

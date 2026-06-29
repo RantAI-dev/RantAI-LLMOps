@@ -91,6 +91,20 @@ export async function pullOllamaModel(tag: string): Promise<void> {
   if (data.error) throw new Error(data.error);
 }
 
+/** Delete a model from Ollama (`DELETE /api/delete`). Returns whether it worked. */
+export async function deleteOllamaModel(tag: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/delete`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: tag }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Ask Ollama to unload the resident model (free VRAM) by issuing a generate with
  * `keep_alive: 0`. Best-effort; returns whether Ollama accepted it.

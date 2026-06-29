@@ -55,12 +55,23 @@ function normalize(r: TlRecipe): Recipe {
   };
 }
 
-/** Curated recipe gallery (`GET /recipes/list`). */
+/**
+ * Curated recipe gallery (`GET /recipes/list`).
+ *
+ * NOTE: Transformer Lab v0.40.0 removed the `/recipes` API (recipes were a
+ * v0.30.x concept). We degrade gracefully to an empty list so the page shows its
+ * empty-state instead of erroring. The v0.40.0 equivalent is the task gallery
+ * (used directly by Fine-tune/Evals), so this page is informational for now.
+ */
 export async function listRecipes(): Promise<Recipe[]> {
-  const res = await fetch(`${TL_ROOT}/recipes/list`, { headers: inferenceHeaders() });
-  if (!res.ok) throw new Error(`recipes ${res.status}`);
-  const rows = (await res.json().catch(() => [])) as TlRecipe[];
-  return (Array.isArray(rows) ? rows : []).filter((r) => r.id).map(normalize);
+  try {
+    const res = await fetch(`${TL_ROOT}/recipes/list`, { headers: inferenceHeaders() });
+    if (!res.ok) return [];
+    const rows = (await res.json().catch(() => [])) as TlRecipe[];
+    return (Array.isArray(rows) ? rows : []).filter((r) => r.id).map(normalize);
+  } catch {
+    return [];
+  }
 }
 
 /**
