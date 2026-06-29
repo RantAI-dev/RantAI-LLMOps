@@ -67,7 +67,7 @@ export function EvalCompare({
   comparing: boolean;
   compareProgress: { done: number; total: number } | null;
   onCompare: (
-    models: Array<{ id: string; architecture?: string }>,
+    models: Array<{ id: string; architecture?: string; fineTuned?: boolean }>,
     benchmark: string,
     limit: number
   ) => Promise<boolean>;
@@ -175,10 +175,10 @@ export function EvalCompare({
                 disabled={!canRun}
                 onClick={() =>
                   onCompare(
-                    picked.map((id) => ({
-                      id,
-                      architecture: options.models.find((m) => m.id === id)?.architecture,
-                    })),
+                    picked.map((id) => {
+                      const m = options.models.find((x) => x.id === id);
+                      return { id, architecture: m?.architecture, fineTuned: m?.fineTuned };
+                    }),
                     benchmark,
                     coverage / 100
                   )

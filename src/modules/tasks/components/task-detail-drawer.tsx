@@ -193,7 +193,11 @@ export function TaskDetailDrawer({
           </Section>
 
           <Section title="Logs">
-            <TaskLogs taskId={task.id} fallback={run?.logs ?? []} />
+            <TaskLogs
+              taskId={task.id}
+              fallback={run?.logs ?? []}
+              live={status === "Running" || status === "Retrying"}
+            />
           </Section>
 
           <Section title="Output / Artifacts">
@@ -235,26 +239,39 @@ export function TaskDetailDrawer({
  * the task's mock log entries for demo tasks TL doesn't have. Real logs can be
  * downloaded as a .log file (the one job artifact TL reliably serves).
  */
-function TaskLogs({ taskId, fallback }: { taskId: string; fallback: TaskLogEntry[] }) {
+function TaskLogs({
+  taskId,
+  fallback,
+  live = false,
+}: {
+  taskId: string;
+  fallback: TaskLogEntry[];
+  live?: boolean;
+}) {
   const [output, setOutput] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/tasks/${encodeURIComponent(taskId)}/output`, { cache: "no-store" })
-      .then((r) => r.json() as Promise<{ output?: string }>)
-      .then((d) => {
-        if (cancelled) return;
-        setOutput(typeof d.output === "string" ? d.output : "");
-        setLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const load = () =>
+      fetch(`/api/tasks/${encodeURIComponent(taskId)}/output`, { cache: "no-store" })
+        .then((r) => r.json() as Promise<{ output?: string }>)
+        .then((d) => {
+          if (cancelled) return;
+          setOutput(typeof d.output === "string" ? d.output : "");
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!cancelled) setLoading(false);
+        });
+    load();
+    // Live-tail while the job is running so logs (loss, progress) update.
+    const timer = live ? setInterval(load, 3000) : null;
     return () => {
       cancelled = true;
+      if (timer) clearInterval(timer);
     };
-  }, [taskId]);
+  }, [taskId, live]);
 
   const hasReal = output != null && output.trim().length > 0;
 
@@ -273,13 +290,20 @@ function TaskLogs({ taskId, fallback }: { taskId: string; fallback: TaskLogEntry
 
   return (
     <div className="space-y-2">
-      {hasReal ? (
-        <div className="flex justify-end">
+      <div className="flex items-center justify-between">
+        {live ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-primary">
+            <span className="size-1.5 animate-pulse rounded-full bg-primary" /> Live
+          </span>
+        ) : (
+          <span />
+        )}
+        {hasReal ? (
           <Button type="button" variant="outline" size="sm" className="h-7 gap-1.5" onClick={downloadLog}>
             <Download className="size-3.5" /> Download .log
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
       <div className="max-h-64 overflow-y-auto rounded-md bg-[#1a1a1a] p-3 font-mono text-xs leading-5 text-[#e4e4e7]">
         {loading ? (
           <p className="text-ink-faint-strong">Loading logs…</p>

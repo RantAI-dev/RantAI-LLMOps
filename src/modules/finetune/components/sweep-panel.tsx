@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Sparkles, Trophy } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import type { FinetuneOptions } from "@/lib/finetune";
 import { buildCombos, useSweep, type SweepGrid } from "@/modules/finetune/hooks/use-sweep";
-import { cn } from "@/lib/utils";
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -64,8 +63,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
   const selectedModel = options.models.find((m) => m.id === model);
   const canRun = model && dataset && comboCount > 0 && !running;
 
-  const ranked = [...results].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-  const best = ranked.find((r) => r.score != null);
+  const trained = results.filter((r) => r.status === "ok");
 
   return (
     <div className="space-y-4">
@@ -75,8 +73,9 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
           <h2 className="text-sm font-semibold text-primary">Hyperparameter sweep</h2>
         </div>
         <p className="mb-3 text-[12px] text-ink-soft">
-          Coba beberapa kombinasi setelan training otomatis → tiap hasil di-eval → diranking. Jalan{" "}
-          <strong>satu per satu</strong> (train lalu eval), jadi bisa lama.
+          Latih beberapa kombinasi setelan training otomatis → tiap kombinasi jadi adaptor.
+          Jalan <strong>satu per satu</strong>, jadi bisa lama. Bandingkan hasilnya dengan{" "}
+          <strong>Export</strong> lalu chat di Generations.
         </p>
 
         {options.models.length === 0 ? (
@@ -156,7 +155,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
               <div className="mt-3 flex items-center gap-2">
                 <Progress value={(progress.index / Math.max(1, progress.total)) * 100} className="h-1.5 flex-1" />
                 <span className="text-[12px] tabular-nums text-ink-soft">
-                  {progress.index + 1}/{progress.total} · {progress.phase === "training" ? "training" : "evaluating"}…
+                  {progress.index + 1}/{progress.total} · training…
                 </span>
               </div>
             ) : null}
@@ -198,7 +197,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
       {/* Results */}
       {results.length > 0 ? (
         <div className="rounded-xl border border-border bg-surface p-4">
-          <h3 className="mb-3 text-sm font-semibold text-primary">Hasil (diranking by accuracy)</h3>
+          <h3 className="mb-3 text-sm font-semibold text-primary">Hasil (adaptor terlatih)</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -207,39 +206,36 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                   <th className="px-3 py-2 font-medium">learning_rate</th>
                   <th className="px-3 py-2 font-medium">lora_r</th>
                   <th className="px-3 py-2 font-medium">epochs</th>
-                  <th className="px-3 py-2 text-right font-medium">Skor</th>
+                  <th className="px-3 py-2 font-medium">Adaptor</th>
+                  <th className="px-3 py-2 text-right font-medium">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {ranked.map((r) => {
-                  const isBest = best != null && r.fusedModelId === best.fusedModelId && r.score != null;
-                  return (
-                    <tr key={r.index} className="border-b border-border/60 last:border-0">
-                      <td className="py-2 pr-3 text-ink-soft">{r.index + 1}</td>
-                      <td className="px-3 py-2 font-mono text-[12px]">{r.combo.learning_rate ?? "—"}</td>
-                      <td className="px-3 py-2 font-mono text-[12px]">{r.combo.lora_r ?? "—"}</td>
-                      <td className="px-3 py-2 font-mono text-[12px]">{r.combo.num_train_epochs ?? "—"}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {r.score != null ? (
-                          <span className={cn("inline-flex items-center gap-1", isBest && "font-semibold text-primary")}>
-                            {isBest ? <Trophy className="size-3.5" aria-hidden /> : null}
-                            {(r.score * 100).toFixed(1)}%
-                          </span>
-                        ) : (
-                          <span className="text-danger">{r.status === "train-failed" ? "train gagal" : "eval gagal"}</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                {results.map((r) => (
+                  <tr key={r.index} className="border-b border-border/60 last:border-0">
+                    <td className="py-2 pr-3 text-ink-soft">{r.index + 1}</td>
+                    <td className="px-3 py-2 font-mono text-[12px]">{r.combo.learning_rate ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-[12px]">{r.combo.lora_r ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-[12px]">{r.combo.num_train_epochs ?? "—"}</td>
+                    <td className="px-3 py-2 font-mono text-[12px]">
+                      {r.status === "ok" ? r.adaptorName : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.status === "ok" ? (
+                        <span className="text-primary">terlatih ✓</span>
+                      ) : (
+                        <span className="text-danger">train gagal</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-          {best ? (
+          {trained.length > 0 ? (
             <p className="mt-2 text-[12px] text-ink-soft">
-              🏆 Setelan terbaik: lr={best.combo.learning_rate ?? "—"}, lora_r={best.combo.lora_r ?? "—"}, epochs=
-              {best.combo.num_train_epochs ?? "—"} → {((best.score ?? 0) * 100).toFixed(1)}%. Model:{" "}
-              <span className="font-mono">{best.fusedModelId}</span>
+              {trained.length} adaptor terlatih. Buka <strong>Fine-tune → tab Fine-tuned</strong> (atau
+              picker model) untuk <strong>Export</strong> yang menarik, lalu bandingkan di Generations.
             </p>
           ) : null}
         </div>

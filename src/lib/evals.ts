@@ -10,9 +10,12 @@
  * Only safetensors models can be evaluated (the harness loads via HF
  * transformers); GGUF is inference-only.
  */
+import { execFile } from "node:child_process";
+
 import { fetchDownloaded, TL_ROOT, type CatalogModel } from "@/lib/models-catalog";
 import { inferenceHeaders } from "@/lib/inference";
 import { launchProviderTask } from "@/lib/tl-provider";
+import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
 
 const EVAL_EXPERIMENT = "nqr-ft";
 
@@ -58,10 +61,19 @@ export type EvalJob = {
   scores: EvalScore[];
 };
 
-/** Evaluable models = downloaded safetensors (base + our fused fine-tunes). */
+/** Evaluable models = our fine-tunes + downloaded safetensors + recommended HF bases. */
 export async function fetchEvalOptions(): Promise<EvalOptions> {
-  const downloaded = await fetchDownloaded();
-  const models: EvalModel[] = downloaded
+  const [downloaded, fineTunes] = await Promise.all([fetchDownloaded(), fetchFineTuned()]);
+  // Fine-tunes (completed train jobs). The id is the TRAIN JOB id — submitEval
+  // merges the adapter and evaluates the merged model locally (lm-eval can't
+  // load a LoRA adapter from HF).
+  const ftModels: EvalModel[] = fineTunes.map((ft) => ({
+    id: ft.fusedModelId, // = train job id
+    name: ft.name,
+    architecture: "",
+    fineTuned: true,
+  }));
+  const localModels: EvalModel[] = downloaded
     .filter((m: CatalogModel) => !m.isGguf)
     .map((m) => ({
       id: m.id,
@@ -70,30 +82,54 @@ export async function fetchEvalOptions(): Promise<EvalOptions> {
       architecture: m.architecture,
       fineTuned: m.id.startsWith("TransformerLab/"),
     }));
-  return { models, benchmarks: BENCHMARKS };
+  // The lm-eval harness pulls the model from HF by id at run time, so on a fresh
+  // workspace (no local models) we still offer recommended bases to evaluate.
+  const haveIds = new Set(localModels.map((m) => m.id));
+  const recommended: EvalModel[] = RECOMMENDED_MODELS.filter((m) => !haveIds.has(m.id)).map(
+    (m) => ({ id: m.id, name: m.name, architecture: m.architecture, fineTuned: false })
+  );
+  return { models: [...ftModels, ...localModels, ...recommended], benchmarks: BENCHMARKS };
 }
 
 export type SubmitEvalParams = {
-  /** HF-resolvable model id (e.g. "HuggingFaceTB/SmolLM-135M-Instruct"). */
+  /**
+   * Either an HF model id (e.g. "HuggingFaceTB/SmolLM-135M-Instruct") for a base
+   * model, OR — when `fineTuned` is true — the TRAIN job id of a fine-tune.
+   */
   model: string;
   modelArchitecture?: string;
   benchmark: string;
   /** Fraction of the benchmark to run, 0–1 (smaller = faster). */
   limit?: number;
-  /** Optional local path (for a fused/fine-tuned model) and adapter dir. */
+  /** Optional local path (for a model already on disk) and adapter dir. */
   modelPath?: string;
   modelAdapter?: string;
   hfToken?: string;
+  /** When true, `model` is a fine-tune train job id (merge + eval locally). */
+  fineTuned?: boolean;
 };
 
 /**
  * Run a benchmark on a model by launching the lm-eval harness on the local
- * compute provider. Returns the REMOTE job id; poll `/api/evals/jobs`. The
- * harness pulls the model from Hugging Face by id (or uses `modelPath` for a
- * local model) and writes metrics as `evals` artifacts.
+ * compute provider. Returns the REMOTE job id; poll `/api/evals/jobs`.
+ *
+ * Base models: the harness pulls them from HF by id. Fine-tunes: we first merge
+ * the adapter into the base locally (the harness can't load a LoRA adapter from
+ * HF) and evaluate the merged model via its `model_path`.
  */
 export async function submitEval(p: SubmitEvalParams): Promise<string> {
-  const name = `eval-${slug(p.model)}-${p.benchmark}`;
+  let modelName = p.model;
+  let modelPath = p.modelPath ?? "";
+  let label = p.model;
+
+  if (p.fineTuned) {
+    const merged = await mergeFineTuneForEval(p.model); // p.model = train job id
+    modelPath = merged.modelPath;
+    modelName = merged.label;
+    label = merged.label;
+  }
+
+  const name = `eval-${slug(label)}-${p.benchmark}`;
   const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
   if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;
 
@@ -108,16 +144,57 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
     // Maps onto the harness trainer's `lab.get_config()` keys. `limit` is a
     // string in the trainer (it float-parses it); 1.0 means "no limit".
     parameters: {
-      model_name: p.model,
-      model_path: p.modelPath ?? "",
+      model_name: modelName,
+      model_path: modelPath, // harness uses this over model_name when set
       model_adapter: p.modelAdapter ?? "",
       tasks: p.benchmark,
       limit: String(p.limit ?? 0.05),
     },
     envVars: env_vars,
-    description: `Eval ${p.model} on ${p.benchmark}`,
+    description: `Eval ${label} on ${p.benchmark}`,
     subtype: "EVAL",
   });
+}
+
+/**
+ * Merge a fine-tune's adapter into its base on the host (peft, via WSL) so the
+ * harness can evaluate it by `model_path`. Returns the merged dir's WSL path.
+ */
+async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string; label: string }> {
+  const res = await fetch(
+    `${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
+    { headers: inferenceHeaders() }
+  );
+  if (!res.ok) throw new Error(`Fine-tune job "${jobId}" not found (${res.status})`);
+  const job = (await res.json()) as {
+    job_data?: { task_name?: string; parameters?: { model_name?: string } };
+  };
+  const base = job.job_data?.parameters?.model_name;
+  const name = job.job_data?.task_name;
+  if (!base || !name) throw new Error("Could not resolve the base model / name for this fine-tune");
+  const tag = `eval-${slug(name)}`;
+  const safe = (s: string) => /^[a-zA-Z0-9._:/-]+$/.test(s);
+  if (![jobId, base, tag].every(safe)) throw new Error("Invalid characters in eval arguments");
+
+  const modelPath = await new Promise<string>((resolve, reject) => {
+    const cmd = `bash ~/nqr_merge.sh ${jobId} ${base} ${tag}`;
+    execFile(
+      "wsl.exe",
+      ["-d", "Ubuntu", "--", "bash", "-lc", cmd],
+      { timeout: 9 * 60_000, maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout, stderr) => {
+        if (err) {
+          const tail = `${stdout}\n${stderr}`.trim().split("\n").slice(-4).join("\n");
+          reject(new Error(`Merge for eval failed: ${tail || err.message}`));
+          return;
+        }
+        const path = stdout.trim().split("\n").filter(Boolean).pop()?.trim();
+        if (!path) reject(new Error("Merge produced no model path"));
+        else resolve(path);
+      }
+    );
+  });
+  return { modelPath, label: name };
 }
 
 /** Harness dir basename — used to recognise our EVAL jobs (all are type=REMOTE). */

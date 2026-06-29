@@ -115,22 +115,28 @@ export function usePipeline() {
           throw new Error("Training gagal — pipeline dihentikan.");
         }
 
-        // Resolve the fused model the trainer produced.
-        const fused = await resolveFused(cfg.adaptorName);
-        if (!fused) {
-          setStage("train", { status: "failed", detail: "fused model tak ditemukan" });
-          throw new Error("Model fused hasil training tidak ditemukan.");
-        }
-        out.fusedModelId = fused;
+        // v0.40.0: the training output IS the job (its adapter lives under the
+        // job dir). The job id is the handle for export — no separate "fused"
+        // model in a registry like v0.30.3 had.
+        const jobId = trainData.jobId;
+        out.fusedModelId = jobId;
         setStage("train", { status: "done", detail: "selesai" });
 
         // 2) EVAL ----------------------------------------------------------
+        // Evaluate the FINE-TUNE itself: the eval endpoint merges the adapter
+        // into the base locally and runs lm-eval on the merged model (the harness
+        // can't load a LoRA adapter from HF).
         if (cfg.doEval) {
-          setStage("eval", { status: "running", detail: "Mengirim eval…" });
+          setStage("eval", { status: "running", detail: "Merge + eval fine-tune…" });
           const evalRes = await fetch("/api/evals/submit", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model: fused, benchmark: cfg.benchmark, limit: cfg.coverage / 100 }),
+            body: JSON.stringify({
+              model: jobId,
+              fineTuned: true,
+              benchmark: cfg.benchmark,
+              limit: cfg.coverage / 100,
+            }),
           });
           const evalData = (await evalRes.json()) as { jobId?: string; error?: string };
           if (!evalRes.ok || !evalData.jobId) {
@@ -148,18 +154,18 @@ export function usePipeline() {
 
         // 3) EXPORT GGUF ---------------------------------------------------
         if (cfg.doExport) {
-          setStage("export", { status: "running", detail: "Mengonversi ke GGUF…" });
+          setStage("export", { status: "running", detail: "Merge → GGUF → Ollama…" });
           const expRes = await fetch("/api/finetune/export", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fusedModelId: fused }),
+            body: JSON.stringify({ fusedModelId: jobId }),
           });
           const expData = (await expRes.json().catch(() => ({}))) as { ok?: boolean; error?: string };
           if (!expRes.ok || !expData.ok) {
             setStage("export", { status: "failed", detail: expData.error || "gagal" });
           } else {
-            // Confirm the GGUF actually landed (the catalog flips `ready` true).
-            const ft = await waitGgufReady(cfg.adaptorName, cancelledRef);
+            // Confirm the model landed in Ollama (the catalog flips `ready` true).
+            const ft = await waitGgufReady(jobId, cancelledRef);
             if (cancelledRef.current) return false;
             out.ggufReady = Boolean(ft?.ready);
             out.loadModelId = ft?.loadModelId ?? null;
@@ -190,30 +196,27 @@ export function usePipeline() {
 
 type FineTuned = { name: string; fusedModelId: string; ready: boolean; loadModelId: string | null };
 
-async function fetchFineTuned(adaptorName: string): Promise<FineTuned | null> {
+/** Find a fine-tune in the catalog by its train job id (fusedModelId). */
+async function fetchFineTuned(jobId: string): Promise<FineTuned | null> {
   try {
     const res = await fetch("/api/models/catalog", { cache: "no-store" });
     const data = (await res.json()) as { fineTuned?: FineTuned[] };
-    return (data.fineTuned ?? []).find((m) => m.name === adaptorName) ?? null;
+    return (data.fineTuned ?? []).find((m) => m.fusedModelId === jobId) ?? null;
   } catch {
     return null;
   }
 }
 
-async function resolveFused(adaptorName: string): Promise<string | null> {
-  return (await fetchFineTuned(adaptorName))?.fusedModelId ?? null;
-}
-
 async function waitGgufReady(
-  adaptorName: string,
+  jobId: string,
   cancelledRef: { current: boolean }
 ): Promise<FineTuned | null> {
   for (let i = 0; i < 60 && !cancelledRef.current; i++) {
-    const ft = await fetchFineTuned(adaptorName);
+    const ft = await fetchFineTuned(jobId);
     if (ft?.ready) return ft;
     await sleep(3000);
   }
-  return fetchFineTuned(adaptorName);
+  return fetchFineTuned(jobId);
 }
 
 async function waitEval(jobId: string, cancelledRef: { current: boolean }): Promise<number | null> {

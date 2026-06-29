@@ -13,7 +13,7 @@ export const maxDuration = 120;
  * each the same prompts.
  */
 export async function POST(req: NextRequest) {
-  let body: { prompt?: string; temperature?: number; maxTokens?: number };
+  let body: { prompt?: string; temperature?: number; maxTokens?: number; model?: string };
   try {
     body = await req.json();
   } catch {
@@ -26,6 +26,7 @@ export async function POST(req: NextRequest) {
     const result = await completeOnLoadedModel(prompt, {
       temperature: body.temperature,
       maxTokens: body.maxTokens,
+      model: body.model,
     });
     return Response.json(result);
   } catch (err) {

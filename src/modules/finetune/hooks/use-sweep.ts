@@ -22,7 +22,10 @@ export type SweepCombo = Partial<Record<SweepAxis, number>>;
 export type SweepResult = {
   index: number;
   combo: SweepCombo;
+  /** Train job id of this combo (the export input), or null if training failed. */
   fusedModelId: string | null;
+  /** Adaptor name — export this to chat with the combo's model. */
+  adaptorName: string;
   score: number | null;
   status: "ok" | "train-failed" | "eval-failed";
 };
@@ -44,7 +47,6 @@ export type SweepParams = {
 
 const AXES: SweepAxis[] = ["learning_rate", "lora_r", "num_train_epochs"];
 const TRAIN_TERMINAL = new Set(["COMPLETE", "COMPLETED", "FAILED", "STOPPED", "CANCELLED"]);
-const EVAL_TERMINAL = new Set(["COMPLETE", "COMPLETED", "FAILED", "STOPPED", "CANCELLED"]);
 
 /** Cartesian product of the populated grid axes. */
 export function buildCombos(grid: SweepGrid): SweepCombo[] {
@@ -89,39 +91,6 @@ export function useSweep() {
     return "TIMEOUT";
   }, []);
 
-  /** Poll an eval job by id until terminal; return its headline accuracy. */
-  const waitEval = useCallback(async (jobId: string): Promise<number | null> => {
-    for (let i = 0; i < 300; i++) {
-      await sleep(3000);
-      try {
-        const res = await fetch("/api/evals/jobs");
-        const data = (await res.json()) as {
-          jobs?: Array<{ id: string; status: string; scores: Array<{ type: string; score: number }> }>;
-        };
-        const job = (data.jobs ?? []).find((j) => j.id === jobId);
-        if (job && EVAL_TERMINAL.has(job.status.toUpperCase())) {
-          const acc = job.scores.find((s) => s.type.toLowerCase() === "acc") ?? job.scores[0];
-          return acc ? acc.score : null;
-        }
-      } catch {
-        /* keep polling */
-      }
-    }
-    return null;
-  }, []);
-
-  /** Find the fused model produced by a training run, by its adaptor name. */
-  const resolveFused = useCallback(async (adaptorName: string): Promise<string | null> => {
-    try {
-      const res = await fetch("/api/models/catalog", { cache: "no-store" });
-      const data = (await res.json()) as {
-        fineTuned?: Array<{ name: string; fusedModelId: string }>;
-      };
-      return (data.fineTuned ?? []).find((m) => m.name === adaptorName)?.fusedModelId ?? null;
-    } catch {
-      return null;
-    }
-  }, []);
 
   const runSweep = useCallback(
     async (p: SweepParams) => {
@@ -158,43 +127,42 @@ export function useSweep() {
           });
           const trainData = (await trainRes.json()) as { jobId?: string; error?: string };
           if (!trainRes.ok || !trainData.jobId) {
-            out.push({ index: i, combo, fusedModelId: null, score: null, status: "train-failed" });
+            out.push({
+              index: i,
+              combo,
+              fusedModelId: null,
+              adaptorName,
+              score: null,
+              status: "train-failed",
+            });
             setResults([...out]);
             continue;
           }
           const trainStatus = await waitTrain(trainData.jobId);
           if (trainStatus !== "COMPLETE" && trainStatus !== "COMPLETED") {
-            out.push({ index: i, combo, fusedModelId: null, score: null, status: "train-failed" });
+            out.push({
+              index: i,
+              combo,
+              fusedModelId: null,
+              adaptorName,
+              score: null,
+              status: "train-failed",
+            });
             setResults([...out]);
             continue;
           }
 
-          // 2) Evaluate the fused model on the chosen benchmark.
-          setProgress({ index: i, total: combos.length, phase: "evaluating" });
-          const fusedModelId = await resolveFused(adaptorName);
-          if (!fusedModelId) {
-            out.push({ index: i, combo, fusedModelId: null, score: null, status: "eval-failed" });
-            setResults([...out]);
-            continue;
-          }
-          const evalRes = await fetch("/api/evals/submit", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ model: fusedModelId, benchmark: p.benchmark, limit: p.limit }),
-          });
-          const evalData = (await evalRes.json()) as { jobId?: string; error?: string };
-          if (!evalRes.ok || !evalData.jobId) {
-            out.push({ index: i, combo, fusedModelId, score: null, status: "eval-failed" });
-            setResults([...out]);
-            continue;
-          }
-          const score = await waitEval(evalData.jobId);
+          // v0.40.0: the lm-eval harness can't score a LoRA adapter (it isn't on
+          // HF), so we don't auto-rank by benchmark here. Each combo produces a
+          // trained adapter (its train job id) — export the promising one(s) and
+          // compare them in Generations / chat.
           out.push({
             index: i,
             combo,
-            fusedModelId,
-            score,
-            status: score == null ? "eval-failed" : "ok",
+            fusedModelId: trainData.jobId,
+            adaptorName,
+            score: null,
+            status: "ok",
           });
           setResults([...out]);
         }
@@ -207,7 +175,7 @@ export function useSweep() {
         setProgress(null);
       }
     },
-    [resolveFused, waitEval, waitTrain]
+    [waitTrain]
   );
 
   return { running, progress, results, error, runSweep };

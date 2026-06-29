@@ -23,6 +23,7 @@ export function EvalForm({
     modelArchitecture?: string;
     benchmark: string;
     limit: number;
+    fineTuned?: boolean;
   }) => Promise<boolean>;
 }) {
   const [model, setModel] = useState("");
@@ -114,6 +115,7 @@ export function EvalForm({
               modelArchitecture: selectedModel?.architecture,
               benchmark,
               limit: coverage / 100,
+              fineTuned: selectedModel?.fineTuned,
             })
           }
         >

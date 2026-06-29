@@ -6,7 +6,7 @@
  * explicit `model` (Ollama tag) to target a specific one; otherwise we use
  * whatever is hot in VRAM.
  */
-import { OLLAMA_V1, loadedOllamaModel } from "@/lib/ollama";
+import { OLLAMA_V1, listOllamaModels, loadedOllamaModel } from "@/lib/ollama";
 
 export type CompletionResult = { model: string; reply: string };
 
@@ -14,8 +14,14 @@ export async function completeOnLoadedModel(
   prompt: string,
   opts: { temperature?: number; maxTokens?: number; model?: string } = {}
 ): Promise<CompletionResult> {
-  const model = opts.model || (await loadedOllamaModel());
-  if (!model) throw new Error("Tidak ada model yang sedang dimuat. Load satu dulu.");
+  // Prefer the explicit model, then whatever is hot in VRAM, then any pulled
+  // model (Ollama lazily loads it). Ollama serves all pulled models, so unlike
+  // TL's single worker there's almost always something to answer with.
+  const model =
+    opts.model || (await loadedOllamaModel()) || (await listOllamaModels())[0]?.id || null;
+  if (!model) {
+    throw new Error("Belum ada model di Ollama. Pull/serve satu model dulu.");
+  }
 
   const res = await fetch(`${OLLAMA_V1}/chat/completions`, {
     method: "POST",

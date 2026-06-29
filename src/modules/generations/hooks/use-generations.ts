@@ -29,11 +29,12 @@ async function loadModel(target: GenTarget): Promise<void> {
   if (!res.ok || !data.loaded) throw new Error(data.error || `Gagal memuat ${target.label}`);
 }
 
-async function complete(prompt: string, temperature: number): Promise<string> {
+async function complete(prompt: string, temperature: number, model: string): Promise<string> {
   const res = await fetch("/api/generations/complete", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, temperature }),
+    // Ollama serves every pulled model, so name the one we're testing.
+    body: JSON.stringify({ prompt, temperature, model }),
   });
   const data = (await res.json().catch(() => ({}))) as { reply?: string; error?: string };
   if (!res.ok) throw new Error(data.error || "Generation gagal");
@@ -59,14 +60,15 @@ export function useGenerations() {
     async (
       prompts: string[],
       temperature: number,
-      phase: "base" | "fine-tuned"
+      phase: "base" | "fine-tuned",
+      model: string
     ): Promise<string[]> => {
       const answers: string[] = [];
       for (let i = 0; i < prompts.length; i++) {
         if (cancelledRef.current) break;
         setProgress({ phase, index: i, total: prompts.length });
         try {
-          answers.push(await complete(prompts[i], temperature));
+          answers.push(await complete(prompts[i], temperature, model));
         } catch (err) {
           answers.push(`⚠️ ${(err as Error).message}`);
         }
@@ -94,12 +96,12 @@ export function useGenerations() {
       try {
         setProgress({ phase: "loading-base", index: 0, total: prompts.length });
         await loadModel(p.base);
-        const baseAnswers = await answerAll(prompts, p.temperature, "base");
+        const baseAnswers = await answerAll(prompts, p.temperature, "base", p.base.modelId);
         if (cancelledRef.current) return false;
 
         setProgress({ phase: "loading-ft", index: 0, total: prompts.length });
         await loadModel(p.ft);
-        const ftAnswers = await answerAll(prompts, p.temperature, "fine-tuned");
+        const ftAnswers = await answerAll(prompts, p.temperature, "fine-tuned", p.ft.modelId);
         if (cancelledRef.current) return false;
 
         setRows(

@@ -68,6 +68,46 @@ export type TrainingJob = {
   adaptorName?: string;
 };
 
+/**
+ * Recommended base models to fine-tune. v0.40.0 trains from Hugging Face by id
+ * (the trainer pulls the model at runtime), so these aren't "downloaded" — they
+ * just need to be HF-resolvable. Kept small enough to QLoRA on a ~6 GB GPU.
+ */
+export const RECOMMENDED_MODELS: CatalogModel[] = [
+  {
+    id: "unsloth/Qwen2.5-0.5B-Instruct",
+    name: "Qwen2.5 0.5B Instruct",
+    architecture: "Qwen2ForCausalLM",
+    sizeMb: 1000,
+    isGguf: false,
+    downloaded: false,
+  },
+  {
+    id: "unsloth/Qwen2.5-1.5B-Instruct",
+    name: "Qwen2.5 1.5B Instruct",
+    architecture: "Qwen2ForCausalLM",
+    sizeMb: 3000,
+    isGguf: false,
+    downloaded: false,
+  },
+  {
+    id: "unsloth/Llama-3.2-1B-Instruct",
+    name: "Llama 3.2 1B Instruct",
+    architecture: "LlamaForCausalLM",
+    sizeMb: 2500,
+    isGguf: false,
+    downloaded: false,
+  },
+  {
+    id: "HuggingFaceTB/SmolLM-135M-Instruct",
+    name: "SmolLM 135M Instruct",
+    architecture: "LlamaForCausalLM",
+    sizeMb: 270,
+    isGguf: false,
+    downloaded: false,
+  },
+];
+
 /** Small, instruction-style datasets that fine-tune quickly on modest GPUs. */
 export const RECOMMENDED_DATASETS: FinetuneDataset[] = [
   {
@@ -162,10 +202,13 @@ export async function previewTlDataset(id: string, limit = 25): Promise<DatasetP
 /** Form data for the Fine-tune page: trainable models + datasets (local + recommended). */
 export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
   const [downloaded, local] = await Promise.all([fetchDownloaded(), fetchLocalDatasets()]);
-  // Trainable bases = downloaded safetensors models. Exclude GGUF (inference-only,
-  // can't be fine-tuned) and our own fused outputs (TransformerLab/ — those are
-  // training *results*, not base models).
-  const models = downloaded.filter((m) => !m.isGguf && !m.id.startsWith("TransformerLab/"));
+  // Trainable bases = downloaded safetensors models (exclude GGUF and our own
+  // TransformerLab/ fused outputs) PLUS recommended HF bases. v0.40.0 pulls the
+  // base from HF at train time, so the recommended ones are usable even though
+  // they aren't on disk — without them the picker is empty on a fresh workspace.
+  const local_bases = downloaded.filter((m) => !m.isGguf && !m.id.startsWith("TransformerLab/"));
+  const haveIds = new Set(local_bases.map((m) => m.id));
+  const models = [...local_bases, ...RECOMMENDED_MODELS.filter((m) => !haveIds.has(m.id))];
 
   const localIds = new Set(local.map((d) => d.dataset_id));
   // User-created / downloaded datasets first (all ready to use)...

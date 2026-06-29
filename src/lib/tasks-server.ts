@@ -78,12 +78,8 @@ export async function listAllJobs(): Promise<TlJobRow[]> {
   return (Array.isArray(rows) ? rows : []).map(normalize).reverse();
 }
 
-/**
- * Raw stdout/log for one job (`/jobs/{id}/output`). TL returns the whole log as
- * a JSON-encoded string (not an object), so handle a bare string as well as the
- * `{output}` / `{logs}` object shapes.
- */
-export async function jobOutput(id: string): Promise<string> {
+/** SDK output for a job (`/jobs/{id}/output`) — the `lab.log()` summary. */
+async function fetchSdkOutput(id: string): Promise<string> {
   const res = await fetch(
     `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/output`,
     { headers: inferenceHeaders() }
@@ -100,6 +96,36 @@ export async function jobOutput(id: string): Promise<string> {
     return "";
   }
   return res.text().catch(() => "");
+}
+
+/** Live provider console for a job (`/jobs/{id}/provider_logs`) — raw stdout
+ *  (loss curves, progress, errors). This is what updates while a job RUNs. */
+async function fetchProviderConsole(id: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=500`,
+      { headers: inferenceHeaders() }
+    );
+    if (!res.ok) return "";
+    const data = (await res.json().catch(() => ({}))) as { logs?: string };
+    return typeof data?.logs === "string" ? data.logs : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Logs for one job. v0.40.0 jobs run via a compute provider, so the live console
+ * (training loss, progress, errors) is in `provider_logs`; the SDK `/output` has
+ * the `lab.log()` summary. We show the console when present (it's the most useful
+ * while a job runs), falling back to the SDK output.
+ */
+export async function jobOutput(id: string): Promise<string> {
+  const [console_, sdk] = await Promise.all([fetchProviderConsole(id), fetchSdkOutput(id)]);
+  if (console_.trim()) {
+    return sdk.trim() ? `${console_}\n\n— — — — —\n${sdk}` : console_;
+  }
+  return sdk;
 }
 
 export type TlExperimentRow = { id: string; name: string };

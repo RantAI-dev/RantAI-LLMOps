@@ -1,17 +1,14 @@
 /**
  * Server-only helpers for Recipes (`/api/recipes/*`).
  *
- * A Transformer Lab "recipe" is a ready-made LLMOps pipeline — a curated bundle
- * of model + dataset + plugin dependencies and a set of pre-configured tasks
- * (train / eval / generate). Using one creates an experiment pre-loaded with
- * those tasks, so the user starts from a working setup instead of from scratch.
+ * v0.40.0 removed the `/recipes` API (recipes were a v0.30.x concept). The
+ * equivalent is the **task gallery** — pre-built trainer/eval/inference task
+ * templates (Unsloth, TRL, lm-eval, …). We surface those here so the page is a
+ * useful "starting points" browser, and "use" creates an experiment to work in.
  */
 import { inferenceHeaders } from "@/lib/inference";
 import { TL_ROOT } from "@/lib/models-catalog";
 import { listTlExperiments } from "@/lib/tasks-server";
-
-export type RecipeDep = { type: string; name: string };
-export type RecipeTask = { task_type?: string; name?: string };
 
 export type Recipe = {
   id: string;
@@ -26,76 +23,74 @@ export type Recipe = {
   cardImage: string | null;
 };
 
-type TlRecipe = {
-  id?: string;
+type TlGalleryTask = {
   title?: string;
   description?: string;
-  notes?: string;
-  requiredMachineArchitecture?: string[];
-  dependencies?: RecipeDep[];
-  tasks?: RecipeTask[];
-  cardImage?: string | null;
+  github_repo_dir?: string;
+  metadata?: { category?: string; modality?: string; framework?: string[] };
+  supportedAccelerators?: Record<string, unknown>;
 };
 
-function normalize(r: TlRecipe): Recipe {
-  const deps = Array.isArray(r.dependencies) ? r.dependencies : [];
-  const tasks = Array.isArray(r.tasks) ? r.tasks : [];
-  const byType = (t: string) => deps.filter((d) => d.type === t).map((d) => d.name);
+/** The gallery is experiment-scoped at the API but identical everywhere. */
+const GALLERY_EXPERIMENT = "alpha";
+
+function normalize(t: TlGalleryTask): Recipe {
+  const dir = t.github_repo_dir ?? "";
+  const id = dir.split("/").pop() || (t.title ?? "task");
+  const framework = Array.isArray(t.metadata?.framework) ? t.metadata!.framework! : [];
   return {
-    id: String(r.id ?? ""),
-    title: r.title ?? String(r.id ?? "Recipe"),
-    description: r.description ?? "",
-    notes: r.notes ?? "",
-    arch: Array.isArray(r.requiredMachineArchitecture) ? r.requiredMachineArchitecture : [],
-    models: byType("model"),
-    datasets: byType("dataset"),
-    plugins: byType("plugin"),
-    taskTypes: tasks.map((t) => t.task_type ?? "TASK"),
-    cardImage: r.cardImage ?? null,
+    id,
+    title: t.title ?? id,
+    description: t.description ?? "",
+    notes: "",
+    arch: framework,
+    models: [],
+    datasets: [],
+    plugins: [],
+    taskTypes: t.metadata?.category ? [t.metadata.category] : [],
+    cardImage: null,
   };
 }
 
 /**
- * Curated recipe gallery (`GET /recipes/list`).
- *
- * NOTE: Transformer Lab v0.40.0 removed the `/recipes` API (recipes were a
- * v0.30.x concept). We degrade gracefully to an empty list so the page shows its
- * empty-state instead of erroring. The v0.40.0 equivalent is the task gallery
- * (used directly by Fine-tune/Evals), so this page is informational for now.
+ * Pre-built task templates from the v0.40.0 task gallery
+ * (`GET /experiment/{id}/task/gallery`). Degrades to empty on error.
  */
 export async function listRecipes(): Promise<Recipe[]> {
   try {
-    const res = await fetch(`${TL_ROOT}/recipes/list`, { headers: inferenceHeaders() });
+    const res = await fetch(`${TL_ROOT}/experiment/${GALLERY_EXPERIMENT}/task/gallery`, {
+      headers: inferenceHeaders(),
+    });
     if (!res.ok) return [];
-    const rows = (await res.json().catch(() => [])) as TlRecipe[];
-    return (Array.isArray(rows) ? rows : []).filter((r) => r.id).map(normalize);
+    const body = (await res.json().catch(() => ({}))) as { data?: TlGalleryTask[] } | TlGalleryTask[];
+    const rows = Array.isArray(body) ? body : (body.data ?? []);
+    return rows.filter((t) => t.title || t.github_repo_dir).map(normalize);
   } catch {
     return [];
   }
 }
 
 /**
- * Create an experiment pre-loaded with a recipe's tasks
- * (`POST /recipes/{id}/create_experiment?experiment_name=…`).
+ * "Use" a starting point = create an experiment to work in. v0.40.0 has no
+ * auto-load-tasks-into-experiment step (that was a v0.30.x recipe feature), so
+ * we just create the experiment; the user then configures Fine-tune/Evals there.
  */
 export async function createExperimentFromRecipe(
-  recipeId: string,
+  _recipeId: string,
   experimentName: string
 ): Promise<{ ok: boolean; detail?: string }> {
-  const url = `${TL_ROOT}/recipes/${encodeURIComponent(recipeId)}/create_experiment?experiment_name=${encodeURIComponent(
-    experimentName
-  )}`;
-  const res = await fetch(url, { method: "POST", headers: inferenceHeaders() });
-  if (res.ok) return { ok: true };
-  // TL often returns a 500 (empty body) from a non-fatal post-create step even
-  // though the experiment itself WAS created. Verify by existence rather than
-  // trusting the status code.
-  const data = (await res.json().catch(() => ({}))) as { detail?: string; message?: string };
+  void _recipeId;
   try {
+    const res = await fetch(
+      `${TL_ROOT}/experiment/create?name=${encodeURIComponent(experimentName)}`,
+      { headers: inferenceHeaders() }
+    );
+    if (res.ok) return { ok: true };
+    // 409 = already exists, which is fine for our purposes.
+    if (res.status === 409) return { ok: true };
     const exists = (await listTlExperiments()).some((e) => e.name === experimentName);
-    if (exists) return { ok: true };
-  } catch {
-    /* fall through to error */
+    return exists ? { ok: true } : { ok: false, detail: `HTTP ${res.status}` };
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message : "Gagal membuat experiment" };
   }
-  return { ok: false, detail: data.detail || data.message || `HTTP ${res.status}` };
 }

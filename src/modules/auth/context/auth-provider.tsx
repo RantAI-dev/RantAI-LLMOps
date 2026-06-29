@@ -72,8 +72,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    apiLogout();
+    apiLogout(); // clear the legacy client session
     setUser(null);
+    // Clear the shared-password gate cookie and return to the login screen.
+    void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+      window.location.href = "/login";
+    });
   }, []);
 
   const value = useMemo<AuthContextValue>(

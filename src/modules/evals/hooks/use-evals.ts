@@ -64,7 +64,13 @@ export function useEvals() {
   }, [shouldPoll, loadJobs]);
 
   const submit = useCallback(
-    async (body: { model: string; modelArchitecture?: string; benchmark: string; limit: number }) => {
+    async (body: {
+      model: string;
+      modelArchitecture?: string;
+      benchmark: string;
+      limit: number;
+      fineTuned?: boolean;
+    }) => {
       setError(null);
       setSubmitting(true);
       try {
@@ -116,7 +122,7 @@ export function useEvals() {
 
   const submitCompare = useCallback(
     async (
-      models: Array<{ id: string; architecture?: string }>,
+      models: Array<{ id: string; architecture?: string; fineTuned?: boolean }>,
       benchmark: string,
       limit: number
     ) => {
@@ -133,6 +139,7 @@ export function useEvals() {
               modelArchitecture: models[i].architecture,
               benchmark,
               limit,
+              fineTuned: models[i].fineTuned,
             }),
           });
           const data = (await res.json()) as { jobId?: string; error?: string };
