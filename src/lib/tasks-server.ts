@@ -68,9 +68,9 @@ function normalize(j: TlJob): TlJobRow {
   };
 }
 
-/** All jobs in the working experiment, newest first. */
+/** All jobs in the working experiment, newest first. (v0.40.0: experiment-scoped.) */
 export async function listAllJobs(): Promise<TlJobRow[]> {
-  const res = await fetch(`${TL_ROOT}/jobs/list?experimentId=${EXPERIMENT}`, {
+  const res = await fetch(`${TL_ROOT}/experiment/${EXPERIMENT}/jobs/list?slim=true`, {
     headers: inferenceHeaders(),
   });
   if (!res.ok) throw new Error(`jobs ${res.status}`);
@@ -84,9 +84,10 @@ export async function listAllJobs(): Promise<TlJobRow[]> {
  * `{output}` / `{logs}` object shapes.
  */
 export async function jobOutput(id: string): Promise<string> {
-  const res = await fetch(`${TL_ROOT}/jobs/${encodeURIComponent(id)}/output`, {
-    headers: inferenceHeaders(),
-  });
+  const res = await fetch(
+    `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/output`,
+    { headers: inferenceHeaders() }
+  );
   if (!res.ok) return "";
   const ct = res.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {

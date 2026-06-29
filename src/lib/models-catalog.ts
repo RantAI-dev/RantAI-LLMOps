@@ -12,6 +12,12 @@
  * architecture.
  */
 import { INFERENCE_BASE_URL, inferenceHeaders } from "@/lib/inference";
+import {
+  listOllamaModels,
+  loadedOllamaModel,
+  pullOllamaModel,
+  unloadOllama,
+} from "@/lib/ollama";
 
 /** TL base without the trailing `/v1` — the model/server routes live at the root. */
 const TL_ROOT = INFERENCE_BASE_URL.replace(/\/v1$/, "");
@@ -56,12 +62,57 @@ export type FineTunedModel = {
 };
 
 export type ModelCatalog = {
-  /** The model currently loaded into VRAM (served by `/v1/models`), if any. */
+  /** The model currently resident in Ollama's VRAM, if any. */
   loaded: string | null;
+  /** TL model registry (HF ids) — for training/eval context. */
   downloaded: CatalogModel[];
   recommended: CatalogModel[];
   fineTuned: FineTunedModel[];
+  /** Ollama models pulled and ready to chat with (the serve/chat namespace). */
+  servable: CatalogModel[];
+  /** Suggested Ollama tags to pull that fit a small GPU. */
+  ollamaRecommended: CatalogModel[];
 };
+
+/** Curated Ollama tags that fit a ~6–8 GB GPU (4-bit GGUF). */
+const OLLAMA_RECOMMENDED: Array<{ tag: string; label: string; sizeMb: number }> = [
+  { tag: "qwen2.5:0.5b", label: "Qwen2.5 0.5B", sizeMb: 398 },
+  { tag: "llama3.2:1b", label: "Llama 3.2 1B", sizeMb: 1300 },
+  { tag: "qwen2.5:1.5b", label: "Qwen2.5 1.5B", sizeMb: 986 },
+  { tag: "gemma2:2b", label: "Gemma 2 2B", sizeMb: 1600 },
+  { tag: "llama3.2:3b", label: "Llama 3.2 3B", sizeMb: 2000 },
+  { tag: "phi3.5", label: "Phi 3.5 Mini", sizeMb: 2200 },
+];
+
+function ollamaToCatalog(m: { id: string; name: string; sizeMb: number | null }): CatalogModel {
+  return {
+    id: m.id,
+    name: m.name,
+    architecture: "GGUF",
+    sizeMb: m.sizeMb,
+    isGguf: true,
+    downloaded: true,
+  };
+}
+
+/** Ollama models pulled and ready to chat with, as CatalogModel rows. */
+export async function fetchServable(): Promise<CatalogModel[]> {
+  const models = await listOllamaModels();
+  return models.map(ollamaToCatalog);
+}
+
+/** Recommended Ollama tags, flagged with whether they're already pulled. */
+export function ollamaRecommendedWithStatus(servable: CatalogModel[]): CatalogModel[] {
+  const have = new Set(servable.map((m) => m.id));
+  return OLLAMA_RECOMMENDED.map((r) => ({
+    id: r.tag,
+    name: r.label,
+    architecture: "GGUF",
+    sizeMb: r.sizeMb,
+    isGguf: true,
+    downloaded: have.has(r.tag),
+  }));
+}
 
 /** Loader plugin + flag for a given architecture. */
 export function loaderForArchitecture(architecture: string): {
@@ -232,90 +283,36 @@ export function fetchFineTuned(downloaded: CatalogModel[]): FineTunedModel[] {
  * base model. Blocks until TL reports the worker is up. Returns the model id on
  * success, or throws with TL's error message.
  */
-export async function loadModel(modelId: string, adaptor?: string): Promise<string> {
-  const downloaded = await fetchDownloaded();
-  const model = downloaded.find((m) => m.id === modelId);
-  if (!model) throw new Error(`Model "${modelId}" is not downloaded`);
-
-  const { engine, isGguf } = loaderForArchitecture(model.architecture);
-  const inferenceParams = JSON.stringify(
-    isGguf
-      ? { inferenceEngine: engine, n_gpu_layers: "auto" }
-      : { inferenceEngine: engine }
-  );
-
-  // Free VRAM first — a 6 GB GPU fits one model at a time. Best-effort.
-  await fetch(`${TL_ROOT}/server/worker_stop`, { headers: inferenceHeaders() }).catch(() => {});
-
-  const params = new URLSearchParams({
-    model_name: modelId,
-    model_architecture: model.architecture,
-    inference_engine: engine,
-    inference_params: inferenceParams,
-  });
-  if (adaptor) params.set("adaptor", adaptor);
-
-  // Resolve the on-disk path. For most models TL gives us `local_path` (the
-  // .gguf file, or the model dir). But TL fails to populate it for GGUFs it
-  // *exported itself* (fine-tuned models, prefixed `TransformerLab/`), so we
-  // reconstruct it: TL stores them at <models>/<id>/<id>. HF-hub models have no
-  // local path and resolve by id.
-  let filename = model.localPath;
-  if (!filename && isGguf && model.id.startsWith("TransformerLab/")) {
-    const ref = downloaded.find((m) => m.localPath?.includes("/models/"));
-    if (ref?.localPath) {
-      const modelsDir = ref.localPath.replace(/\/models\/.*$/, "/models");
-      const base = model.id.slice("TransformerLab/".length);
-      filename = `${modelsDir}/${base}/${base}`;
-    }
-  }
-  if (filename) params.set("model_filename", filename);
-
-  const res = await fetch(`${TL_ROOT}/server/worker_start?${params.toString()}`, {
-    headers: inferenceHeaders(),
-  });
-  const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
-  if (!res.ok || data.status === "error") {
-    throw new Error(data.message || `Failed to load model (${res.status})`);
-  }
+export async function loadModel(modelId: string): Promise<string> {
+  // v0.40.0: serving is Ollama. "Loading" a model = making sure it's pulled;
+  // Ollama then auto-loads it into VRAM on the first chat request. `modelId` is
+  // an Ollama tag (e.g. "qwen2.5:0.5b"). LoRA adaptors aren't applied here —
+  // fine-tunes are served by exporting to GGUF and importing as an Ollama model.
+  await pullOllamaModel(modelId);
   return modelId;
 }
 
 /**
- * Stop the inference worker — unloads the model from VRAM so nothing is served.
- * Used to "stop"/undeploy a deployment and free the GPU. Returns whether TL
- * accepted the request.
+ * Unload the model from VRAM so nothing is held (undeploy / free the GPU).
+ * Returns whether Ollama accepted it.
  */
 export async function stopServing(): Promise<boolean> {
-  try {
-    const res = await fetch(`${TL_ROOT}/server/worker_stop`, { headers: inferenceHeaders() });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  return unloadOllama();
 }
 
 /**
- * Download a model into TL. GGUF picks a specific quant file; a plain HF repo
- * downloads the whole model. Long-running — TL streams the bytes server-side.
+ * Pull a model into Ollama (downloads if missing). `repo` is an Ollama tag.
+ * Long-running for large models — Ollama streams the bytes. (`ggufFile` is a
+ * legacy TL param, ignored: Ollama tags are self-contained.)
  */
-export async function downloadModel(repo: string, ggufFile?: string): Promise<void> {
-  const url = ggufFile
-    ? `${TL_ROOT}/model/download_gguf_file?model=${encodeURIComponent(repo)}&filename=${encodeURIComponent(ggufFile)}`
-    : `${TL_ROOT}/model/download_from_huggingface?model=${encodeURIComponent(repo)}`;
-  const res = await fetch(url, { headers: inferenceHeaders() });
-  const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string };
-  if (!res.ok || data.status === "error") {
-    throw new Error(data.message || `Download failed (${res.status})`);
-  }
+export async function downloadModel(repo: string, _ggufFile?: string): Promise<void> {
+  void _ggufFile;
+  await pullOllamaModel(repo);
 }
 
-/** The model currently loaded into VRAM (TL OpenAI `/v1/models`). */
+/** The model currently resident in Ollama's VRAM, if any. */
 export async function fetchLoaded(): Promise<string | null> {
-  const res = await fetch(`${INFERENCE_BASE_URL}/models`, { headers: inferenceHeaders() });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { data?: Array<{ id?: string }> };
-  return data?.data?.[0]?.id ?? null;
+  return loadedOllamaModel();
 }
 
 /** Recommended list, flagged with what's already downloaded. */

@@ -47,13 +47,15 @@ export function ModelPicker({
   }, [open]);
 
   const q = query.trim().toLowerCase();
+  // Chat is served by Ollama, so the picker lists Ollama models (the `servable`
+  // namespace), NOT the TL registry (`downloaded`, used for training).
   const downloaded = useMemo(
-    () => catalog.downloaded.filter((m) => match(m, q)),
-    [catalog.downloaded, q]
+    () => catalog.servable.filter((m) => match(m, q)),
+    [catalog.servable, q]
   );
   const recommended = useMemo(
-    () => catalog.recommended.filter((m) => !m.downloaded && match(m, q)),
-    [catalog.recommended, q]
+    () => catalog.ollamaRecommended.filter((m) => !m.downloaded && match(m, q)),
+    [catalog.ollamaRecommended, q]
   );
 
   const label = value || catalog.loaded || "Select model";

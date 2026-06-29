@@ -1,28 +1,25 @@
 /**
- * Server-only helper for one-shot (non-streaming) completions against whatever
- * model Transformer Lab currently has loaded. Shared by `/api/serve/test` and
- * `/api/generations/complete` (output comparison).
+ * Server-only helper for one-shot (non-streaming) completions against Ollama.
+ * Shared by `/api/serve/test` and `/api/generations/complete` (output compare).
+ *
+ * v0.40.0: inference runs on Ollama (TL no longer serves models). Pass an
+ * explicit `model` (Ollama tag) to target a specific one; otherwise we use
+ * whatever is hot in VRAM.
  */
-import { INFERENCE_BASE_URL, inferenceHeaders } from "@/lib/inference";
-import { fetchLoaded } from "@/lib/models-catalog";
+import { OLLAMA_V1, loadedOllamaModel } from "@/lib/ollama";
 
 export type CompletionResult = { model: string; reply: string };
 
-/**
- * Fire one non-streaming chat completion at the currently-served model. Resolves
- * the model id from what TL reports as loaded (so we never send a mismatched id).
- * Throws with TL's error message on failure.
- */
 export async function completeOnLoadedModel(
   prompt: string,
-  opts: { temperature?: number; maxTokens?: number } = {}
+  opts: { temperature?: number; maxTokens?: number; model?: string } = {}
 ): Promise<CompletionResult> {
-  const model = await fetchLoaded();
+  const model = opts.model || (await loadedOllamaModel());
   if (!model) throw new Error("Tidak ada model yang sedang dimuat. Load satu dulu.");
 
-  const res = await fetch(`${INFERENCE_BASE_URL}/chat/completions`, {
+  const res = await fetch(`${OLLAMA_V1}/chat/completions`, {
     method: "POST",
-    headers: inferenceHeaders({ "Content-Type": "application/json" }),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
       messages: [{ role: "user", content: prompt }],

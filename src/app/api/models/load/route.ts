@@ -6,12 +6,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Loads a downloaded model into VRAM (swapping out whatever is loaded). The
- * picker calls this when you select a model; the chat then targets it. Blocks
- * until the worker is up, so the client can show a "loading…" state.
+ * "Loads" a model for serving by ensuring Ollama has it pulled (Ollama then
+ * auto-loads it into VRAM on the first chat request). The picker calls this when
+ * you select a model. `modelId` is an Ollama tag. Blocks until the pull is done.
  */
 export async function POST(req: NextRequest) {
-  let body: { modelId?: string; adaptor?: string };
+  let body: { modelId?: string };
   try {
     body = await req.json();
   } catch {
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "`modelId` is required" }, { status: 400 });
   }
   try {
-    const loaded = await loadModel(body.modelId, body.adaptor);
+    const loaded = await loadModel(body.modelId);
     return Response.json({ loaded });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to load model";

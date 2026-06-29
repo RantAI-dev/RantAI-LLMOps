@@ -1,12 +1,7 @@
 import type { NextRequest } from "next/server";
 
-import {
-  INFERENCE_BASE_URL,
-  INFERENCE_MODEL,
-  INFERENCE_STREAM,
-  inferenceHeaders,
-} from "@/lib/inference";
-import { fetchLoaded } from "@/lib/models-catalog";
+import { INFERENCE_MODEL, INFERENCE_STREAM } from "@/lib/inference";
+import { OLLAMA_V1, loadedOllamaModel } from "@/lib/ollama";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +17,13 @@ type ChatBody = {
 
 /**
  * Backend-for-Frontend chat proxy. The Interact UI POSTs `{ messages, model? }`
- * here; we forward to the configured OpenAI-compatible engine's
- * `/v1/chat/completions` with `stream: true` and pipe the SSE stream straight
- * back to the browser. The engine (Ollama / llama.cpp / vLLM / Transformer Lab)
- * is swappable purely via env — the UI never changes.
+ * here; we forward to Ollama's OpenAI-compatible `/v1/chat/completions` and pipe
+ * the SSE stream straight back to the browser.
+ *
+ * v0.40.0 note: Transformer Lab no longer serves inference itself (no `/v1`), so
+ * the chat engine is Ollama (run on the host). It serves every pulled model at
+ * once, so the model name comes from the client's selection (`body.model`),
+ * falling back to whatever is hot in VRAM.
  */
 export async function POST(req: NextRequest) {
   let body: ChatBody;
@@ -40,17 +38,15 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "`messages` array is required" }, { status: 400 });
   }
 
-  // Source of truth for the model name is whatever TL actually has loaded —
-  // it serves exactly one model and rejects any other name (HTTP 403). This
-  // makes chat immune to a stale env default or a client/picker race after a
-  // model switch. Fall back to the client value / env only if TL reports none.
-  const loaded = await fetchLoaded();
-  const model = loaded || body.model || INFERENCE_MODEL || "default";
+  // Ollama serves all pulled models simultaneously, so the model name is the
+  // client's selection. Fall back to whatever is hot in VRAM, then the env
+  // default. (No HTTP-403 "wrong model" trap like TL's single-worker model.)
+  const model = body.model || (await loadedOllamaModel()) || INFERENCE_MODEL || "default";
   let upstream: Response;
   try {
-    upstream = await fetch(`${INFERENCE_BASE_URL}/chat/completions`, {
+    upstream = await fetch(`${OLLAMA_V1}/chat/completions`, {
       method: "POST",
-      headers: inferenceHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" }, // Ollama needs no auth
       body: JSON.stringify({
         model,
         messages,
@@ -66,7 +62,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return Response.json(
       {
-        error: `Could not reach the inference engine at ${INFERENCE_BASE_URL}. Is it running? (set INFERENCE_BASE_URL in .env.local)`,
+        error: `Could not reach Ollama at ${OLLAMA_V1}. Is it running? (start it in WSL: ~/start_ollama.sh, or set OLLAMA_BASE_URL in .env.local)`,
       },
       { status: 502 }
     );

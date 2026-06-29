@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CatalogModel, ModelCatalog } from "@/lib/models-catalog";
 
-const EMPTY: ModelCatalog = { loaded: null, downloaded: [], recommended: [], fineTuned: [] };
+const EMPTY: ModelCatalog = {
+  loaded: null,
+  downloaded: [],
+  recommended: [],
+  fineTuned: [],
+  servable: [],
+  ollamaRecommended: [],
+};
 
 export type CatalogBusy = {
   id: string;

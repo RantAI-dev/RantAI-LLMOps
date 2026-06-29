@@ -1,26 +1,41 @@
 /**
  * Server-only helpers for the Fine-tune feature (`/api/finetune/*`).
  *
- * Built entirely on Transformer Lab's training API — no new backend. The flow we
- * drive (proven end-to-end): create/reuse an experiment → create a TRAIN task
- * (`PUT /tasks/new_task`) → queue it (`/tasks/{id}/queue`) → poll the job. The
- * trainer plugin (`llama_trainer`) produces a LoRA adaptor that shows up under
- * the model's PEFTs.
+ * Built on Transformer Lab's training API. v0.40.0 paradigm (compute providers):
+ * create/reuse an experiment → launch a GitHub-hosted trainer task on the local
+ * compute provider (`POST /compute_provider/providers/{id}/launch/`) → poll the
+ * resulting REMOTE job. We use the `unsloth-llm-train` gallery trainer, which is
+ * memory-efficient (4-bit + LoRA) and well-suited to small GPUs.
  *
- * Gotchas baked in here (learned the hard way):
- *  - `model_name`/`dataset_name` must live in the task `inputs`, not `config`
- *    (the queue step reads them from there).
- *  - The plugin ignores `max_steps`; training length is controlled by epochs and
- *    dataset size.
- *  - Only non-GGUF (safetensors) models are trainable.
+ * Key differences from the old (v0.30.3) plugin flow:
+ *  - The trainer pulls the base model AND dataset straight from Hugging Face by
+ *    id at runtime (`FastLanguageModel.from_pretrained` / `load_dataset`), so the
+ *    `baseModel`/`dataset` values must be HF-resolvable ids — they are NOT read
+ *    from TL's local workspace.
+ *  - Hyperparameters travel in the launch `parameters` map and reach the trainer
+ *    via `lab.get_config()`. The trainer DOES honour `max_steps`.
+ *  - The trainer saves a fused model via `lab.save_model(...)` into the job's
+ *    artifacts; progress/log stream to the job via the `lab` SDK.
  */
 import { fetchDownloaded, TL_ROOT, type CatalogModel } from "@/lib/models-catalog";
 import { inferenceHeaders } from "@/lib/inference";
+import { launchProviderTask } from "@/lib/tl-provider";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
 
 /** All fine-tuning runs live under one experiment so jobs are easy to list. */
 export const FINETUNE_EXPERIMENT = "nqr-ft";
+
+/**
+ * The GitHub-hosted trainer the local compute provider clones and runs. Unsloth
+ * (4-bit + LoRA) keeps memory low enough for modest GPUs. The `run`/`setup`
+ * mirror its `task.yaml`; the provider builds a fresh uv venv from `setup`.
+ */
+const TRAINER_GITHUB_URL = "https://github.com/transformerlab/transformerlab-app";
+const TRAINER_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-llm-train";
+const TRAINER_SETUP =
+  "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb";
+const TRAINER_RUN = "python unsloth-llm-train/train.py";
 
 export type FinetuneDataset = {
   id: string;
@@ -273,8 +288,10 @@ async function ensureDatasetDownloaded(datasetId: string): Promise<void> {
 }
 
 export type SubmitFinetuneParams = {
+  /** HF-resolvable base model id (e.g. "unsloth/Qwen2.5-0.5B-Instruct"). */
   baseModel: string;
   baseModelArchitecture?: string;
+  /** HF-resolvable dataset id (e.g. "Trelis/touch-rugby-rules"). */
   dataset: string;
   adaptorName: string;
   epochs?: number;
@@ -282,83 +299,56 @@ export type SubmitFinetuneParams = {
   learningRate?: number;
   loraR?: number;
   loraAlpha?: number;
+  /** Cap on optimizer steps. The unsloth trainer honours this (-1 = unlimited). */
+  maxSteps?: number;
+  /** Optional HF token for gated models/datasets. */
+  hfToken?: string;
 };
 
 /**
- * Create + queue a LoRA fine-tune. Returns the TL job id. Auto-downloads the
- * dataset if needed and derives the formatting template from its columns.
+ * Launch a LoRA fine-tune on the local compute provider and return the REMOTE
+ * job id. v0.40.0: the launch is self-contained — it clones the GitHub trainer,
+ * builds a uv venv from `setup`, then runs it with `parameters` (surfaced to the
+ * trainer via `lab.get_config()`). The trainer downloads `baseModel`/`dataset`
+ * from Hugging Face by id at runtime.
  */
 export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   await ensureExperiment();
-  await ensureDatasetDownloaded(p.dataset);
-
-  // Free VRAM before training: a modest GPU can't hold an inference worker and
-  // a training run at once, so we stop any loaded model first (best-effort).
-  await fetch(`${TL_ROOT}/server/worker_stop`, { headers: inferenceHeaders() }).catch(() => {});
-
-  const columns = await datasetColumns(p.dataset);
-  const formattingTemplate = buildFormattingTemplate(columns);
   const adaptorName = p.adaptorName.replace(/[^a-zA-Z0-9._-]/g, "-") || "adaptor";
 
-  const taskBody = {
-    name: adaptorName,
-    type: "TRAIN",
-    plugin: "llama_trainer",
-    experiment_id: FINETUNE_EXPERIMENT,
-    inputs: {
+  const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
+  if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;
+
+  return launchProviderTask({
+    experimentId: FINETUNE_EXPERIMENT,
+    taskName: adaptorName,
+    run: TRAINER_RUN,
+    setup: TRAINER_SETUP,
+    githubRepoUrl: TRAINER_GITHUB_URL,
+    githubRepoDir: TRAINER_GITHUB_DIR,
+    accelerators: "NVIDIA:1",
+    // Maps 1:1 onto the unsloth-llm-train trainer's `lab.get_config()` keys.
+    parameters: {
       model_name: p.baseModel,
-      model_architecture: p.baseModelArchitecture ?? "",
-      dataset_name: p.dataset,
-    },
-    outputs: { adaptor_name: adaptorName },
-    config: {
-      plugin_name: "llama_trainer",
-      model_name: p.baseModel,
-      model_architecture: p.baseModelArchitecture ?? "",
-      dataset_name: p.dataset,
-      _tlab_recipe_models: { path: p.baseModel },
-      _tlab_recipe_datasets: { path: p.dataset },
-      formatting_template: formattingTemplate,
-      lora_r: p.loraR ?? 8,
+      dataset: p.dataset,
+      lr: p.learningRate ?? 0.0002,
+      num_train_epochs: p.epochs ?? 1,
+      batch_size: p.batchSize ?? 2,
+      gradient_accumulation_steps: 4,
+      warmup_steps: 5,
+      max_steps: p.maxSteps ?? 60,
+      max_seq_length: 2048,
+      lora_r: p.loraR ?? 16,
       lora_alpha: p.loraAlpha ?? 16,
       lora_dropout: 0.05,
-      num_train_epochs: p.epochs ?? 1,
-      batch_size: p.batchSize ?? 1,
-      learning_rate: p.learningRate ?? 0.0002,
-      learning_rate_schedule: "constant",
-      adaptor_name: adaptorName,
-      template_name: adaptorName,
-      // Merge the LoRA into the base and save a standalone model. TL's
-      // load-adaptor-on-base inference path is buggy (size mismatch), so we
-      // serve the fused model directly instead — the production-standard way.
-      fuse_model: true,
+      logging_steps: 1,
+      save_steps: 50,
+      weight_decay: 0.01,
+      dataloader_num_workers: 0,
     },
-  };
-
-  const created = await fetch(`${TL_ROOT}/tasks/new_task`, {
-    method: "PUT",
-    headers: inferenceHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify(taskBody),
+    envVars: env_vars,
+    description: `LoRA fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
   });
-  if (!created.ok) {
-    const detail = await created.text().catch(() => "");
-    throw new Error(detail || `Failed to create training task (${created.status})`);
-  }
-
-  // Find the task we just created and queue it.
-  const listRes = await fetch(`${TL_ROOT}/tasks/list_by_type?type=TRAIN`, {
-    headers: inferenceHeaders(),
-  });
-  const tasks = (await listRes.json().catch(() => [])) as Array<{ id?: string; name?: string }>;
-  const task = (Array.isArray(tasks) ? tasks : []).find((t) => t.name === adaptorName);
-  if (!task?.id) throw new Error("Training task was created but could not be found to queue");
-
-  const queued = await fetch(`${TL_ROOT}/tasks/${task.id}/queue`, { headers: inferenceHeaders() });
-  const qData = (await queued.json().catch(() => ({}))) as { id?: number; detail?: string };
-  if (!queued.ok || qData.id == null) {
-    throw new Error(qData.detail || `Failed to queue training job (${queued.status})`);
-  }
-  return String(qData.id);
 }
 
 type TlListModel = {
@@ -434,18 +424,37 @@ type TlJob = {
   id?: number | string;
   status?: string;
   progress?: number;
-  job_data?: { template_name?: string; model_name?: string; dataset?: string };
+  job_data?: {
+    // v0.30.3 plugin jobs
+    template_name?: string;
+    model_name?: string;
+    dataset?: string;
+    // v0.40.0 provider (REMOTE) jobs
+    task_name?: string;
+    parameters?: { model_name?: string; dataset?: string };
+    launch_progress?: { percent?: number };
+  };
 };
 
 function normalizeJob(j: TlJob): TrainingJob {
+  const d = j.job_data ?? {};
+  const name = d.task_name ?? d.template_name ?? `Job ${j.id}`;
+  // Provider jobs report progress under launch_progress until the trainer's
+  // lab.update_progress() takes over; fall back to whichever exists.
+  const progress =
+    typeof j.progress === "number" && j.progress > 0
+      ? j.progress
+      : typeof d.launch_progress?.percent === "number"
+        ? d.launch_progress.percent
+        : 0;
   return {
     id: String(j.id ?? ""),
-    name: j.job_data?.template_name ?? `Job ${j.id}`,
+    name,
     status: j.status ?? "UNKNOWN",
-    progress: typeof j.progress === "number" ? j.progress : 0,
-    model: j.job_data?.model_name,
-    dataset: j.job_data?.dataset,
-    adaptorName: j.job_data?.template_name,
+    progress,
+    model: d.parameters?.model_name ?? d.model_name,
+    dataset: d.parameters?.dataset ?? d.dataset,
+    adaptorName: d.task_name ?? d.template_name,
   };
 }
 
@@ -453,7 +462,7 @@ function normalizeJob(j: TlJob): TrainingJob {
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/jobs/list?experimentId=${FINETUNE_EXPERIMENT}&type=TRAIN`,
+      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/list?slim=true&type=TRAIN`,
       { headers: inferenceHeaders() }
     );
     const rows = (await res.json().catch(() => [])) as TlJob[];
@@ -468,7 +477,7 @@ export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
 export async function stopTrainingJob(jobId: string): Promise<boolean> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/jobs/${encodeURIComponent(jobId)}/stop?experimentId=${FINETUNE_EXPERIMENT}`,
+      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}/stop`,
       { headers: inferenceHeaders() }
     );
     return res.ok;
@@ -477,12 +486,12 @@ export async function stopTrainingJob(jobId: string): Promise<boolean> {
   }
 }
 
-/** Delete a training job record. Returns whether TL accepted it. */
+/** Delete a training job record. Returns whether TL accepted it. (v0.40.0: DELETE method.) */
 export async function deleteTrainingJob(jobId: string): Promise<boolean> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/jobs/delete/${encodeURIComponent(jobId)}?experimentId=${FINETUNE_EXPERIMENT}`,
-      { headers: inferenceHeaders() }
+      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
+      { method: "DELETE", headers: inferenceHeaders() }
     );
     return res.ok;
   } catch {
@@ -490,12 +499,13 @@ export async function deleteTrainingJob(jobId: string): Promise<boolean> {
   }
 }
 
-/** Single training job status (TL `/jobs/{id}`). */
+/** Single training job status (v0.40.0: `/experiment/{id}/jobs/{id}`). */
 export async function fetchTrainingJob(id: string): Promise<TrainingJob | null> {
   try {
-    const res = await fetch(`${TL_ROOT}/jobs/${encodeURIComponent(id)}`, {
-      headers: inferenceHeaders(),
-    });
+    const res = await fetch(
+      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(id)}`,
+      { headers: inferenceHeaders() }
+    );
     if (!res.ok) return null;
     return normalizeJob((await res.json()) as TlJob);
   } catch {

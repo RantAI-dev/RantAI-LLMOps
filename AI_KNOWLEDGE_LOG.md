@@ -803,3 +803,160 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - Task: Simpan roadmap/weekly report jadi file tracked (sebelumnya cuma pesan chat, nggak pernah jadi file). Buat docs/ROADMAP.md ter-update ke kondisi terkini.
 - Update status: Fase 1 INTI SELESAI (Generations + Workflows + Deployments yg dulu pending/Fase3 sekarang udah [x] done & live-verified). Fase 1 sisa cuma: Auth (skip), Conversations-server (keblok container -> Fase2), Plugin-mgmt (niche). Fase 3 sebagian done (Deploy orchestration MVP, Workflows, Generations [x]; Team features butuh auth, multi-model butuh Ollama/vLLM). Fase 2 (run-from-source WSL2) = prioritas berikutnya.
 - File: baru docs/ROADMAP.md. Kerjaan fitur (Generations/Workflows/Deployments + review fixes) masih BELUM di-commit (untracked).
+
+## 2026-06-21 15:30 (UTC+7) - claude
+- Task: FASE 2 — run backend TL dari source (lepas Docker). Jalur A (v0.40.0 vendored). MILESTONE BESAR: BERHASIL JALAN.
+- Gate environment SEMUA hijau: WSL2 Ubuntu udah keinstall, CUDA-for-WSL JALAN (nvidia-smi di WSL kebaca RTX 3060 6GB driver 595.97), disk 938G free, build-essential dipasang user.
+- PENEMUAN: install TL LENGKAP udah ada di WSL dari 15 Juni (tgl vendoring). ~/.transformerlab: conda+miniforge, env transformerlab (torch 2.9.1+cu128, CUDA available True, fastapi/transformers 4.57.1/uvicorn/fastchat), src=v0.40.0 (api 0.27.0, PUNYA notes.py), lab-sdk, webapp, DB llmlab.sqlite3, orgs. JADI INSTALL BERAT 40-MENIT DI-SKIP.
+- Copy backend vendored ke ~/nqr-backend + fix CRLF->LF semua .sh (10 file) via python (robust, hindari quoting hell PowerShell->wsl->bash). Tapi ternyata pakai ~/.transformerlab/src yang udah v0.40.0.
+- BUG #1 start: ImportError get_experiment_task_dir dari lab.dirs. Akar: lab-sdk SOURCE (~/.transformerlab/lab-sdk, v0.1.42) punya fungsi, tapi yang KEINSTALL (transformerlab-0.1.20) copy LAMA + bukan editable. FIX: pip install -e ~/.transformerlab/lab-sdk -> 0.1.42 editable -> import OK. (Ada warning konflik dep minor: fsspec/gcs/boto cloud-stuff, kemungkinan nggak ngaruh core.)
+- run.sh: pakai conda env (ada torch) via flag -c + activate manual (bukan general-uv yang ringan tanpa torch). Port 8339 (Docker tetap 8338 = fallback). Script start_tl.sh.
+- VERIFIED: server up ~3s, http 200. /openapi.json PUNYA /notes. Notes endpoint: SOURCE(8339)=401 (ADA, butuh auth) vs DOCKER(8338)=404 (HILANG). Auth lengkap (fastapi-users: /auth/jwt/login, /auth/api). DB migrations applied, worker leadership, startup complete, uvicorn 0.0.0.0:8339.
+- Server JALAN di background (WSL). Sisa Fase 2: repoint app ke :8339 (perlu API key + team id dari backend source, admin default admin@example.com/admin123), verifikasi loop (chat/finetune/eval) setara Docker (patch apply-fixes plugin mungkin perlu re-validasi), wire Notes server-side.
+
+## 2026-06-21 16:00 (UTC+7) - claude
+- Task: Fase 2 lanjut — REPOINT app ke backend source (8339). BERHASIL & LIVE.
+- Auth: login admin@example.com/admin123 (jalan) -> JWT. Bikin API key via POST /auth/api-keys (BUKAN /api-keys yg 405) -> tl-OuWmUYlPO1Es80CYJ1t59U3BdlRDrzMX (permanent, expires null). Team id dari ~/.transformerlab/orgs/ = 0c639e54-2817-4829-8aff-534ff898303b. Verified: /model/list dgn key+team = 200.
+- Repoint .env.local: INFERENCE_BASE_URL=localhost:8339/v1, INFERENCE_API_KEY=tl-OuWmUYlP..., INFERENCE_TEAM_ID=0c639e54-... (nilai Docker 8338 disimpan komentar buat rollback). Next 16 AUTO-RELOAD env (nggak perlu restart manual). VERIFIED: /api/serve/info -> baseUrl 8339, teamId 0c639e54, hasKey true. App -> source backend JALAN.
+- TEMUAN PENTING: workspace source KOSONG (0 model, 0 dataset) — terpisah dari workspace Docker. Model Docker (Qwen, rugby-pipeline) ada di volume Docker, NGGAK kebawa ke source. Buat verify loop penuh (chat/finetune/eval) perlu download model ke source (fresh) ATAU migrasi workspace Docker (kompleks: file + registrasi DB beda org id).
+- Sisa: verify loop (download model kecil ke source -> load -> chat; ini juga test apakah plugin llama_cpp_server install + patch apply-fixes perlu di versi ini), wire Notes server-side.
+- Server source masih jalan di background WSL (8339). Docker (8338) tetap fallback.
+
+## 2026-06-21 16:30 (UTC+7) - claude
+- Task: Fase 2 verify loop -> TEMUAN KRITIS, revert.
+- Download model di source GAGAL 404. Investigasi: v0.40.0 router /model/* JAUH lebih ramping (cuma create/delete/file(s)/fileupload/finalize/list/pefts/pipeline_tag/registry_versions) -- endpoint download (download_from_huggingface, download_gguf_file) HILANG.
+- AUDIT KOMPATIBILITAS lengkap (app BFF endpoints vs source v0.40.0 openapi):
+  - OK: /model/list, /model/delete, /data/* (semua dataset), /experiment/, /experiment/x/update_configs, /experiment/x/notes
+  - HILANG: /model/download_*, /server/worker_start, /server/worker_stop (LOAD model!), /v1/models, /v1/chat/completions (CHAT!), /tasks/new_task, /tasks/list_by_type, /tasks/x/queue, /jobs/* (train/eval/monitor), /experiment/x/export/run_exporter_script (export), /recipes/* (recipes)
+- KESIMPULAN: v0.40.0 = RESTRUKTUR API BESAR (kemungkinan rework multiuser/teams/compute_provider), bukan cuma "nambah notes". ~70% endpoint yg app pakai BERUBAH/HILANG dari v0.30.3 (versi Docker). Repoint ke v0.40.0 MECAHIN load/chat/train/eval/jobs/export/recipes/download. Notes dapet tapi loop inti rusak.
+- IMPLIKASI: pakai v0.40.0 penuh = BFF REWRITE BESAR (re-map mayoritas endpoint). v0.30.3-from-source = app-kompatibel tapi nggak ada notes (~= Docker, gain marginal: cuma patch-durability).
+- AKSI: REVERT .env.local ke Docker 8338 (app jalan lagi). Nilai 8339/v0.40.0 disimpan komentar. Server source tetap jalan di background (harmless) kalau mau revisit.
+- REKOMENDASI: tetap di Docker (app jalan). Migrasi ke v0.40.0 = proyek terencana tersendiri (atau samain sama rencana rewrite Rust), bukan ad-hoc. Phase 2 "run-from-source" secara teknis SUKSES (server jalan, notes kebukti) tapi tidak praktis dipakai tanpa rewrite besar.
+
+## 2026-06-21 17:30 (UTC+7) - claude
+- Task: MIGRASI PENUH ke v0.40.0 (keputusan user, jalur A). Mulai eksekusi.
+- RESOURCE EMAS: d:\Project\transformerlab-app (working dir) = repo TL v0.40.0 LENGKAP (frontend React + api + lab-sdk). src/renderer/lib/api-client/endpoints.ts = peta endpoint KANONIS v0.40.0.
+- PETA v0.40.0 (dari endpoints.ts):
+  - Jobs: /experiment/{id}/jobs/list?slim=true, /jobs/{id}, /jobs/{id}/stop, /jobs/{id}/output, jobs/create
+  - Task (train/eval/export): /experiment/{id}/task/create, /task/list_by_type, /task/{id}/get|delete, /task/gallery (+interactive/team)
+  - Experiment: /experiment/{id}/update_configs, /notes (GetNotes/SaveNotes), /conversations/*, /evals|generations/delete|get_output
+  - Eval compare: /evals/compare_evals?job_list=
+  - Dataset: /data/* (kompatibel)
+  - Models: list/delete/pefts/gallery -- TANPA download/load
+  - ComputeProvider: launch/sweep/clusters (execution layer)
+- INFERENCE v0.40.0 = INTERACTIVE JOB + TUNNEL: create interactive task (ollama_gradio/vllm/dll) -> Queue/launch -> job bikin tunnel -> akses via GetTunnelInfo (poll is_ready) + iframe (gradio) ATAU /v1 (vllm). Buat native chat kita: launch interactive yg expose /v1 -> chat ke tunnel URL. Multi-langkah, re-arsitektur.
+- DOWNLOAD model v0.40.0: BELUM ketemu mekanismenya (nggak di Endpoints.Models -- kemungkinan job-based). TODO.
+- MIGRASI #1 SELESAI+VERIFIED: tasks-server.ts -> jobs experiment-scoped. URL /experiment/nqr-ft/jobs/list?slim=true = 200 (vs v0.30.3 /jobs/list?experimentId=). jobOutput juga -> /experiment/{id}/jobs/{id}/output.
+- LOGISTIK: kode migrasi v0.40.0 RUSAK di Docker v0.30.3 (URL beda). Jadi migrasi di BRANCH feat/migrate-v0.40.0 (dibuat); main tetap Docker-working. .env.local gitignored (file tunggal) -> toggle manual 8339(branch)/8338(main). Workspace source KOSONG -> perlu rebuild (download model via mekanisme baru, recreate dataset/finetune) buat verify loop.
+- Source backend (8339) ADA experiment "alpha". Experiment create butuh method beda (POST /experiment/create 405).
+- SISA (multi-sesi): download(cari mekanisme)+inference(re-arsitektur, terbesar)+train/eval/export(task-based, schema baru)+recipes. Masing-masing perlu verify lawan 8339.
+
+## 2026-06-21 18:15 (UTC+7) - claude
+- Task: Migrasi penuh v0.40.0 (user komit, full info). Eksekusi.
+- FONDASI dikonfirmasi: v0.40.0 = SEMUA eksekusi lewat COMPUTE PROVIDER (SkyPilot). Frontend Tasks.tsx queue: butuh providerMeta, else "provider unavailable"; "Launching provider job" -> compute_provider/providers/{id}/launch. Source backend PUNYA local provider: id=d4579317-99f7-44c5-97ef-38917f854ace, type=local (set up 15 Juni). detect-accelerators=[cpu,NVIDIA]. Local execution feasible via provider abstraction.
+- Pola eksekusi v0.40.0: task/create (/experiment/{id}/task/create) -> launch via provider (compute_provider/providers/{providerId}/launch, payload {experiment_id,task_id,task_name,run,subtype,cpus,memory,accelerators,...,paramOverrides}) -> job (/experiment/{id}/jobs/*). Inference = interactive task + tunnel.
+- MIGRASI MEKANIS SELESAI+VERIFIED (jobs-reads experiment-scoped):
+  - tasks-server.ts: listAllJobs -> /experiment/{id}/jobs/list?slim=true; jobOutput -> /experiment/{id}/jobs/{id}/output
+  - finetune.ts: fetchTrainingJobs (?slim=true&type=TRAIN), stopTrainingJob (/jobs/{id}/stop), deleteTrainingJob (DELETE /jobs/{id}, method berubah), fetchTrainingJob (/jobs/{id})
+  - evals.ts: fetchEvalJobs (?slim=true&type=EVAL)
+  - VERIFIED lawan 8339: jobs list TRAIN/EVAL=200, single-job nonexist=404, stop/output=200. tsc=0.
+- SISA (paradigm change, sesi berikut): submit train/eval (task/create + provider launch), download model (upload/job-based), inference (interactive+tunnel+chat BFF), export GGUF (task type), recipes (task gallery), notes server-side.
+- Branch feat/migrate-v0.40.0, .env.local -> 8339. main tetap Docker.
+
+## 2026-06-29 13:12 (UTC+7) - claude
+- Task: Validasi GATE FEASIBILITY -- apakah local compute provider beneran bisa EKSEKUSI job di WSL (penentu seluruh migrasi train/eval/export).
+- HASIL: LULUS. Pola tervalidasi end-to-end:
+  1) task/create: POST /experiment/{id}/task/create body JSON TaskYamlSpec {name, run, resources:{accelerators}, [parameters,setup,envs,github_repo_url/dir]} -> {id}. extra=forbid (field ketat).
+  2) launch: POST /compute_provider/providers/{provId}/launch/ body {experiment_id, task_id, task_name, run (WAJIB, re-spec), accelerators} -> {job_id, status:WAITING, cluster_name}.
+  3) job lifecycle: LAUNCHING -> RUNNING -> COMPLETE (echo test), error_msg:None.
+  4) OUTPUT job: konsol stdout ada di /experiment/{id}/jobs/{jobId}/provider_logs?tail_lines>=100 (field .logs); /jobs/{id}/output kosong utk task non-SDK (diisi training plugin via tlab SDK). Disk: ~/.transformerlab/local_provider/local_provider_runs/orgs/{team}/{job}/stdout.log|stderr.log.
+- BLOCKER DITEMUKAN+DIPERBAIKI (WSL-compat): local provider sandbox tiap job pakai bubblewrap (bwrap). Job FAILED "bwrap: Can't create file at /etc/resolv.conf: No such file or directory". Sebab: --ro-bind / / bawa symlink /etc/resolv.conf -> /mnt/wsl/resolv.conf, tapi /mnt/wsl submount terpisah TIDAK ikut ter-bind -> symlink dangling -> bwrap gagal create mountpoint saat override resolv.
+- FIX (PATCH SOURCE, perlu user tahu): ~/.transformerlab/src/transformerlab/compute_providers/sandbox.py, fungsi wrap_command_with_bwrap (2 perubahan, ditandai komentar NQR_WSL_RESOLV_PATCH):
+  (a) tambah --ro-bind /mnt/wsl /mnt/wsl bila realpath resolv ada di /mnt/wsl (supaya symlink resolve di sandbox; DNS jalan: huggingface.co teruji resolve).
+  (b) SKIP override --ro-bind <real> /etc/resolv.conf bila target di /mnt/wsl/ (operasi itu yg bikin gagal).
+  Tervalidasi manual: variant tanpa override + bind /mnt/wsl => bwrap exit 0, DNS resolve OK. CATATAN: ini patch lokal ke source backend vendored -> HILANG bila git pull/re-clone; layak di-upstream ke TL (legit WSL2 support bug). Alternatif tanpa patch = fix host: jadikan /etc/resolv.conf file biasa (butuh sudo, sekali).
+- INFRA: backend source 8339 dijalankan sebagai BACKGROUND task (keepalive) via `bash ~/start_tl.sh`; nohup mati saat sesi wsl.exe keluar. Restart = kill port 8339 + start ulang background task.
+- NEXT: implement submitFinetune (finetune.ts) pakai pola task/create+launch tervalidasi; tapi train BENERAN butuh trainer script (run) + base model + dataset di workspace source (masih kosong). Investigasi struktur trainer task v0.40.0 (task gallery / lora-trainer) berikutnya.
+
+## 2026-06-29 13:40 (UTC+7) - claude
+- Task: Implement submitFinetune v0.40.0 + verifikasi jalur submit-train-via-provider.
+- TEMUAN PENTING (ubah paradigma train): launch itu SELF-CONTAINED (schema ProviderTemplateLaunchRequest). Field: experiment_id(req), run(req), setup, github_repo_url/dir/branch, parameters(->lab.get_config()), env_vars, accelerators, task_id(opsional, utk file_mounts), config, sweep_config, minutes_requested. Tak wajib task/create dulu -- bisa langsung launch dgn full spec.
+- Trainer dipilih: gallery `unsloth-llm-train` (api/transformerlab/galleries/examples/unsloth-llm-train, ada di transformerlab-app). 4-bit+LoRA, cocok GPU kecil (RTX3060 6GB). Default model unsloth/Qwen2.5-0.5B-Instruct, dataset Trelis/touch-rugby-rules. train.py baca param via lab.get_config(); param: model_name,dataset,lr,num_train_epochs,batch_size,gradient_accumulation_steps,warmup_steps,max_steps,max_seq_length,lora_r,lora_alpha,lora_dropout,logging_steps,save_steps,weight_decay,dataloader_num_workers. Honor max_steps. Simpan model via lab.save_model. Progress via lab.update_progress.
+- PARADIGMA BARU vs v0.30.3: trainer DOWNLOAD base model + dataset LANGSUNG dari HF by id saat runtime (FastLanguageModel.from_pretrained / load_dataset) -- BUKAN dari workspace lokal TL. Jadi baseModel/dataset harus HF id. Konsekuensi UX: alur dataset lokal (createDataset/datasetColumns/buildFormattingTemplate) + pilih model lokal jadi beda artinya. Workspace kosong BUKAN halangan utk train.
+- KODE: src/lib/finetune.ts -- submitFinetune di-rewrite (getComputeProviderId resolve provider 'local' runtime; launch body dgn github trainer + parameters + env_vars; return job_id). SubmitFinetuneParams +maxSteps +hfToken. normalizeJob handle job REMOTE (task_name, parameters.model_name/dataset, launch_progress.percent). Header docstring diupdate. tsc --noEmit = 0 error. Helper lama datasetColumns/ensureDatasetDownloaded jadi dead (dibiarkan; buildFormattingTemplate masih dipakai test).
+- Experiment dibuat: GET /experiment/create?name=X (BUKAN POST -- itu sebab 405). nqr-ft + nqr-eval dibuat (id=nama). alpha sudah ada.
+- BLOCKER BARU (butuh keputusan user): sistem QUOTA. Launch train -> 403 "Quota overused by 0.80 minutes. Cannot launch tasks until quota is increased or period resets." Local provider punya kuota menit (fitur kontrol biaya cloud, tak perlu utk self-host). Fix = PATCH /quota/team/{team_id} body {monthly_quota_minutes:besar}. TAPI aksi ini DIBLOKIR safety classifier (ubah config shared team, user tak minta). Perlu user setujui. team_id=0c639e54-2817-4829-8aff-534ff898303b. Endpoint quota: GET /quota/me, PATCH /quota/team/{id}, PATCH /quota/user/{uid}/team/{tid}.
+- STATUS submit-train: kode SIAP + jalur API tervalidasi sampai dinding quota (provider resolve OK, body diterima formatnya, ditolak HANYA krn quota). Begitu quota dinaikkan -> bisa launch train beneran (catatan: setup unsloth = uv pip install multi-GB, 10-30 menit pertama + download model/dataset HF; berat utk disk/GPU 6GB).
+
+## 2026-06-29 13:32 (UTC+7) - claude
+- Task: User setujui naikkan quota + verifikasi TRAIN BENERAN sampai COMPLETE.
+- QUOTA: PATCH /quota/team/{team} {monthly_quota_minutes:5000000} -> HTTP 200. /quota/me total_quota=5jt, available~5jt, overused=0. (default team_quota=0 -> tiap pemakaian overuse; fitur kontrol biaya cloud, dinonaktifkan efektif utk self-host.)
+- TRAIN END-TO-END SUKSES (job b315392e, exp nqr-ft, unsloth-llm-train, Qwen2.5-0.5B-Instruct, dataset Trelis/touch-rugby-rules, max_steps=5):
+  lifecycle: LAUNCHING(Running setup ~2.5min) -> RUNNING(Lab initialized, progress 20->60->100) -> COMPLETE. ~4.5 menit total.
+  loss turun 2.99->2.52->2.62, train_runtime 23.6s, gpu_used=0 (RTX3060). Model+tokenizer tersimpan. duration 0:01:46.
+  saved_model_path: ~/.transformerlab/orgs/{team}/workspace/experiments/nqr-ft/jobs/{job}/models/{job}_unsloth_trained_model
+- BUKTI patch bwrap bekerja di beban nyata: trainer berhasil DOWNLOAD model+dataset dari HF (DNS resolve di dalam sandbox). Gerbang feasibility + train path TUNTAS TERVERIFIKASI.
+- CATATAN MINOR (untuk surfacing model hasil di registry): "Model saved but metadata creation failed: No such file .../workspace/models/{name}/index.json". Model TERSIMPAN di job models dir, TAPI registrasi ke global workspace/models GAGAL (index.json) -> kemungkinan model hasil train TIDAK muncul di /model/list global. Perlu langkah ekstra (register/copy ke workspace/models) bila mau model train muncul di Model Registry & bisa di-serve. TODO.
+- KODE EVAL dimigrasi paralel: src/lib/evals.ts submitEval -> launchProviderTask (trainer gallery eleutherai-lm-evaluation-harness; setup 'uv pip install lm_eval==0.4.7 pandas torch'; params model_name/model_path/model_adapter/tasks/limit[str]). normalize() handle job REMOTE (task_name, parameters.tasks, launch_progress.percent). CATATAN: skor eval v0.40.0 di ARTIFACTS (lab.save_artifact type=evals) + /evals/compare_evals, BUKAN job_data.score -> sisi-baca skor perlu wiring terpisah (belum). tsc=0 error.
+- REFACTOR: modul bersama src/lib/tl-provider.ts (getComputeProviderId + launchProviderTask) dipakai finetune.ts & evals.ts (hapus duplikasi).
+- DOWNLOAD MODEL v0.40.0 (investigasi): /model/* TIDAK punya download-from-HF. Yang ada: list, create (GET, register entry by id+name, filesystem-based), delete, pefts, fileupload+finalize (upload manual chunked), files/file. Paradigma: model TIDAK di-"download ke workspace" lagi -> direferensikan by HF id (job yg pull saat runtime) ATAU di-upload. "Download model" di UI lama jadi tak relevan/perlu diubah artinya (register id / upload / biarkan job pull).
+
+## 2026-06-29 13:36 (UTC+7) - claude
+- Task: Verifikasi EVAL beneran + wire baca-skor eval v0.40.0.
+- EVAL END-TO-END SUKSES (job 270d0fcb, exp nqr-ft, harness eleutherai-lm-evaluation-harness, model HuggingFaceTB/SmolLM-135M-Instruct, tasks=arc_easy, limit=0.02):
+  lifecycle LAUNCHING(setup lm_eval ~1min) -> RUNNING(Lab initialized) -> COMPLETE. ~2.7 menit. gpu_used=0. status success.
+- LOKASI SKOR EVAL v0.40.0 (TERVERIFIKASI lawan job nyata):
+  - BENAR: GET /experiment/{exp}/jobs/{job}/get_eval_results?experimentId={exp}&task=view -> JSON lm-eval mentah {"results":{"arc_easy":{"acc,none":0.375,"acc_norm,none":0.396,"*_stderr,none":...}}}. (kalau kosong -> text/csv "No evaluation results found".)
+  - job_data.eval_results = list path file (evaluation_results.json + eval_metrics_*.csv).
+  - job_data.score = {"discard":false} (BUKAN skor). /metrics = timeline progress (rows {t,progress}). /get_additional_details = kosong. /evals/compare_evals = 404 (TIDAK ADA di backend ini).
+- KODE: src/lib/evals.ts +fetchEvalScores(jobId) (panggil get_eval_results, parse results -> ambil metric mengandung 'acc' tanpa 'stderr', "acc,none"->type "acc"). fetchEvalJobs() sekarang fetch skor utk job COMPLETE (Promise.all, paralel) -> isi EvalJob.scores. Parse tervalidasi: [{type:acc,score:0.375},{type:acc_norm,score:0.396}]. tsc=0.
+- App TIDAK panggil /evals/compare_evals (grep: cuma di komentar evals.ts). Fitur Eval Compare pakai EvalJob.scores dari fetchEvalJobs -> otomatis benar.
+- STATUS BESAR: TRAIN + EVAL dua-duanya MIGRASI + VERIFIED end-to-end (submit via provider-launch, lifecycle COMPLETE, baca hasil/skor). Sisa utama: inference (interactive+tunnel, terbesar), register model hasil train ke registry, export GGUF, paradigma download, recipes, notes server-side.
+
+## 2026-06-29 13:50 (UTC+7) - claude
+- Task: Investigasi + feasibility-gate INFERENCE v0.40.0 (user pilih inference duluan).
+- ARSITEKTUR INFERENCE v0.40.0 (dipetakan penuh):
+  - Serving = launch INTERACTIVE job (interactive_type + interactive_gallery_id) via provider. Untuk LOCAL provider: NO tunnel beneran -> service di localhost; tunnel_info parse "Local <X> URL: http://localhost:PORT" dari stdout.
+  - Interactive gallery: GET /experiment/{id}/task/gallery/interactive. Entry: id=vllm(itype vllm, /v1 di :8000), id=ollama(itype ollama, ollama :11434 + open-webui :8080), id=ollama_gradio, vscode, jupyter, ssh, comfy_ui, mlx*.
+  - ollama run.py TIDAK pakai ngrok (token ngrok cuma artefak form UI) -> cuma 'ollama serve' 0.0.0.0:11434 + open-webui 8080. ollama punya /v1 OpenAI-compatible native. WSL localhost ke-forward ke Windows -> chat BFF (Next di Windows) bisa ke localhost:11434/v1.
+  - tunnel_info fields: {tunnel_url, ollama_url, openwebui_url, is_ready, status, ports:[{11434 Ollama API},{8080 Open WebUI}], ...}. launch schema punya interactive_type, interactive_gallery_id, local:bool (skip tunnel).
+- KENDALA NYATA (gate GAGAL 2x, jadi keputusan arsitektur):
+  1. VRAM: RTX3060 6GB, tapi ~3.3GB SUDAH terpakai -> cuma ~2.7GB free. vllm butuh ~5GB+ -> TIDAK MUAT. ollama+GGUF kecil (qwen2.5:0.5b ~400MB) muat.
+  2. Install ollama di SANDBOX bwrap GAGAL: 'curl ollama.com/install.sh|sh' -> sudo ke /usr/local, tapi sandbox set 'no new privileges' -> sudo tak bisa root. (open-webui pip OK krn di venv.)
+  3. Userspace install (~/.local, tanpa sudo): URL .tgz lama 404. Asset baru = ollama-linux-amd64.tar.zst 1.3GB (zstd). zstd CLI tak ada (tar --zstd mungkin, python zstandard ada). Fiddly + 1.3GB.
+  - ollama BELUM terinstall di mana pun (WSL/Windows/~/.local), 11434 tak ada listener.
+- KESIMPULAN ARSITEKTUR (perlu keputusan user): sandbox compute-provider didesain utk JOB training ephemeral, BUKAN server inference persisten. Memaksa ollama lewat sandbox = lawan desain + 1.3GB userspace install + job nyangkut hidup (tail -f) + quota-minutes jalan terus.
+  - Opsi A (TL-integrated): serve via interactive ollama job di provider. Konsisten TL-job, tapi install userspace 1.3GB + awkward utk server persisten.
+  - Opsi B (REKOMENDASI, host ollama): install Ollama di host (Windows 1-klik / winget, ATAU WSL userspace). Chat BFF -> localhost:11434/v1. Robust, standar, SELARAS goal proyek (serve via ollama/vllm/llamacpp inference-only). Serving UI kelola host-ollama (start/stop/pull) bukan TL-job. Butuh aksi user (install Ollama).
+- BELUM nulis kode BFF inference (nunggu keputusan A vs B krn beda arsitektur). Train+eval code semua tsc-bersih, BELUM commit.
+
+## 2026-06-29 14:18 (UTC+7) - claude
+- Task: User pilih Opsi B (Ollama di host WSL, aku pasang). Pasang + wire BFF + VERIFIKASI chat end-to-end.
+- FAKTA PENTING: cek source 8339 -> TIDAK ADA inference sama sekali (/v1/models, /v1/chat/completions, /server/worker_start SEMUA 404; tak ada router inference/chat/v1; cuma gallery examples). v0.40.0 mencabut total inference dari backend -> WAJIB engine luar. Jadi "pakai source backend aja" utk chat = MUSTAHIL.
+- INSTALL OLLAMA (userspace WSL, tanpa sudo): asset .tgz lama 404; yang benar = ollama-linux-amd64.tar.zst 1.3GB (GitHub releases/latest). Conda env tak punya modul zstandard -> pip install zstandard -> extract via python streaming ke ~/.local. Binary ~/.local/bin/ollama v0.30.11. Start: ~/start_ollama.sh (PATH ~/.local/bin, OLLAMA_HOST=0.0.0.0:11434, OLLAMA_KEEP_ALIVE=30m, exec ollama serve) -> background keepalive task.
+- VERIFIKASI OLLAMA: pull qwen2.5:0.5b (GGUF Q4_K_M, 494M) OK. /v1/chat/completions -> jawaban nyata. /v1/models OK. /api/ps -> model di VRAM (3925MB used/2070 free, MUAT 6GB). (kosong pertama = cold-start, warm OK.)
+- KODE BFF dimigrasi (decouple TL-orchestrator vs Ollama-inference):
+  - BARU src/lib/ollama.ts: OLLAMA_BASE_URL/OLLAMA_V1, ollamaUp, listOllamaModels(/api/tags), loadedOllamaModel(/api/ps), pullOllamaModel(/api/pull), unloadOllama(/api/generate keep_alive:0).
+  - chat route (/api/chat): -> OLLAMA_V1/chat/completions, tanpa auth, model = body.model || loaded || env (Ollama serve semua model sekaligus, jadi prefer pilihan client). Streaming SSE.
+  - serve/info: -> OLLAMA_V1 + listOllamaModels + loadedOllamaModel (hasKey=false, teamId="").
+  - /api/models: -> listOllamaModels.
+  - generate.ts completeOnLoadedModel: -> OLLAMA_V1 (+param model opsional). dipakai serve/test + generations/complete.
+  - models-catalog.ts: fungsi SERVING delegasi Ollama (loadModel=pullOllamaModel, stopServing=unloadOllama, downloadModel=pullOllamaModel [ggufFile diabaikan], fetchLoaded=loadedOllamaModel). +fetchOllamaServable. Fungsi TL-registry (fetchDownloaded/fetchAdaptors/dll utk training) TETAP pakai TL_ROOT.
+  - /api/models/load: loadModel(modelId) tanpa adaptor.
+  - .env.local: +OLLAMA_BASE_URL=http://localhost:11434, INFERENCE_MODEL=qwen2.5:0.5b, INFERENCE_STREAM=true. INFERENCE_BASE_URL TETAP 8339/v1 (TL_ROOT derive dari sini).
+- VERIFIED END-TO-END lewat Next BFF asli (dev server :3000 PID 18852, Turbopack hot-reload): /api/serve/info -> {baseUrl:11434/v1, loaded:qwen2.5:0.5b, models:[...]}. /api/models -> [qwen2.5:0.5b]. /api/chat -> SSE streaming nyata ("Hi from best friend!..."). /api/serve/test -> reply nyata. tsc=0.
+  -> Next(Windows) -> Ollama(WSL localhost:11434) tembus via WSL2 localhost forwarding (sama kaya TL 8339).
+- CATATAN/SISA inference (refinement, bukan blocker): NAMESPACE model SPLIT -> picker chat/serve harus list model OLLAMA (tags), picker train/eval list TL/HF id. /api/models & /api/serve/info sudah Ollama; tapi cek playground use-model-catalog.ts (mungkin masih /api/models/catalog = TL) -> reconcile biar picker chat nunjuk tag Ollama. Juga: serve fine-tune hasil train = export GGUF -> import Ollama (chain ke export todo).
+- INFRA jalan paralel: backend 8339 (TL), ollama 11434, next dev 3000. Semua via WSL localhost forwarding.
+
+## 2026-06-29 14:30 (UTC+7) - claude
+- Task: Tutup last-mile chat UI -> picker playground tampilkan model OLLAMA (bukan TL) biar chat fully usable dari browser.
+- MASALAH: picker chat ambil /api/models/catalog -> ModelCatalog.downloaded = model TL (registry training), bukan Ollama. /api/models/catalog dipakai LUAS (registry, finetune sweep, workflows, generations, dashboard) -> tak boleh swap downloaded ke Ollama.
+- SOLUSI (namespace split bersih, tanpa ganggu konsumen TL): ModelCatalog +2 field: servable (CatalogModel[] dari Ollama /api/tags) + ollamaRecommended (tag kurasi muat 6-8GB: qwen2.5:0.5b/1.5b, llama3.2:1b/3b, gemma2:2b, phi3.5, di-flag downloaded bila sudah di-pull).
+  - models-catalog.ts: +fetchServable(), +ollamaRecommendedWithStatus(), +OLLAMA_RECOMMENDED, +ollamaToCatalog(). Hapus fetchOllamaServable redundan.
+  - /api/models/catalog: isi servable + ollamaRecommended (paralel, .catch->[] biar tahan satu backend down). downloaded/recommended/fineTuned (TL) TETAP utuh utk registry/train.
+  - model-picker.tsx (playground): section "Downloaded" -> catalog.servable; "Recommended" -> catalog.ollamaRecommended. (tab Fine-tuned masih pakai downloaded utk cari GGUF export -> nanti pas serve-fine-tune diubah.)
+  - use-model-catalog EMPTY += servable/ollamaRecommended.
+- VERIFIED via Next BFF asli: /api/models/catalog -> {loaded:qwen2.5:0.5b, servable:[qwen2.5:0.5b], ollamaRecommended:[6 tag, qwen2.5:0.5b=downloaded], downloaded(TL):0}. /api/models/load tag -> {loaded:qwen2.5:0.5b}. /api/chat -> streaming "Ollama is an AI language model...". tsc=0.
+- HASIL: CHAT FULLY USABLE DARI BROWSER. Picker tampil model Ollama, klik load (pull), chat streaming. Migrasi INFERENCE 100% termasuk UI.
+- SISA (ter-scope, belum): serve fine-tune (export GGUF -> import Ollama, ubah tab Fine-tuned), Export GGUF v0.40.0 (task gallery gguf_exporter), Recipes (task gallery), paradigma Download model TL, Notes server-side, register model train ke registry. Semua belum commit (user commit manual). Branch feat/migrate-v0.40.0.
