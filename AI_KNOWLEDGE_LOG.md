@@ -758,3 +758,48 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - Files: ubah serve/info+test route, use-serve, serve-page, evals.ts, finetune.ts (export+datasetColumns+delete/stop), models-catalog.ts (fetchDownloaded+deleteModels), model-registry-provider, use-evals, use-finetune, use-model-catalog, 4 delete/stop route, 9 list route (logging). lint/tsc/test 0/0/62.
 - VERIFIED: serve/info response nggak ada apiKey (hasKey only); test 62/62; tsc/eslint bersih.
 - Sisa review: #2 (fetch timeout), #3 (sweep/compare cancel+Stop) di-SKIP user; #11-17 (god-object split, slim types, typecheck gate, DRY, dead-code lint, chat scroll/keys, HF provider) nanti.
+
+## 2026-06-21 10:24 (UTC+7) - claude
+- Task: Fitur GENERATIONS (output compare) — banding jawaban base vs fine-tuned per prompt (bukti kualitatif fine-tune). Auth di-skip per user.
+- Pendekatan (RAG-lesson-safe): APP-ORCHESTRATED pakai jalur TERBUKTI (load model + /v1 chat completion non-stream), BUKAN gantung endpoint TL generations/GENERATE yang mungkin nggak ada di container. Sekuensial krn VRAM 6GB cuma muat 1 model: load base -> tanya semua prompt -> load fine-tuned -> tanya semua -> zip side-by-side.
+- BFF: src/lib/generate.ts completeOnLoadedModel(prompt, {temperature,maxTokens}) (resolve model dari fetchLoaded, non-stream, throw pesan TL). Route POST /api/generations/complete. REFACTOR /api/serve/test pakai helper sama (DRY - hapus duplikasi).
+- UI: module src/modules/generations. use-generations hook (runCompare: loadModel base->answerAll->load ft->answerAll; progress phase loading-base/base/loading-ft/fine-tuned + index; cancelledRef guard unmount biar nggak setState after-unmount - sekalian address concern review #3 ringan). generations-page: selector base (downloaded non-TransformerLab) + fine-tuned (catalog.fineTuned, load pakai loadModelId GGUF ?? fusedModelId safetensors), textarea prompt (1/baris, default), temperature 0.3 (fair), progress, hasil kartu per-prompt 2 kolom Base|Fine-tuned. Empty state kalau belum ada fine-tuned. Nav baru "Generations" (Columns2) setelah Evals.
+- Files baru: lib/generate.ts, api/generations/complete, modules/generations/*, (app)/generations/page. Ubah: serve/test route (DRY), app-shell nav. lint/tsc/test 0/0/62.
+- BELUM LIVE-VERIFIED: Docker TL (:8338) + dev server (:3000) MATI pas build (abis reboot kayaknya). Static check hijau. Perlu user nyalain stack + ada model fine-tuned loadable buat e2e test.
+- Cara test: start Docker Desktop (TL auto) -> npm run dev -> pastikan ada model fine-tuned (Fine-tune dulu kalau belum) -> /generations pilih base+ft+prompt -> Bandingkan.
+
+## 2026-06-21 10:40 (UTC+7) - claude
+- Update: Generations (output compare) LIVE-VERIFIED oleh user. Load base (Qwen2.5-0.5B) -> 2 prompt -> load fine-tuned (rugby GGUF) -> 2 prompt -> side-by-side tampil bener. Orkestrasi sekuensial jalan e2e.
+- Observasi hasil: fine-tuned jawab JAUH lebih ringkas dari base (efek dataset rugby yg completion-nya pendek) = bukti gaya berubah. Tapi prompt generic (bukan rugby) -> efek PENGETAHUAN rugby belum keliatan. Saran ke user: tanya prompt domain rugby (touch/offside/jumlah pemain) biar keliatan beda base-vs-FT secara topik. Catatan jujur: FT kecil (~100 contoh,1 epoch) -> efek pengetahuan mungkin subtle, gaya udah jelas.
+
+## 2026-06-21 11:55 (UTC+7) - claude
+- Task: Fitur WORKFLOWS — pipeline LLMOps 1-klik: fine-tune -> eval -> export GGUF otomatis berurutan.
+- Pendekatan (RAG-lesson-safe): APP-ORCHESTRATED, BUKAN TL native workflow engine. TL punya workflow engine native (node+edge DAG: /experiment/{id}/workflows/create,add_node,add_edge,start,runs,cancel) tapi schema kompleks + risiko container (kayak sweep cloud-only, notes hilang). App-orchestrated reuse route TERBUKTI -> kontrol UX penuh, no risk.
+- Hook use-pipeline: stages train/eval/export (status pending/running/done/failed/skipped + detail). run(cfg): (1) POST /api/finetune/submit -> poll /api/finetune/jobs/[id] sampai COMPLETE -> resolveFused via /api/models/catalog by adaptorName; (2) kalau doEval: POST /api/evals/submit(fused) -> poll /api/evals/jobs -> skor; (3) kalau doExport: POST /api/finetune/export(fused, blocking maxDuration 600) -> waitGgufReady poll catalog sampai fineTuned.ready=true. cancelledRef guard unmount. Gagal di train -> stop pipeline; gagal eval/export -> mark failed tapi lanjut.
+- UI: workflows-page config (base model, dataset, nama adaptor, epochs, toggle eval+export, benchmark+coverage) + stepper vertikal 3-stage (ikon status + detail live: train %, eval skor, export ready) + banner hasil akhir (model + skor + "GGUF siap chat di Interact"). Nav baru "Workflows" (ikon Workflow) di mainNav setelah Generations.
+- Files baru: modules/workflows/* (use-pipeline, workflows-page, index), (app)/workflows/page. Ubah: app-shell nav. lint/tsc/test 0/0/62. /workflows 200.
+- BELUM live-verified pipeline penuh (butuh ~6-7mnt: train+eval+export). Building block-nya semua udah proven terpisah + Generations baru live-verified. Orkestrasi (kode hook client) = bagian baru -> test terbaik via UI (user klik Jalankan).
+
+## 2026-06-21 12:10 (UTC+7) - claude
+- Update: WORKFLOWS pipeline LIVE-VERIFIED oleh user, e2e SUKSES. Config Qwen2.5-1.5B + Trelis/touch-rugby-rules + epoch 1 + eval arc_easy + export GGUF. Stepper: Fine-tune selesai -> Eval 74.4% -> Export GGUF siap. Banner akhir: model "rugby-pipeline" skor 74.4% GGUF siap chat. Orkestrasi train->eval->export 1-klik JALAN penuh.
+- Observasi jujur: skor 74.4% (arc_easy = pengetahuan UMUM, bukan rugby). Base 1.5B sebelumnya ~76.4% -> FT rugby turun ~2% (catastrophic forgetting ringan, expected krn fine-tune narrow). Efek rugby dilihat di Generations (kualitatif), bukan benchmark umum. Saran user: banding rugby-pipeline(1.5B) vs base di Generations dgn prompt rugby.
+
+## 2026-06-21 13:35 (UTC+7) - claude
+- Task: Deploy Orchestration (MVP) — upgrade halaman Serve jadi DEPLOYMENTS manager. Keputusan user: MVP 1-aktif + lifecycle + endpoint/snippet/test cukup; persist localStorage; upgrade (bukan page baru).
+- Reality (jujur, di plan): 1 GPU 6GB lokal = 1 model di-serve pada satu waktu. "Orchestration" = atur model MANA yang aktif + lifecycle, BUKAN multi-model barengan (nggak feasible fisik). Multi-model managed butuh Ollama (nggak keinstall); produksi butuh vLLM/multi-GPU.
+- BFF baru: models-catalog.stopServing() (GET /server/worker_stop -> free VRAM). Route POST /api/serve/stop.
+- Storage: src/modules/serve/lib/deployment-storage.ts (Deployment[] + activeId di localStorage, key nqr.deployments.v1).
+- Hook use-serve REWORK: deployments (localStorage) + activeId + busy{deploy/stop}; addDeployment/removeDeployment; deploy(dep)=POST /api/models/load + set active; stop()=POST /api/serve/stop + clear active; test() tetap. effectiveActiveId = activeId HANYA kalau info.loaded != null (truth dari TL). localStorage dibaca sync di effect + setState di callback async (lolos react-hooks/set-state-in-effect).
+- UI serve-page REWORK jadi deployment manager: (1) Buat deployment (nama + model dari catalog); (2) List deployments (badge Live, tombol Deploy/Stop + Delete, 1 aktif highlighted); (3) kalau ada aktif: Endpoint (baseUrl/modelId/teamId/hasKey - key TETAP nggak dikirim, fix #1 dipertahankan) + snippet curl/python/js + Test. Nav label "Serve" -> "Deployments" (route /serve tetap).
+- Files baru: api/serve/stop, deployment-storage.ts. Ubah: models-catalog.ts (stopServing), use-serve.ts (rework), serve-page.tsx (rework), app-shell (label). lint/tsc/test 0/0/62. /serve 200.
+- BELUM live-verified lifecycle (TL :8338 down pas build). Perlu user start Docker -> deploy/stop/switch/test di /serve (Deployments). Building block (load/worker_stop/serve test) udah proven.
+- Future (di luar MVP, jujur): Ollama hand-off (multi-model managed, butuh install Ollama), vLLM (produksi), multi-GPU/remote (concurrent beneran via TL tunnel_info=cloud).
+
+## 2026-06-21 13:50 (UTC+7) - claude
+- Update: DEPLOYMENTS LIVE-VERIFIED oleh user. Deploy "tes deploy" -> model fine-tuned Qwen2.5-1.5B-Instruct_rugby-pipeline -> badge Live, tombol Stop muncul. Endpoint bener (baseUrl localhost:8338/v1, modelId, teamId, API key TETAP "terkonfigurasi di server" nggak dibocorin = fix #1 jalan). Snippet curl bener. Test endpoint "Say hello" -> "Hello! It's nice to meet you." (model beneran respond). Lifecycle deploy + endpoint + snippet + test SEMUA jalan e2e.
+- Signifikansi: model FINE-TUNED di-serve sebagai API callable dari luar -> nutup loop train->finetune->eval->DEPLOY. Loop LLMOps lengkap end-to-end.
+
+## 2026-06-21 14:05 (UTC+7) - claude
+- Task: Simpan roadmap/weekly report jadi file tracked (sebelumnya cuma pesan chat, nggak pernah jadi file). Buat docs/ROADMAP.md ter-update ke kondisi terkini.
+- Update status: Fase 1 INTI SELESAI (Generations + Workflows + Deployments yg dulu pending/Fase3 sekarang udah [x] done & live-verified). Fase 1 sisa cuma: Auth (skip), Conversations-server (keblok container -> Fase2), Plugin-mgmt (niche). Fase 3 sebagian done (Deploy orchestration MVP, Workflows, Generations [x]; Team features butuh auth, multi-model butuh Ollama/vLLM). Fase 2 (run-from-source WSL2) = prioritas berikutnya.
+- File: baru docs/ROADMAP.md. Kerjaan fitur (Generations/Workflows/Deployments + review fixes) masih BELUM di-commit (untracked).

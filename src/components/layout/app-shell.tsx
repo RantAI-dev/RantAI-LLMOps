@@ -9,6 +9,7 @@ import {
   BookTemplate,
   Boxes,
   BrainCog,
+  Columns2,
   ChevronUp,
   Database,
   FlaskConical,
@@ -23,6 +24,7 @@ import {
   Search,
   Sparkles,
   TestTubes,
+  Workflow,
 } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -53,7 +55,9 @@ const mainNav: NavItem[] = [
   { label: "Interact", href: "/interact", icon: MessageSquareMore },
   { label: "Fine-tune", href: "/finetune", icon: Sparkles },
   { label: "Evals", href: "/evals", icon: FlaskConical },
-  { label: "Serve", href: "/serve", icon: Radio },
+  { label: "Generations", href: "/generations", icon: Columns2 },
+  { label: "Workflows", href: "/workflows", icon: Workflow },
+  { label: "Deployments", href: "/serve", icon: Radio },
   { label: "Notes", href: "/notes", icon: NotebookPen },
 ];
 

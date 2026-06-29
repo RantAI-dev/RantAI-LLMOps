@@ -1,15 +1,14 @@
 import type { NextRequest } from "next/server";
 
-import { INFERENCE_BASE_URL, inferenceHeaders } from "@/lib/inference";
-import { fetchLoaded } from "@/lib/models-catalog";
+import { completeOnLoadedModel } from "@/lib/generate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 /**
  * Fire one non-streaming chat completion at the currently-served model to prove
- * the API works end-to-end. Resolves the model from what TL has loaded (so we
- * never send a mismatched model id).
+ * the API works end-to-end.
  */
 export async function POST(req: NextRequest) {
   let body: { prompt?: string };
@@ -20,38 +19,13 @@ export async function POST(req: NextRequest) {
   }
   const prompt = body.prompt?.trim() || "Say hello in one short sentence.";
 
-  const model = await fetchLoaded();
-  if (!model) {
-    return Response.json({ error: "Tidak ada model yang sedang di-serve. Load satu dulu." }, { status: 409 });
-  }
-
   try {
-    const res = await fetch(`${INFERENCE_BASE_URL}/chat/completions`, {
-      method: "POST",
-      headers: inferenceHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-        max_tokens: 128,
-        temperature: 0.7,
-      }),
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      error?: { message?: string } | string;
-    };
-    if (!res.ok) {
-      const msg =
-        typeof data.error === "string" ? data.error : data.error?.message || `HTTP ${res.status}`;
-      return Response.json({ error: msg }, { status: 502 });
-    }
-    const reply = data.choices?.[0]?.message?.content ?? "";
-    return Response.json({ model, reply });
+    const result = await completeOnLoadedModel(prompt, { temperature: 0.7, maxTokens: 128 });
+    return Response.json(result);
   } catch (err) {
-    return Response.json(
-      { error: err instanceof Error ? err.message : "Gagal memanggil model" },
-      { status: 502 }
-    );
+    const message = err instanceof Error ? err.message : "Gagal memanggil model";
+    // "No model loaded" is a 409 (user action needed), anything else a 502.
+    const status = message.includes("dimuat") ? 409 : 502;
+    return Response.json({ error: message }, { status });
   }
 }

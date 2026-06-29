@@ -282,6 +282,20 @@ export async function loadModel(modelId: string, adaptor?: string): Promise<stri
 }
 
 /**
+ * Stop the inference worker — unloads the model from VRAM so nothing is served.
+ * Used to "stop"/undeploy a deployment and free the GPU. Returns whether TL
+ * accepted the request.
+ */
+export async function stopServing(): Promise<boolean> {
+  try {
+    const res = await fetch(`${TL_ROOT}/server/worker_stop`, { headers: inferenceHeaders() });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Download a model into TL. GGUF picks a specific quant file; a plain HF repo
  * downloads the whole model. Long-running — TL streams the bytes server-side.
  */
