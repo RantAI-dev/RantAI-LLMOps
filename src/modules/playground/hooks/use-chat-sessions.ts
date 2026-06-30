@@ -2,40 +2,72 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  loadChatSessions,
-  makeEmptySession,
-  saveChatSessions,
-} from "@/modules/playground/lib/storage";
+import { makeEmptySession } from "@/modules/playground/lib/storage";
 import type { ChatMessage, ChatSession } from "@/modules/playground/types";
 
 type State = { sessions: ChatSession[]; activeId: string };
 
-function init(): State {
-  const loaded = loadChatSessions();
-  const sessions = loaded.length > 0 ? loaded : [makeEmptySession()];
-  return { sessions, activeId: sessions[0]!.id };
+function initialState(): State {
+  const s = makeEmptySession();
+  return { sessions: [s], activeId: s.id };
 }
 
-/** Persisted (localStorage) chat sessions + the active conversation. */
+/**
+ * Chat sessions persisted server-side (TL `conversations` router via
+ * `/api/conversations`), so history follows the team, not one browser. Starts
+ * with an empty session for instant render, then loads the saved ones on mount.
+ */
 export function useChatSessions() {
-  const [state, setState] = useState<State>(init);
+  const [state, setState] = useState<State>(initialState);
+  const loadedRef = useRef(false);
 
-  // Persist (debounced) so token-by-token streaming doesn't thrash localStorage.
+  // Load saved conversations on mount.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/conversations", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { conversations?: ChatSession[] } | null) => {
+        loadedRef.current = true;
+        const saved = data?.conversations ?? [];
+        if (cancelled || saved.length === 0) return;
+        setState((st) => {
+          // Keep the current empty session only if the user already typed.
+          const active = st.sessions.find((s) => s.id === st.activeId);
+          const keep = active && active.messages.length > 0 ? [active] : [];
+          const sessions = [...keep, ...saved.filter((s) => !keep.some((k) => k.id === s.id))];
+          return { sessions, activeId: sessions[0]!.id };
+        });
+      })
+      .catch(() => {
+        loadedRef.current = true;
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist the active session (debounced) once it has content.
   const timer = useRef<number | null>(null);
   useEffect(() => {
+    const active = state.sessions.find((s) => s.id === state.activeId);
+    if (!loadedRef.current || !active || active.messages.length === 0) return;
     if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => saveChatSessions(state.sessions), 400);
+    timer.current = window.setTimeout(() => {
+      void fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(active),
+      });
+    }, 500);
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
     };
-  }, [state.sessions]);
+  }, [state.sessions, state.activeId]);
 
   const activeSession = state.sessions.find((s) => s.id === state.activeId) ?? null;
 
   const newChat = useCallback(() => {
     setState((st) => {
-      // Reuse the current chat if it's still empty (avoid piling up "New chat"s).
       const active = st.sessions.find((s) => s.id === st.activeId);
       if (active && active.messages.length === 0) return st;
       const s = makeEmptySession();
@@ -48,6 +80,7 @@ export function useChatSessions() {
   }, []);
 
   const deleteChat = useCallback((id: string) => {
+    void fetch(`/api/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     setState((st) => {
       const sessions = st.sessions.filter((s) => s.id !== id);
       if (sessions.length === 0) {

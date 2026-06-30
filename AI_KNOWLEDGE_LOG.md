@@ -1033,3 +1033,28 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
   - use-pipeline (Workflow) EVAL step: sekarang eval FINE-TUNE (model=jobId, fineTuned=true), bukan base lagi. (Sweep tetap train-only krn merge+eval per-combo berat.)
 - VERIFIED: eval options sertakan nqr-real-adaptor + nqr-wf-test (fineTuned=true). Submit eval-ft (b315392e) -> merge cepat (base cached) -> evalJob 43bfa01a (lagi jalan, verifikasi skor + live-logs background). tsc=0, 62 test pass.
 - CATATAN auth gate: curl test ke /api/* sekarang butuh cookie (login dulu -> cookie jar) krn APP_PASSWORD aktif.
+
+## 2026-06-29 23:00 (UTC+7) - claude
+- Task: User minta BUILD fitur yang absen di source TL, IKUT pattern source. (multi-user: skip; plugin-mgmt: skip krn usang v0.40.0.)
+- CONVERSATIONS SERVER-SIDE: dibuild SENDIRI di source TL, mirror routers/experiment/notes.py.
+  - scripts/setup/conversations.py: router prefix /conversations, GET ''(list, baca semua .json di <exp_dir>/conversations via storage.ls), POST ''(save, body=dict, key by secure_filename(id), tulis {id}.json), DELETE /{id}. Pakai Experiment+storage+require_permission persis notes.py.
+  - scripts/setup/apply-conversations.sh: idempotent -> copy conversations.py ke source + patch experiment.py (tambah 'conversations,' ke import tuple + include_router block mirror notes, prefix /{experimentId}). VERIFIED applied (import line 13, include line 55-57).
+  - Restart backend TL (kill 8339 + start_tl.sh background bus2h4x6i). VERIFIED langsung: POST/GET/DELETE /experiment/nqr-ft/conversations -> 200, count benar.
+  - APP WIRING: BARU src/lib/conversations-server.ts (listConversations/saveConversation/deleteConversation -> /experiment/nqr-ft/conversations; CHAT_EXPERIMENT=nqr-ft sbg bucket). BARU route /api/conversations (GET list, POST save, DELETE ?id=). use-chat-sessions.ts: localStorage -> server (load mount via GET, save active session debounced via POST kalau ada messages, deleteChat via DELETE). storage.ts: hapus loadChatSessions/saveChatSessions (mati), sisakan generateSessionId+makeEmptySession.
+  - apply-conversations ditambah ke setup-v0.40.0.sh (step 1b).
+  - VERIFIED via Next BFF: POST /api/conversations -> {ok}, GET -> count:1 'Dari BFF', DELETE -> {ok}. tsc=0, 62 test pass.
+- INFRA: Next dev server sempat mati 2x (teardown sesi + nohup Bash-tool rapuh) -> sekarang dijalankan via run_in_background keepalive task (bi5w3ui8q), 200 OK. TL 8339 + Ollama 11434 tetap up.
+- ROADMAP diupdate: Conversations dari ❌ ke ✅; Fase 1 pengecualian tinggal multi-user auth (skip) + plugin-mgmt (usang). Belum commit. Branch feat/migrate-v0.40.0.
+
+## 2026-06-30 06:00 (UTC+7) - claude
+- Task: User audit UI -> nemu tombol dummy (Tasks/Experiments/Compute actions = local-state mock; Model import = simulasi). Wire yang bisa real + disable/arahkan yang gak mappable.
+- TEMUAN: llm-ops-provider createTask/start/pause/stop/retry/clone/deleteTask + createExperiment/deleteExperiment = SEMUA local-state (setTasks/setExperiments doang, gak ke backend). Data tabel REAL (fetchTasks/fetchExperiments), aksi MOCK. Compute add/setDefault/remove + Model HF import juga mock.
+- WIRE REAL (endpoint backend dikonfirmasi ada + dites):
+  - Tasks stop/delete: tasks-server.ts +stopJob(/jobs/{id}/stop)+deleteJob(DELETE /jobs/{id}); routes /api/tasks/[id]/stop (POST) + /api/tasks/[id] (DELETE); provider stopTask/deleteTask -> fetch BFF (optimistic UI). Verified stop->200.
+  - Experiments create/delete: tasks-server.ts +createTlExperiment(GET /experiment/create, 409=ok)+deleteTlExperiment(GET /experiment/{id}/delete); routes /api/experiments (POST) + /api/experiments/[id] (DELETE); provider createExperiment(id=nama TL, optimistic + BFF + reloadExperiments)/deleteExperiment(BFF). Verified create {ok,id}+muncul+delete {ok}.
+  - Compute add/remove: compute-server.ts +createTlComputeProvider(POST providers, type lowercase, config {})+deleteTlComputeProvider(DELETE); route POST /api/compute/providers + DELETE /api/compute/providers/[id]; compute-service +addComputeProvider/removeComputeProvider; compute-page addProvider/removeProvider -> service + providersFetch.reload(). Verified add {ok}+muncul+remove {ok}. (Backend tes: POST skypilot config{} -> 200 + DELETE 200.)
+- DISABLE/ARAHKAN NON-MAPPABLE:
+  - Tasks: HAPUS tombol Start/Pause/Retry/Clone (drawer + table RowActions) -- gak mappable ke job REMOTE v0.40.0; sisakan Stop+Delete (real). Bersihkan var (canStart/canPause/canRetry/startLabel) + import lucide unused.
+  - Create Task -> "New run" link ke /finetune (header) + empty-state onCreateClick router.push('/finetune'). (CreateTaskSheet jadi dead, dibiarkan.)
+  - Model HF import (import-huggingface-sheet): +banner note jujur "Preview UI, belum fungsional v0.40.0; model by HF id; chat tarik via Interact picker Ollama".
+- HASIL: gak ada lagi tombol bohong di Tasks/Experiments/Compute. tsc=0, 62 test pass. Belum commit.

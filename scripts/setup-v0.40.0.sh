@@ -19,6 +19,9 @@ PY="$HOME/.transformerlab/envs/transformerlab/bin/python"
 echo "== 1) patch TL sandbox for WSL (bwrap/resolv.conf) =="
 PY="$PY" bash "$HERE/setup/apply-sandbox-patch.sh"
 
+echo "== 1b) add server-side chat conversations router to TL source =="
+PY="$PY" bash "$HERE/setup/apply-conversations.sh"
+
 echo "== 2) install Ollama (userspace) =="
 bash "$HERE/setup/install-ollama.sh"
 

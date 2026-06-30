@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  Copy,
-  Eye,
-  MoreHorizontal,
-  Pause,
-  Play,
-  RotateCw,
-  Square,
-  Trash2,
-} from "lucide-react";
+import { Eye, MoreHorizontal, Play, Square, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -180,26 +171,18 @@ function TaskRowActions({
   onClone: () => void;
   onDelete: () => void;
 }) {
-  const canStart = status === "Draft" || status === "Queued" || status === "Paused";
-  const canPause = status === "Running";
+  // v0.40.0: only Stop (cancel) and Delete are real for compute-provider jobs.
   const canStop = status === "Running" || status === "Paused" || status === "Retrying";
-  const canRetry = status === "Failed";
+  void onStart;
+  void onPause;
+  void onRetry;
+  void onClone;
 
   return (
     <div className="inline-flex items-center gap-1">
       <Button type="button" variant="ghost" size="icon-xs" onClick={onView} title="View detail">
         <Eye className="size-3.5" />
       </Button>
-      {canStart ? (
-        <Button type="button" variant="ghost" size="icon-xs" onClick={onStart} title="Start">
-          <Play className="size-3.5" />
-        </Button>
-      ) : null}
-      {canPause ? (
-        <Button type="button" variant="ghost" size="icon-xs" onClick={onPause} title="Pause">
-          <Pause className="size-3.5" />
-        </Button>
-      ) : null}
       {canStop ? (
         <Button type="button" variant="ghost" size="icon-xs" onClick={onStop} title="Stop">
           <Square className="size-3.5" />
@@ -214,14 +197,6 @@ function TaskRowActions({
           }
         />
         <DropdownMenuContent align="end" className="min-w-[168px]">
-          {canRetry ? (
-            <DropdownMenuItem onClick={onRetry}>
-              <RotateCw className="size-4" /> Retry
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem onClick={onClone}>
-            <Copy className="size-4" /> Clone
-          </DropdownMenuItem>
           <DropdownMenuItem className="text-destructive" onClick={onDelete}>
             <Trash2 className="size-4" /> Delete
           </DropdownMenuItem>

@@ -407,6 +407,8 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
 
   const stopTask = useCallback(
     (id: string) => {
+      // Real: ask TL to stop the job; optimistically reflect it in the UI.
+      void fetch(`/api/tasks/${encodeURIComponent(id)}/stop`, { method: "POST" });
       updateLatestRun(id, (run) => {
         if (run.status !== "Running" && run.status !== "Paused" && run.status !== "Retrying") {
           return run;
@@ -468,12 +470,16 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   );
 
   const deleteTask = useCallback((id: string) => {
+    // Real: delete the job record in TL, then drop it from the list.
+    void fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
     setTasks((prev) => prev.filter((t) => t.id !== id));
     setSelectedTaskId((current) => (current === id ? null : current));
   }, []);
 
   const createExperiment = useCallback((input: CreateExperimentInput) => {
-    const id = generateExperimentId();
+    // TL uses the (secured) experiment name as its id. We optimistically add it,
+    // then create it for real and reload the authoritative list.
+    const id = input.name;
     const now = new Date().toISOString();
     const experiment: Experiment = {
       id,
@@ -503,8 +509,13 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     };
     setExperiments((prev) => [experiment, ...prev]);
     setIsCreateExperimentOpen(false);
+    void fetch("/api/experiments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: input.name }),
+    }).then(() => reloadExperiments());
     return id;
-  }, []);
+  }, [reloadExperiments]);
 
   const updateExperiment = useCallback(
     (id: string, input: Partial<CreateExperimentInput>) => {
@@ -622,6 +633,8 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
 
   const deleteExperiment = useCallback(
     (id: string) => {
+      // Real: delete the experiment in TL, then drop it locally.
+      void fetch(`/api/experiments/${encodeURIComponent(id)}`, { method: "DELETE" });
       setExperiments((prev) => prev.filter((e) => e.id !== id));
       setTasks((prev) =>
         prev.map((t) =>

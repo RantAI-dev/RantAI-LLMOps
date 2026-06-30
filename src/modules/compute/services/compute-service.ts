@@ -11,6 +11,32 @@ export function seedComputeProviders(): ComputeProvider[] {
   return initialProviders;
 }
 
+/** Create a provider in Transformer Lab (via the BFF). */
+export async function addComputeProvider(input: { name: string; type: string }): Promise<boolean> {
+  try {
+    const res = await fetch("/api/compute/providers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete a provider in Transformer Lab (via the BFF). */
+export async function removeComputeProvider(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`/api/compute/providers/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** Async load: real providers from Transformer Lab (via the BFF). */
 export async function fetchComputeProviders(): Promise<ComputeProvider[]> {
   try {

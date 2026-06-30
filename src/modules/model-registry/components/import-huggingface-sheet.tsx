@@ -196,6 +196,11 @@ export function ImportHuggingFaceSheet(props: ImportHuggingFaceSheetProps) {
           <SheetDescription>
             Step {importStep + 1} of {IMPORT_STEPS.length}: {IMPORT_STEPS[importStep]}
           </SheetDescription>
+          <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">
+            Preview UI — belum fungsional di v0.40.0. Transformer Lab tak lagi
+            “download model ke workspace”: base model dirujuk <strong>by HF id</strong> dan ditarik
+            otomatis saat training. Untuk chat, tarik model lewat <strong>Interact → picker → Recommended</strong> (Ollama).
+          </p>
         </SheetHeader>
 
         <div className="border-b border-border px-4 py-3">

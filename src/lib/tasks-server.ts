@@ -128,6 +128,32 @@ export async function jobOutput(id: string): Promise<string> {
   return sdk;
 }
 
+/** Ask a running job to stop (`GET /jobs/{id}/stop`). Returns whether TL accepted it. */
+export async function stopJob(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/stop`,
+      { headers: inferenceHeaders() }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete a job record (`DELETE /jobs/{id}`). Returns whether TL accepted it. */
+export async function deleteJob(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers: inferenceHeaders() }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export type TlExperimentRow = { id: string; name: string };
 
 /** Real experiments (`GET /experiment/`). */
@@ -138,4 +164,33 @@ export async function listTlExperiments(): Promise<TlExperimentRow[]> {
   return (Array.isArray(rows) ? rows : [])
     .filter((e) => e.id != null)
     .map((e) => ({ id: String(e.id), name: e.name ?? String(e.id) }));
+}
+
+/**
+ * Create an experiment (`GET /experiment/create?name=`). TL uses the (secured)
+ * name as the id. Returns the new id, or throws with TL's message.
+ */
+export async function createTlExperiment(name: string): Promise<string> {
+  const res = await fetch(`${TL_ROOT}/experiment/create?name=${encodeURIComponent(name)}`, {
+    headers: inferenceHeaders(),
+  });
+  if (res.ok) {
+    const id = await res.json().catch(() => name);
+    return typeof id === "string" ? id : name;
+  }
+  if (res.status === 409) return name; // already exists — fine
+  const detail = await res.text().catch(() => "");
+  throw new Error(detail || `Gagal membuat experiment (${res.status})`);
+}
+
+/** Delete an experiment (`GET /experiment/{id}/delete`). Returns whether TL accepted it. */
+export async function deleteTlExperiment(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${TL_ROOT}/experiment/${encodeURIComponent(id)}/delete`, {
+      headers: inferenceHeaders(),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

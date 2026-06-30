@@ -27,6 +27,35 @@ function toProviderType(t?: string): ProviderType {
   return match ?? "Local";
 }
 
+/** Create a compute provider (`POST /compute_provider/providers/`). */
+export async function createTlComputeProvider(name: string, type: string): Promise<boolean> {
+  try {
+    // UI labels ("SkyPilot", "Vast.ai") → backend enum ("skypilot", "vastai").
+    const beType = type.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const res = await fetch(`${TL_ROOT}/compute_provider/providers/`, {
+      method: "POST",
+      headers: inferenceHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, type: beType, config: {} }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Delete a compute provider (`DELETE /compute_provider/providers/{id}`). */
+export async function deleteTlComputeProvider(id: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${TL_ROOT}/compute_provider/providers/${encodeURIComponent(id)}`,
+      { method: "DELETE", headers: inferenceHeaders() }
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchTlComputeProviders(): Promise<ComputeProvider[]> {
   const res = await fetch(`${TL_ROOT}/compute_provider/providers/`, {
     headers: inferenceHeaders(),

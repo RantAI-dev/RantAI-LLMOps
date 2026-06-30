@@ -11,7 +11,9 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useResourceFetch } from "@/lib/use-resource-fetch";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import {
+  addComputeProvider,
   fetchComputeProviders,
+  removeComputeProvider,
   seedComputeProviders,
 } from "@/modules/compute/services/compute-service";
 import type {
@@ -61,26 +63,19 @@ export function ComputePage() {
   }, [providers]);
 
   const addProvider = (input: AddProviderInput) => {
-    setProviders((prev) => [
-      ...prev,
-      {
-        id: makeId(),
-        type: input.type,
-        name: input.name,
-        detail: input.detail || "Configure credentials & clusters to start running jobs.",
-        status: "Configuring",
-        isDefault: false,
-        accelerators: [],
-        clusters: [],
-      },
-    ]);
+    void addComputeProvider({ name: input.name, type: input.type }).then(() =>
+      providersFetch.reload()
+    );
   };
 
+  // is_default is a TL PATCH we don't expose yet; keep it local-only (visual).
   const setDefault = (id: string) =>
     setProviders((prev) => prev.map((p) => ({ ...p, isDefault: p.id === id })));
 
-  const removeProvider = (id: string) =>
-    setProviders((prev) => prev.filter((p) => p.id !== id));
+  const removeProvider = (id: string) => {
+    setProviders((prev) => prev.filter((p) => p.id !== id)); // optimistic
+    void removeComputeProvider(id).then(() => providersFetch.reload());
+  };
 
   const cards = [
     { label: "Providers", value: String(providers.length), icon: Server, tint: "bg-primary-soft text-primary" },

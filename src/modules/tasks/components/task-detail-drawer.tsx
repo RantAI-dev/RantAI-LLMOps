@@ -1,15 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  Copy,
-  Download,
-  Pause,
-  Play,
-  RotateCw,
-  Square,
-  Trash2,
-} from "lucide-react";
+import { Download, Square, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,12 +46,8 @@ export function TaskDetailDrawer({
 
   const run = latestRun(task);
   const status = taskStatus(task);
-  const canStart = status === "Draft" || status === "Queued" || status === "Paused";
-  const canPause = status === "Running";
   const canStop = status === "Running" || status === "Paused" || status === "Retrying";
-  const canRetry = status === "Failed";
   const hp = task.hyperparameters;
-  const startLabel = status === "Draft" ? "Run" : status === "Paused" ? "Resume" : "Start";
 
   return (
     <Sheet
@@ -80,30 +68,15 @@ export function TaskDetailDrawer({
           <SheetDescription>{task.experimentName}</SheetDescription>
         </SheetHeader>
 
+        {/* v0.40.0: jobs run via the compute provider — Stop (cancel) and Delete
+            are the real, supported actions. Start/Pause/Retry/Clone don't map to
+            REMOTE jobs (you start a run from Fine-tune/Evals), so they're gone. */}
         <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3">
-          {canStart ? (
-            <Button type="button" size="sm" onClick={() => onStart(task.id)}>
-              <Play className="size-3.5" /> {startLabel}
-            </Button>
-          ) : null}
-          {canPause ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => onPause(task.id)}>
-              <Pause className="size-3.5" /> Pause
-            </Button>
-          ) : null}
           {canStop ? (
             <Button type="button" size="sm" variant="outline" onClick={() => onStop(task.id)}>
               <Square className="size-3.5" /> Stop
             </Button>
           ) : null}
-          {canRetry ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => onRetry(task.id)}>
-              <RotateCw className="size-3.5" /> Retry
-            </Button>
-          ) : null}
-          <Button type="button" size="sm" variant="ghost" onClick={() => onClone(task.id)}>
-            <Copy className="size-3.5" /> Clone
-          </Button>
           <Button
             type="button"
             size="sm"

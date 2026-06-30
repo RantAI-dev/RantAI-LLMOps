@@ -1,26 +1,7 @@
 import type { ChatSession } from "@/modules/playground/types";
 
-const KEY = "nqr.chat.sessions.v1";
-
-export function loadChatSessions(): ChatSession[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? (parsed as ChatSession[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveChatSessions(sessions: ChatSession[]): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(sessions));
-  } catch {
-    // ignore quota / serialization errors — chat history is best-effort
-  }
-}
+// Chat history is persisted server-side (see use-chat-sessions + /api/conversations).
+// These remain the small client-side helpers for creating new sessions.
 
 export function generateSessionId(): string {
   return `chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

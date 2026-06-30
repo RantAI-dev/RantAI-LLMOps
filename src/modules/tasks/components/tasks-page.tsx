@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,6 +41,7 @@ export function TasksPage() {
     isError,
     reload,
   } = useTasks();
+  const router = useRouter();
 
   const showEmpty = tasks.length === 0;
   const showFilteredEmpty = !showEmpty && filteredTasks.length === 0;
@@ -52,10 +55,14 @@ export function TasksPage() {
             Manage AI jobs, training runs, evaluations, inference tasks, and model operations.
           </p>
         </div>
-        <Button type="button" className="shrink-0" onClick={() => setIsCreateOpen(true)}>
-          <Plus className="size-4" />
-          Create Task
-        </Button>
+        {/* Real jobs are launched from Fine-tune / Evals (compute-provider), not a
+            generic create form, so this points there. */}
+        <Button type="button" className="shrink-0" nativeButton={false} render={
+          <Link href="/finetune">
+            <Plus className="size-4" />
+            New run
+          </Link>
+        } />
       </div>
 
       <TaskSummaryCards tasks={tasks} />
@@ -93,7 +100,7 @@ export function TasksPage() {
           onRetry={retryTask}
           onClone={cloneTask}
           onDelete={deleteTask}
-          onCreateClick={() => setIsCreateOpen(true)}
+          onCreateClick={() => router.push("/finetune")}
         />
       )}
 
