@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { EvalJob, EvalOptions } from "@/lib/evals";
 
 const EMPTY: EvalOptions = { models: [], benchmarks: [] };
 const ACTIVE = new Set(["QUEUED", "RUNNING", "STARTED", "NOT_STARTED"]);
 export const isEvalActive = (status: string) => ACTIVE.has(status.toUpperCase());
+// Terminal-but-unsuccessful: these will never produce a score, so don't keep
+// polling waiting for one.
+const FAILED = new Set(["FAILED", "STOPPED", "CANCELLED", "ERROR"]);
+const isEvalFailed = (status: string) => FAILED.has(status.toUpperCase());
 
 /**
  * Drives the Evals page: loads models + benchmarks, polls eval jobs while any
@@ -19,6 +23,14 @@ export function useEvals() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Stops the compare poll loop from running / setState-ing after unmount.
+  const cancelledRef = useRef(false);
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, []);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -50,13 +62,17 @@ export function useEvals() {
     };
   }, []);
 
-  // Poll while any job is active, plus one extra cycle after the last finishes
-  // (the score is written just after COMPLETE). Keyed on the derived boolean (not
-  // the whole `jobs` array) so the interval is created once per active/idle
-  // transition; the interval id is local so cleanup can't race a shared ref.
+  // Poll while any job is active, plus one extra cycle after a job *completes*
+  // without a score yet (it's written just after COMPLETE). A FAILED/CANCELLED
+  // job legitimately has no score and never will, so it must NOT keep the poll
+  // alive — otherwise the page polls every 3s forever. Keyed on the derived
+  // boolean (not the whole `jobs` array) so the interval is created once per
+  // active/idle transition; the interval id is local so cleanup can't race.
   const shouldPoll =
     jobs.some((j) => isEvalActive(j.status)) ||
-    jobs.some((j) => !isEvalActive(j.status) && j.scores.length === 0);
+    jobs.some(
+      (j) => !isEvalActive(j.status) && !isEvalFailed(j.status) && j.scores.length === 0
+    );
   useEffect(() => {
     if (!shouldPoll) return;
     const id = setInterval(loadJobs, 3000);
@@ -107,7 +123,9 @@ export function useEvals() {
     const terminal = new Set(["COMPLETE", "COMPLETED", "FAILED", "STOPPED", "CANCELLED"]);
     // Cap the wait so a stuck job can't hang the whole compare run (~10 min).
     for (let i = 0; i < 200; i++) {
+      if (cancelledRef.current) return;
       await new Promise((r) => setTimeout(r, 3000));
+      if (cancelledRef.current) return;
       try {
         const res = await fetch("/api/evals/jobs");
         const data = (await res.json()) as { jobs?: EvalJob[] };

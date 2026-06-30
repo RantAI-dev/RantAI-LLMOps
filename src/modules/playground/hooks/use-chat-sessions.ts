@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { runOptimistic } from "@/lib/optimistic";
 import { makeEmptySession } from "@/modules/playground/lib/storage";
 import type { ChatMessage, ChatSession } from "@/modules/playground/types";
 
@@ -46,23 +47,47 @@ export function useChatSessions() {
     };
   }, []);
 
-  // Persist the active session (debounced) once it has content.
+  // Persist the active session (debounced) once it has content. `pendingRef`
+  // holds the not-yet-saved session so we can flush it on demand (e.g. when the
+  // user switches away before the 500ms elapses) instead of dropping its edits.
   const timer = useRef<number | null>(null);
+  const pendingRef = useRef<ChatSession | null>(null);
+
+  const flushPending = useCallback(() => {
+    if (timer.current) {
+      window.clearTimeout(timer.current);
+      timer.current = null;
+    }
+    const session = pendingRef.current;
+    pendingRef.current = null;
+    if (!session) return;
+    void runOptimistic({
+      request: () =>
+        fetch("/api/conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(session),
+        }),
+      errorMessage: "Gagal menyimpan chat ke server",
+    });
+  }, []);
+
   useEffect(() => {
     const active = state.sessions.find((s) => s.id === state.activeId);
     if (!loadedRef.current || !active || active.messages.length === 0) return;
+    // Switching to a different session: flush the previous one's pending edits
+    // first so a rapid switch (< debounce) can't lose them.
+    if (pendingRef.current && pendingRef.current.id !== active.id) flushPending();
+    pendingRef.current = active;
     if (timer.current) window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => {
-      void fetch("/api/conversations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(active),
-      });
-    }, 500);
+    timer.current = window.setTimeout(flushPending, 500);
     return () => {
       if (timer.current) window.clearTimeout(timer.current);
     };
-  }, [state.sessions, state.activeId]);
+  }, [state.sessions, state.activeId, flushPending]);
+
+  // Flush a still-pending save on unmount so the last edits aren't lost.
+  useEffect(() => () => flushPending(), [flushPending]);
 
   const activeSession = state.sessions.find((s) => s.id === state.activeId) ?? null;
 
@@ -80,14 +105,35 @@ export function useChatSessions() {
   }, []);
 
   const deleteChat = useCallback((id: string) => {
-    void fetch(`/api/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    // Drop any pending save for this id so a queued POST can't resurrect the
+    // chat just after we delete it server-side.
+    if (pendingRef.current?.id === id) {
+      pendingRef.current = null;
+      if (timer.current) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
+      }
+    }
+    let removed: ChatSession | undefined;
     setState((st) => {
+      removed = st.sessions.find((s) => s.id === id);
       const sessions = st.sessions.filter((s) => s.id !== id);
       if (sessions.length === 0) {
         const s = makeEmptySession();
         return { sessions: [s], activeId: s.id };
       }
       return { sessions, activeId: st.activeId === id ? sessions[0]!.id : st.activeId };
+    });
+    void runOptimistic({
+      request: () => fetch(`/api/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE" }),
+      // Restore the chat if the server delete failed, so the UI stays honest.
+      rollback: () =>
+        setState((st) =>
+          removed && !st.sessions.some((s) => s.id === removed!.id)
+            ? { ...st, sessions: [removed, ...st.sessions] }
+            : st
+        ),
+      errorMessage: "Gagal menghapus chat di server",
     });
   }, []);
 

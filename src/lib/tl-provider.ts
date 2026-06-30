@@ -8,28 +8,34 @@
  * place. The launch is self-contained: the full task spec (run/setup/repo/
  * parameters) is passed in the launch body; no separate task/create is needed.
  */
-import { TL_ROOT } from "@/lib/models-catalog";
-import { inferenceHeaders } from "@/lib/inference";
+import { tlFetch, unwrapList } from "@/lib/tl-fetch";
+import { redactSecrets } from "@/lib/redact";
 
 /**
  * Resolve a usable compute provider id (prefer the `local` one). Resolved at
  * runtime so we never hard-code an id that differs per install.
  */
 export async function getComputeProviderId(): Promise<string> {
-  const res = await fetch(`${TL_ROOT}/compute_provider/providers/`, {
-    headers: inferenceHeaders(),
-  });
+  const res = await tlFetch(`/compute_provider/providers/`);
   if (!res.ok) throw new Error(`Could not list compute providers (${res.status})`);
-  const data = (await res.json().catch(() => [])) as
-    | Array<Record<string, unknown>>
-    | { data?: Array<Record<string, unknown>> };
-  const items = Array.isArray(data) ? data : (data.data ?? []);
+  const items = unwrapList<Record<string, unknown>>(await res.json().catch(() => []));
   const isLocal = (p: Record<string, unknown>) =>
     (p.type ?? p.provider_type) === "local" ||
     String(p.provider_name ?? "").toLowerCase() === "local";
-  const chosen = items.find(isLocal) ?? items[0];
+  const isDisabled = (p: Record<string, unknown>) => p.disabled === true || p.is_disabled === true;
+
+  // Prefer an enabled local provider. If there's no local one, only fall back to
+  // a single enabled provider — never silently pick `items[0]` out of several,
+  // which could route a local-intended (free) job to a remote/billable one.
+  const enabled = items.filter((p) => !isDisabled(p));
+  const chosen = enabled.find(isLocal) ?? (enabled.length === 1 ? enabled[0] : undefined);
   const id = chosen?.id as string | undefined;
-  if (!id) throw new Error("No compute provider is available to run jobs");
+  if (!id) {
+    throw new Error(
+      "No local compute provider available. Configure a 'local' provider in Transformer Lab " +
+        "(or disable the extra remote providers so the choice is unambiguous)."
+    );
+  }
   return id;
 }
 
@@ -77,13 +83,15 @@ export async function launchProviderTask(spec: ProviderLaunchSpec): Promise<stri
     description: spec.description,
     subtype: spec.subtype,
   };
-  const res = await fetch(`${TL_ROOT}/compute_provider/providers/${providerId}/launch/`, {
+  const res = await tlFetch(`/compute_provider/providers/${providerId}/launch/`, {
     method: "POST",
-    headers: inferenceHeaders({ "Content-Type": "application/json" }),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    timeoutMs: 60_000,
   });
   if (!res.ok) {
-    const detail = await res.text().catch(() => "");
+    // TL may reflect submitted env vars (incl. an HF token) in its error body.
+    const detail = redactSecrets(await res.text().catch(() => ""), Object.values(spec.envVars ?? {}));
     throw new Error(detail || `Failed to launch job (${res.status})`);
   }
   const data = (await res.json().catch(() => ({}))) as { job_id?: string; message?: string };

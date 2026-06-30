@@ -1058,3 +1058,46 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
   - Create Task -> "New run" link ke /finetune (header) + empty-state onCreateClick router.push('/finetune'). (CreateTaskSheet jadi dead, dibiarkan.)
   - Model HF import (import-huggingface-sheet): +banner note jujur "Preview UI, belum fungsional v0.40.0; model by HF id; chat tarik via Interact picker Ollama".
 - HASIL: gak ada lagi tombol bohong di Tasks/Experiments/Compute. tsc=0, 62 test pass. Belum commit.
+
+## 2026-06-30 06:23:17 GMT
+- **Task:** Senior code review menyeluruh atas seluruh codebase (permintaan user: "review seluruh code... clean code & best practice, kabari apa yang bisa diperbaiki/improve").
+- **Action:** Menjalankan 4 reviewer paralel (server libs, React hooks/state, API routes, infra/scripts). 2 selesai (server libs + hooks), 2 kena rate-limit sementara dari server jadi area API routes + scripts ditutup lewat pembacaan langsung (proxy.ts, auth.ts, login/experiments route, conversations.py, nqr_serve_finetune.sh). Verifikasi H1 (WSL shell bridge), strict mode tsconfig, eslint, coverage test (12/252), duplikasi TlJob & "nqr-ft".
+- **Files (read-only, TIDAK diubah):** src/lib/*.ts, src/proxy.ts, src/lib/auth.ts, src/app/api/**, scripts/setup/conversations.py, scripts/serve/*.sh, tsconfig.json, package.json.
+- **Result:** Laporan prioritas (High/Medium/Low) disusun. Temuan utama: H1 WSL bridge pakai bash -lc interpolasi (guard regex jalan tapi perlu argv-form + validasi di submit), H2 auth non-constant-time compare + token = SHA256(password) tanpa secret + tanpa rate-limit login, H3 HF token bisa bocor ke pesan error, H4 fire-and-forget mutations (UI bohong saat backend gagal). Belum ada perubahan kode — menunggu keputusan user mana yang dikerjakan.
+
+## 2026-06-30 06:49:39 GMT
+- **Task:** Implementasi perbaikan hasil code-review sesuai urutan prioritas (H4+H2 → H1+H3 → konsolidasi #3), tanpa commit (user commit manual).
+- **Action:**
+  - **H2 (auth):** `constantTimeEqual` (anti timing-attack) + `verifySession`; token kini SHA-256(secret+password) via `AUTH_SECRET`; rate-limit login 10/5mnt per IP (`src/lib/rate-limit.ts`); doc `.env.example`.
+  - **H4 (optimistic):** helper `src/lib/optimistic.ts` (apply→request→rollback+toast) menggantikan `void fetch`; diwire ke stopTask/deleteTask/createExperiment/deleteExperiment (rollback = reload) + chat persist/deleteChat (toast/restore saat gagal).
+  - **H1+H3 (WSL bridge):** `src/lib/host-runner.ts` argv-form (template tetap + `"$@"`, anti-injection, siap Docker via `HOST_RUNNER`/`DOCKER_CONTAINER`); validasi per-field `src/lib/validate.ts` di submit & export; redaksi HF token `src/lib/redact.ts` di tl-provider; parsing path merge defensif (baris diawali "/").
+  - **#3 (konsolidasi):** `src/lib/tl-fetch.ts` (tlFetch timeout 30s + unwrapList) dimigrasikan ke semua path list/polled (finetune jobs×2, tasks jobs+experiments, compute×3, provider list+launch, models×3); `TL_ROOT` dipindah ke inference.ts; konstanta experiment dipusatkan `src/lib/tl-constants.ts`; fix `createDataset` cek `created.ok` (M7); hapus dead code (datasetColumns/ensureDatasetDownloaded/TlListModel).
+- **Files:** +src/lib/{auth,rate-limit,optimistic,host-runner,redact,validate,tl-fetch,tl-constants}.ts; ubah src/lib/{finetune,evals,tl-provider,compute-server,tasks-server,models-catalog,inference}.ts, src/proxy.ts, src/app/api/auth/login/route.ts, src/modules/llm-ops/context/llm-ops-provider.tsx, src/modules/playground/hooks/use-chat-sessions.ts, .env.example.
+- **Result:** tsc 0 error, eslint 0 warning (file tersentuh), vitest 62/62 lolos. Belum commit. Sisa: 8 fetch one-shot belum dimigrasi (sengaja, low-risk), M3 dedup stop/deleteTrainingJob dicatat (tidak direfactor karena lintas route, untung kosmetik).
+
+## 2026-06-30 07:00:39 GMT
+- **Task:** Lanjutan code-review — batch temuan Medium (race & lifecycle hooks), tanpa commit.
+- **Action:**
+  - **useResourceFetch:** `reload()` kini membatalkan fetch in-flight via `cancelRef` → fix last-writer race (fetch lama tak lagi menimpa data baru di semua list resource).
+  - **use-sweep:** tambah `cancelledRef` + `AbortController` + effect unmount; `waitTrain` & `runSweep` cek cancelled tiap await, abort request, guard `finally` → stop polling & setState setelah unmount (sebelumnya tanpa guard sama sekali, bisa poll 26mnt/combo di background).
+  - **use-evals:** `shouldPoll` kini exclude status FAILED/STOPPED/CANCELLED dari klausa "belum ada skor" → fix poll 3s selamanya untuk eval gagal; tambah guard unmount untuk `pollUntilDone`.
+  - **llm-ops-provider:** pindahkan `appendExperimentActivity` keluar dari updater `setTasks` (dikumpulkan via Map dedup, dipanggil setelah setTasks) → cegah double-fire aktivitas "Run completed" di StrictMode/concurrent.
+- **Files:** src/lib/use-resource-fetch.ts, src/modules/finetune/hooks/use-sweep.ts, src/modules/evals/hooks/use-evals.ts, src/modules/llm-ops/context/llm-ops-provider.tsx.
+- **Result:** tsc 0 error, eslint 0 warning, vitest 62/62. Belum commit.
+
+## 2026-06-30 07:07:29 GMT
+- **Task:** Tulis unit test untuk helper baru hasil refactor review (jaring pengaman jangka panjang), tanpa commit.
+- **Action:** +6 file test: validate (batas keamanan — id traversal/shell ditolak), redact (HF token discrub, nilai pendek aman), auth (constantTimeEqual + sessionToken hex64 deterministik + verifySession), optimistic (apply/rollback/toast via mock sonner), rate-limit (max lalu blok, key independen), tl-fetch unwrapList (array/{data}/null).
+- **Files:** src/lib/{validate,redact,rate-limit,tl-fetch,auth,optimistic}.test.ts.
+- **Result:** vitest 87/87 lolos (sebelumnya 62; +25). crypto.subtle jalan di jsdom. eslint bersih. Belum commit.
+
+## 2026-06-30 07:28:55 GMT
+- **Task:** Tutup fetchEvalJobs (Medium) + 3 temuan Low, tanpa commit.
+- **Action:**
+  - **fetchEvalJobs:** scope try/catch hanya ke list-fetch; pengambilan skor per-job dipindah ke LUAR try (fetchEvalScores sudah catch sendiri) → satu skor gagal tak lagi membuat seluruh daftar eval blank. Migrasi ke tlFetch+unwrapList (timeout).
+  - **fineTuneTag(name, jobId):** kini sertakan jobId → 2 fine-tune nama sama tak saling timpa di Ollama. Kedua call site (fetchFineTuned & exportFineTunedToGguf) diupdate. CAVEAT: format tag berubah (nqr-<slug>-<jobId>), fine-tune yang sudah diserve sebelumnya akan tampil "not ready" → tinggal re-export sekali.
+  - **use-chat-sessions:** persist kini pakai pendingRef + flushPending — flush sesi sebelumnya saat ganti sesi cepat (<500ms) biar edit tak hilang, flush juga saat unmount; deleteChat membatalkan pending save untuk id terhapus (cegah POST-after-DELETE menghidupkan chat).
+  - **getComputeProviderId:** tak lagi fallback diam-diam ke items[0]; prefer local enabled, kalau tak ada hanya pakai bila tepat 1 provider enabled, selain itu throw (cegah salah-rute ke provider remote/berbayar).
+  - **Test:** +3 untuk fineTuneTag (anti-collision, stabil, prefix nqr- tunggal).
+- **Files:** src/lib/{evals,finetune,tl-provider}.ts, src/modules/playground/hooks/use-chat-sessions.ts, src/lib/finetune.test.ts.
+- **Result:** tsc 0 error, eslint 0 warning, vitest 90/90. Belum commit.

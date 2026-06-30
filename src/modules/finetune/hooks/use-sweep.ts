@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * Hyperparameter sweep, orchestrated app-side for a LOCAL single-GPU setup.
@@ -73,19 +73,35 @@ export function useSweep() {
   const [results, setResults] = useState<SweepResult[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  /** Poll a fine-tune job until it reaches a terminal status. */
+  // A sweep can poll for many minutes per combo. Stop the loop and abort the
+  // in-flight request on unmount so we neither leak a long background poll nor
+  // setState on a gone component.
+  const cancelledRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      abortRef.current?.abort();
+    };
+  }, []);
+
+  /** Poll a fine-tune job until it reaches a terminal status (or we unmount). */
   const waitTrain = useCallback(async (jobId: string): Promise<string> => {
     for (let i = 0; i < 400; i++) {
+      if (cancelledRef.current) return "CANCELLED";
       await sleep(4000);
+      if (cancelledRef.current) return "CANCELLED";
       try {
-        const res = await fetch(`/api/finetune/jobs/${encodeURIComponent(jobId)}`);
+        const res = await fetch(`/api/finetune/jobs/${encodeURIComponent(jobId)}`, {
+          signal: abortRef.current?.signal,
+        });
         if (res.ok) {
           const job = (await res.json()) as { status?: string };
           const s = (job.status ?? "").toUpperCase();
           if (TRAIN_TERMINAL.has(s)) return s;
         }
       } catch {
-        /* keep polling */
+        /* keep polling (also catches the abort on unmount) */
       }
     }
     return "TIMEOUT";
@@ -102,11 +118,13 @@ export function useSweep() {
       setError(null);
       setResults([]);
       setRunning(true);
+      abortRef.current = new AbortController();
       // A stable-ish run tag without Date in the hot path is fine here (client runtime).
       const tag = Math.floor(Date.now() / 1000).toString(36);
       const out: SweepResult[] = [];
       try {
         for (let i = 0; i < combos.length; i++) {
+          if (cancelledRef.current) return false;
           const combo = combos[i];
           const adaptorName = `sweep-${tag}-${i}`;
           setProgress({ index: i, total: combos.length, phase: "training" });
@@ -124,6 +142,7 @@ export function useSweep() {
               loraR: combo.lora_r,
               epochs: combo.num_train_epochs,
             }),
+            signal: abortRef.current.signal,
           });
           const trainData = (await trainRes.json()) as { jobId?: string; error?: string };
           if (!trainRes.ok || !trainData.jobId) {
@@ -139,6 +158,7 @@ export function useSweep() {
             continue;
           }
           const trainStatus = await waitTrain(trainData.jobId);
+          if (cancelledRef.current || trainStatus === "CANCELLED") return false;
           if (trainStatus !== "COMPLETE" && trainStatus !== "COMPLETED") {
             out.push({
               index: i,
@@ -168,11 +188,14 @@ export function useSweep() {
         }
         return true;
       } catch (err) {
+        if (cancelledRef.current) return false; // unmounted mid-run — don't setState
         setError((err as Error).message);
         return false;
       } finally {
-        setRunning(false);
-        setProgress(null);
+        if (!cancelledRef.current) {
+          setRunning(false);
+          setProgress(null);
+        }
       }
     },
     [waitTrain]

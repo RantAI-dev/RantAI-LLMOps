@@ -17,8 +17,7 @@
  *  - The trainer saves a fused model via `lab.save_model(...)` into the job's
  *    artifacts; progress/log stream to the job via the `lab` SDK.
  */
-import { execFile } from "node:child_process";
-
+import { runHostScript } from "@/lib/host-runner";
 import {
   fetchDownloaded,
   TL_ROOT,
@@ -28,11 +27,14 @@ import {
 import { inferenceHeaders } from "@/lib/inference";
 import { listOllamaModels } from "@/lib/ollama";
 import { launchProviderTask } from "@/lib/tl-provider";
+import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
+import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
 
 /** All fine-tuning runs live under one experiment so jobs are easy to list. */
-export const FINETUNE_EXPERIMENT = "nqr-ft";
+export { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
+import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 
 /**
  * The GitHub-hosted trainer the local compute provider clones and runs. Unsloth
@@ -257,7 +259,12 @@ export async function createDataset(
     { headers: inferenceHeaders() }
   );
   const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
-  if (cData.status === "error") throw new Error(cData.message || "Could not create dataset");
+  // Check the HTTP status too: a 4xx/5xx with a non-JSON body would otherwise
+  // parse to `{}` and slip past the `status === "error"` check, leaving us to
+  // upload into a dataset that was never created.
+  if (!created.ok || cData.status === "error") {
+    throw new Error(cData.message || `Could not create dataset (${created.status})`);
+  }
 
   const jsonl = rows
     .map((r) => JSON.stringify({ prompt: r.prompt, completion: r.completion }))
@@ -272,31 +279,6 @@ export async function createDataset(
   });
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
   return id;
-}
-
-/** Column names of a dataset (TL `/data/preview`). */
-async function datasetColumns(datasetId: string): Promise<string[]> {
-  // Do NOT swallow failures here: an empty column list would make
-  // buildFormattingTemplate() produce an empty template and the trainer would
-  // run on garbage. Fail loudly so submitFinetune aborts before queuing.
-  const res = await fetch(
-    `${TL_ROOT}/data/preview?dataset_id=${encodeURIComponent(datasetId)}`,
-    { headers: inferenceHeaders() }
-  );
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(
-      `Could not read columns for dataset "${datasetId}" (${res.status})${detail ? `: ${detail}` : ""}`
-    );
-  }
-  const body = (await res.json().catch(() => ({}))) as {
-    data?: { columns?: Record<string, unknown> };
-  };
-  const columns = Object.keys(body?.data?.columns ?? {});
-  if (columns.length === 0) {
-    throw new Error(`Dataset "${datasetId}" has no readable columns — cannot build a training template.`);
-  }
-  return columns;
 }
 
 /**
@@ -328,16 +310,6 @@ async function ensureExperiment(): Promise<void> {
   }).catch(() => {});
 }
 
-async function ensureDatasetDownloaded(datasetId: string): Promise<void> {
-  const local = await fetchLocalDatasets();
-  if (local.some((d) => d.dataset_id === datasetId)) return;
-  const res = await fetch(
-    `${TL_ROOT}/data/download?dataset_id=${encodeURIComponent(datasetId)}`,
-    { headers: inferenceHeaders() }
-  );
-  if (!res.ok) throw new Error(`Failed to download dataset ${datasetId}`);
-}
-
 export type SubmitFinetuneParams = {
   /** HF-resolvable base model id (e.g. "unsloth/Qwen2.5-0.5B-Instruct"). */
   baseModel: string;
@@ -364,6 +336,9 @@ export type SubmitFinetuneParams = {
  * from Hugging Face by id at runtime.
  */
 export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
+  // Validate at the edge: HF-resolvable ids, surfaced as a clear early error.
+  assertModelId(p.baseModel);
+  assertModelId(p.dataset);
   await ensureExperiment();
   const adaptorName = p.adaptorName.replace(/[^a-zA-Z0-9._-]/g, "-") || "adaptor";
 
@@ -414,22 +389,18 @@ function isTrainJob(j: TlJob): boolean {
 }
 
 /**
- * Ollama tag for a fine-tune, derived from its adaptor/task name. Must match
- * between listing (to detect "ready") and export (to create the tag).
+ * Ollama tag for a fine-tune. Includes the train job id so two runs whose names
+ * slugify to the same value don't collide — without it, the second export would
+ * overwrite the first and both would report "ready" pointing at one shared tag.
+ * Must match between listing (to detect "ready") and export (to create the tag).
  */
-export function fineTuneTag(name: string): string {
-  const slug = (name || "model")
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-  return slug.startsWith("nqr-") ? slug : `nqr-${slug || "model"}`;
+export function fineTuneTag(name: string, jobId: string): string {
+  const slug = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/(^-|-$)/g, "");
+  const nameSlug = (slug(name || "model") || "model").replace(/^nqr-/, "");
+  const jobSlug = slug(jobId) || "0";
+  return `nqr-${nameSlug}-${jobSlug}`;
 }
-
-type TlListModel = {
-  model_id?: string;
-  local_path?: string;
-  json_data?: { architecture?: string };
-};
 
 /**
  * Serve a fine-tune by exporting it to GGUF and importing it into Ollama. Takes
@@ -454,36 +425,20 @@ export async function exportFineTunedToGguf(jobId: string): Promise<string> {
   if (!base || !name) {
     throw new Error("Could not resolve the base model / name for this fine-tune");
   }
-  const tag = fineTuneTag(name);
+  const tag = fineTuneTag(name, jobId);
 
-  // Guard before handing arguments to the shell.
-  const safe = (s: string) => /^[a-zA-Z0-9._:/-]+$/.test(s);
-  if (![jobId, base, tag].every(safe)) {
-    throw new Error("Invalid characters in export arguments");
+  // Defense-in-depth (runHostScript already isolates args via argv).
+  assertJobId(jobId);
+  assertModelId(base);
+  assertTag(tag);
+
+  // Fixed command template; values bind to $1/$2/$3 via "$@" — never interpolated.
+  try {
+    await runHostScript('bash ~/nqr_serve_finetune.sh "$@"', [jobId, base, tag]);
+  } catch (err) {
+    throw new Error(`GGUF export/import failed: ${err instanceof Error ? err.message : err}`);
   }
-
-  await runWslExport(jobId, base, tag);
   return tag;
-}
-
-/** Run the host-side serve-fine-tune pipeline in WSL; reject with its output tail. */
-function runWslExport(jobId: string, base: string, tag: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const cmd = `bash ~/nqr_serve_finetune.sh ${jobId} ${base} ${tag}`;
-    execFile(
-      "wsl.exe",
-      ["-d", "Ubuntu", "--", "bash", "-lc", cmd],
-      { timeout: 9 * 60_000, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          const tail = `${stdout}\n${stderr}`.trim().split("\n").slice(-6).join("\n");
-          reject(new Error(`GGUF export/import failed: ${tail || err.message}`));
-        } else {
-          resolve();
-        }
-      }
-    );
-  });
 }
 
 /**
@@ -494,11 +449,8 @@ function runWslExport(jobId: string, base: string, tag: string): Promise<void> {
 export async function fetchFineTuned(): Promise<FineTunedModel[]> {
   let rows: TlJob[] = [];
   try {
-    const res = await fetch(`${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/list`, {
-      headers: inferenceHeaders(),
-    });
-    const raw = (await res.json().catch(() => [])) as TlJob[] | { data?: TlJob[] };
-    rows = Array.isArray(raw) ? raw : (raw.data ?? []);
+    const res = await tlFetch(`/experiment/${FINETUNE_EXPERIMENT}/jobs/list`);
+    rows = unwrapList<TlJob>(await res.json().catch(() => []));
   } catch {
     return [];
   }
@@ -511,7 +463,7 @@ export async function fetchFineTuned(): Promise<FineTunedModel[]> {
     .map((j) => {
       const d = j.job_data ?? {};
       const name = d.task_name ?? `Job ${j.id}`;
-      const tag = fineTuneTag(name);
+      const tag = fineTuneTag(name, String(j.id ?? ""));
       const ready = servable.has(tag);
       return {
         name,
@@ -571,12 +523,8 @@ function normalizeJob(j: TlJob): TrainingJob {
  */
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/list`,
-      { headers: inferenceHeaders() }
-    );
-    const raw = (await res.json().catch(() => [])) as TlJob[] | { data?: TlJob[] };
-    const rows = Array.isArray(raw) ? raw : (raw.data ?? []);
+    const res = await tlFetch(`/experiment/${FINETUNE_EXPERIMENT}/jobs/list`);
+    const rows = unwrapList<TlJob>(await res.json().catch(() => []));
     const jobs = rows.filter(isTrainJob).map(normalizeJob);
     return jobs.reverse();
   } catch {

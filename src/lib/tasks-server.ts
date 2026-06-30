@@ -6,10 +6,11 @@
  * across types so the Tasks monitor can show one row per job with its real
  * status, progress, model, and timing. Job logs come from `/jobs/{id}/output`.
  */
-import { inferenceHeaders } from "@/lib/inference";
-import { TL_ROOT } from "@/lib/models-catalog";
+import { inferenceHeaders, TL_ROOT } from "@/lib/inference";
+import { tlFetch, unwrapList } from "@/lib/tl-fetch";
+import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 
-const EXPERIMENT = "nqr-ft";
+const EXPERIMENT = FINETUNE_EXPERIMENT;
 
 export type TlJobRow = {
   id: string;
@@ -70,12 +71,10 @@ function normalize(j: TlJob): TlJobRow {
 
 /** All jobs in the working experiment, newest first. (v0.40.0: experiment-scoped.) */
 export async function listAllJobs(): Promise<TlJobRow[]> {
-  const res = await fetch(`${TL_ROOT}/experiment/${EXPERIMENT}/jobs/list?slim=true`, {
-    headers: inferenceHeaders(),
-  });
+  const res = await tlFetch(`/experiment/${EXPERIMENT}/jobs/list?slim=true`);
   if (!res.ok) throw new Error(`jobs ${res.status}`);
-  const rows = (await res.json().catch(() => [])) as TlJob[];
-  return (Array.isArray(rows) ? rows : []).map(normalize).reverse();
+  const rows = unwrapList<TlJob>(await res.json().catch(() => []));
+  return rows.map(normalize).reverse();
 }
 
 /** SDK output for a job (`/jobs/{id}/output`) — the `lab.log()` summary. */
@@ -158,10 +157,12 @@ export type TlExperimentRow = { id: string; name: string };
 
 /** Real experiments (`GET /experiment/`). */
 export async function listTlExperiments(): Promise<TlExperimentRow[]> {
-  const res = await fetch(`${TL_ROOT}/experiment/`, { headers: inferenceHeaders() });
+  const res = await tlFetch(`/experiment/`);
   if (!res.ok) throw new Error(`experiments ${res.status}`);
-  const rows = (await res.json().catch(() => [])) as Array<{ id?: string | number; name?: string }>;
-  return (Array.isArray(rows) ? rows : [])
+  const rows = unwrapList<{ id?: string | number; name?: string }>(
+    await res.json().catch(() => [])
+  );
+  return rows
     .filter((e) => e.id != null)
     .map((e) => ({ id: String(e.id), name: e.name ?? String(e.id) }));
 }

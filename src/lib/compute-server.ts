@@ -4,8 +4,7 @@
  * ComputeProvider shape. v0.40.0 runs ALL execution through these providers; on
  * a local self-host there's a single built-in "Local" provider.
  */
-import { inferenceHeaders } from "@/lib/inference";
-import { TL_ROOT } from "@/lib/models-catalog";
+import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import {
   PROVIDER_TYPES,
   type Accelerator,
@@ -32,9 +31,9 @@ export async function createTlComputeProvider(name: string, type: string): Promi
   try {
     // UI labels ("SkyPilot", "Vast.ai") → backend enum ("skypilot", "vastai").
     const beType = type.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const res = await fetch(`${TL_ROOT}/compute_provider/providers/`, {
+    const res = await tlFetch(`/compute_provider/providers/`, {
       method: "POST",
-      headers: inferenceHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, type: beType, config: {} }),
     });
     return res.ok;
@@ -46,10 +45,9 @@ export async function createTlComputeProvider(name: string, type: string): Promi
 /** Delete a compute provider (`DELETE /compute_provider/providers/{id}`). */
 export async function deleteTlComputeProvider(id: string): Promise<boolean> {
   try {
-    const res = await fetch(
-      `${TL_ROOT}/compute_provider/providers/${encodeURIComponent(id)}`,
-      { method: "DELETE", headers: inferenceHeaders() }
-    );
+    const res = await tlFetch(`/compute_provider/providers/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
     return res.ok;
   } catch {
     return false;
@@ -57,12 +55,9 @@ export async function deleteTlComputeProvider(id: string): Promise<boolean> {
 }
 
 export async function fetchTlComputeProviders(): Promise<ComputeProvider[]> {
-  const res = await fetch(`${TL_ROOT}/compute_provider/providers/`, {
-    headers: inferenceHeaders(),
-  });
+  const res = await tlFetch(`/compute_provider/providers/`);
   if (!res.ok) throw new Error(`compute providers ${res.status}`);
-  const data = (await res.json().catch(() => [])) as TlProvider[] | { data?: TlProvider[] };
-  const rows = Array.isArray(data) ? data : (data.data ?? []);
+  const rows = unwrapList<TlProvider>(await res.json().catch(() => []));
   return rows
     .filter((p) => p.id)
     .map((p) => {

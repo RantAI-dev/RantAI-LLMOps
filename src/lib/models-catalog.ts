@@ -11,7 +11,8 @@
  * safetensors) runs on `fastchat_server`. We pick the loader from the model's
  * architecture.
  */
-import { INFERENCE_BASE_URL, inferenceHeaders } from "@/lib/inference";
+import { TL_ROOT } from "@/lib/inference";
+import { tlFetch } from "@/lib/tl-fetch";
 import {
   deleteOllamaModel,
   listOllamaModels,
@@ -19,9 +20,6 @@ import {
   pullOllamaModel,
   unloadOllama,
 } from "@/lib/ollama";
-
-/** TL base without the trailing `/v1` — the model/server routes live at the root. */
-const TL_ROOT = INFERENCE_BASE_URL.replace(/\/v1$/, "");
 
 export type CatalogModel = {
   /** TL model id (usually the HF repo, e.g. `Qwen/Qwen2.5-3B-Instruct-GGUF`). */
@@ -188,7 +186,7 @@ type TlLocalModel = {
 
 /** Models already downloaded to disk (TL `/model/list`). */
 export async function fetchDownloaded(): Promise<CatalogModel[]> {
-  const res = await fetch(`${TL_ROOT}/model/list`, { headers: inferenceHeaders() });
+  const res = await tlFetch(`/model/list`);
   // Don't silently return [] on failure — that makes a TL outage or a bad/expired
   // INFERENCE_API_KEY (401/403) look like "you have no models". Throw so the caller
   // (a route that degrades to empty) logs the real cause.
@@ -231,9 +229,7 @@ export async function deleteModels(
       // TL registry ids look like "Org/Model"; anything else isn't a model.
       if (!id.includes("/")) return { id, ok: true };
       try {
-        const res = await fetch(`${TL_ROOT}/model/delete?model_id=${encodeURIComponent(id)}`, {
-          headers: inferenceHeaders(),
-        });
+        const res = await tlFetch(`/model/delete?model_id=${encodeURIComponent(id)}`);
         return { id, ok: res.ok };
       } catch {
         return { id, ok: false };
@@ -249,9 +245,9 @@ export async function deleteModels(
 /** Fine-tuned adaptors for a base model (TL `/model/pefts`; body is a raw string). */
 export async function fetchAdaptors(baseModelId: string): Promise<string[]> {
   try {
-    const res = await fetch(`${TL_ROOT}/model/pefts`, {
+    const res = await tlFetch(`/model/pefts`, {
       method: "POST",
-      headers: inferenceHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(baseModelId),
     });
     if (!res.ok) return [];

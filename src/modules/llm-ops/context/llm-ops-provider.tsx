@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { runOptimistic } from "@/lib/optimistic";
 import { useResourceFetch } from "@/lib/use-resource-fetch";
 import {
   fetchExperiments,
@@ -407,27 +408,32 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
 
   const stopTask = useCallback(
     (id: string) => {
-      // Real: ask TL to stop the job; optimistically reflect it in the UI.
-      void fetch(`/api/tasks/${encodeURIComponent(id)}/stop`, { method: "POST" });
-      updateLatestRun(id, (run) => {
-        if (run.status !== "Running" && run.status !== "Paused" && run.status !== "Retrying") {
-          return run;
-        }
-        return appendRunLog(
-          {
-            ...run,
-            status: "Cancelled",
-            finishedAt: new Date().toISOString(),
-            outputStatus: "None",
-            timeline: run.timeline.map((s) =>
-              s.id === "completed" ? { ...s, label: "Cancelled", status: "failed" as const } : s
-            ),
-          },
-          "Run cancelled by user"
-        );
+      // Optimistically mark the run cancelled; on failure re-sync from TL + toast.
+      void runOptimistic({
+        apply: () =>
+          updateLatestRun(id, (run) => {
+            if (run.status !== "Running" && run.status !== "Paused" && run.status !== "Retrying") {
+              return run;
+            }
+            return appendRunLog(
+              {
+                ...run,
+                status: "Cancelled",
+                finishedAt: new Date().toISOString(),
+                outputStatus: "None",
+                timeline: run.timeline.map((s) =>
+                  s.id === "completed" ? { ...s, label: "Cancelled", status: "failed" as const } : s
+                ),
+              },
+              "Run cancelled by user"
+            );
+          }),
+        request: () => fetch(`/api/tasks/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+        rollback: () => reloadTasks(),
+        errorMessage: "Gagal menghentikan task di server",
       });
     },
-    [updateLatestRun]
+    [updateLatestRun, reloadTasks]
   );
 
   const retryTask = useCallback(
@@ -469,12 +475,21 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     [appendExperimentActivity, tasks]
   );
 
-  const deleteTask = useCallback((id: string) => {
-    // Real: delete the job record in TL, then drop it from the list.
-    void fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-    setSelectedTaskId((current) => (current === id ? null : current));
-  }, []);
+  const deleteTask = useCallback(
+    (id: string) => {
+      // Optimistically drop the row; on failure re-sync from TL + toast.
+      void runOptimistic({
+        apply: () => {
+          setTasks((prev) => prev.filter((t) => t.id !== id));
+          setSelectedTaskId((current) => (current === id ? null : current));
+        },
+        request: () => fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
+        rollback: () => reloadTasks(),
+        errorMessage: "Gagal menghapus task di server",
+      });
+    },
+    [reloadTasks]
+  );
 
   const createExperiment = useCallback((input: CreateExperimentInput) => {
     // TL uses the (secured) experiment name as its id. We optimistically add it,
@@ -507,13 +522,24 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
         },
       ],
     };
-    setExperiments((prev) => [experiment, ...prev]);
-    setIsCreateExperimentOpen(false);
-    void fetch("/api/experiments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: input.name }),
-    }).then(() => reloadExperiments());
+    void runOptimistic({
+      apply: () => {
+        setExperiments((prev) => [experiment, ...prev]);
+        setIsCreateExperimentOpen(false);
+      },
+      request: () =>
+        fetch("/api/experiments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: input.name }),
+        }),
+      // On failure the optimistic row never existed in TL — reload drops it.
+      rollback: () => reloadExperiments(),
+      errorMessage: "Gagal membuat experiment di server",
+      // On success, reconcile against TL's authoritative id (it slugs the name).
+    }).then((ok) => {
+      if (ok) reloadExperiments();
+    });
     return id;
   }, [reloadExperiments]);
 
@@ -633,29 +659,43 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
 
   const deleteExperiment = useCallback(
     (id: string) => {
-      // Real: delete the experiment in TL, then drop it locally.
-      void fetch(`/api/experiments/${encodeURIComponent(id)}`, { method: "DELETE" });
-      setExperiments((prev) => prev.filter((e) => e.id !== id));
-      setTasks((prev) =>
-        prev.map((t) =>
-          t.experimentId === id
-            ? {
-                ...t,
-                experimentId: "unlinked",
-                experimentName: "Unlinked experiment",
-              }
-            : t
-        )
-      );
-      setDeleteExperimentTargetId(null);
-      if (selectedExperimentId === id) setSelectedExperimentId(null);
+      // Optimistically drop it + unlink its tasks; on failure re-sync + toast.
+      void runOptimistic({
+        apply: () => {
+          setExperiments((prev) => prev.filter((e) => e.id !== id));
+          setTasks((prev) =>
+            prev.map((t) =>
+              t.experimentId === id
+                ? {
+                    ...t,
+                    experimentId: "unlinked",
+                    experimentName: "Unlinked experiment",
+                  }
+                : t
+            )
+          );
+          setDeleteExperimentTargetId(null);
+          if (selectedExperimentId === id) setSelectedExperimentId(null);
+        },
+        request: () => fetch(`/api/experiments/${encodeURIComponent(id)}`, { method: "DELETE" }),
+        rollback: () => {
+          reloadExperiments();
+          reloadTasks();
+        },
+        errorMessage: "Gagal menghapus experiment di server",
+      });
     },
-    [selectedExperimentId]
+    [selectedExperimentId, reloadExperiments, reloadTasks]
   );
 
   // Simulate live progress for the latest run of every actively-running task.
   useEffect(() => {
     const interval = window.setInterval(() => {
+      // Collected inside the updater, fired AFTER it — never call setState (which
+      // appendExperimentActivity does) from within a setState updater: React may
+      // run an updater more than once (StrictMode/concurrent), double-firing the
+      // "completed" activity. The Map (keyed by task id) dedupes such re-runs.
+      const completed = new Map<string, { experimentId: string; name: string }>();
       setTasks((prev) => {
         // Skip the state update entirely when nothing is running — returning the
         // same reference makes React bail out, avoiding a re-render every tick.
@@ -673,7 +713,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
           const nextProgress = Math.min(100, run.progress + increment);
 
           if (nextProgress >= 100) {
-            appendExperimentActivity(task.experimentId, "task_completed", `Run completed: ${task.name}`);
+            completed.set(task.id, { experimentId: task.experimentId, name: task.name });
             return { ...task, runs: [completeRun(task, { ...run, progress: nextProgress }), ...task.runs.slice(1)] };
           }
 
@@ -698,6 +738,10 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
           return { ...task, runs: [nextRun, ...task.runs.slice(1)] };
         });
       });
+
+      for (const { experimentId, name } of completed.values()) {
+        appendExperimentActivity(experimentId, "task_completed", `Run completed: ${name}`);
+      }
     }, 1200);
 
     return () => window.clearInterval(interval);

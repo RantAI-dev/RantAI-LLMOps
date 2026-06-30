@@ -15,6 +15,14 @@ export const INFERENCE_BASE_URL = (
   process.env.INFERENCE_BASE_URL ?? "http://localhost:11434/v1"
 ).replace(/\/$/, "");
 
+/**
+ * Transformer Lab base without the trailing `/v1` — the orchestration routes
+ * (model/job/experiment/...) live at the root, while `/v1` is the (Ollama)
+ * OpenAI-compatible inference surface. Defined here as the single source of
+ * truth shared by {@link tlFetch} and the lib helpers.
+ */
+export const TL_ROOT = INFERENCE_BASE_URL.replace(/\/v1$/, "");
+
 /** Model name the engine expects (e.g. an Ollama tag, or a TL-loaded model id). */
 export const INFERENCE_MODEL = process.env.INFERENCE_MODEL ?? "";
 

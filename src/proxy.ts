@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AUTH_COOKIE, AUTH_ENABLED, sessionToken } from "@/lib/auth";
+import { AUTH_COOKIE, AUTH_ENABLED, verifySession } from "@/lib/auth";
 
 /**
  * Shared-password gate (Next 16 `proxy`, nodejs runtime). Active only when
@@ -16,7 +16,7 @@ export async function proxy(req: NextRequest) {
   }
 
   const cookie = req.cookies.get(AUTH_COOKIE)?.value;
-  if (cookie && cookie === (await sessionToken())) {
+  if (await verifySession(cookie)) {
     return NextResponse.next();
   }
 

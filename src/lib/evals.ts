@@ -10,14 +10,18 @@
  * Only safetensors models can be evaluated (the harness loads via HF
  * transformers); GGUF is inference-only.
  */
-import { execFile } from "node:child_process";
-
+import { runHostScript } from "@/lib/host-runner";
 import { fetchDownloaded, TL_ROOT, type CatalogModel } from "@/lib/models-catalog";
 import { inferenceHeaders } from "@/lib/inference";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
+import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
+import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
+import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 
-const EVAL_EXPERIMENT = "nqr-ft";
+// Evals run against fine-tune jobs, which live under the fine-tune experiment —
+// these MUST be the same id (single source of truth in tl-constants).
+const EVAL_EXPERIMENT = FINETUNE_EXPERIMENT;
 
 /** GitHub-hosted EleutherAI lm-eval harness trainer (mirrors its task.yaml). */
 const EVAL_GITHUB_URL = "https://github.com/transformerlab/transformerlab-app";
@@ -173,27 +177,28 @@ async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string;
   const name = job.job_data?.task_name;
   if (!base || !name) throw new Error("Could not resolve the base model / name for this fine-tune");
   const tag = `eval-${slug(name)}`;
-  const safe = (s: string) => /^[a-zA-Z0-9._:/-]+$/.test(s);
-  if (![jobId, base, tag].every(safe)) throw new Error("Invalid characters in eval arguments");
 
-  const modelPath = await new Promise<string>((resolve, reject) => {
-    const cmd = `bash ~/nqr_merge.sh ${jobId} ${base} ${tag}`;
-    execFile(
-      "wsl.exe",
-      ["-d", "Ubuntu", "--", "bash", "-lc", cmd],
-      { timeout: 9 * 60_000, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        if (err) {
-          const tail = `${stdout}\n${stderr}`.trim().split("\n").slice(-4).join("\n");
-          reject(new Error(`Merge for eval failed: ${tail || err.message}`));
-          return;
-        }
-        const path = stdout.trim().split("\n").filter(Boolean).pop()?.trim();
-        if (!path) reject(new Error("Merge produced no model path"));
-        else resolve(path);
-      }
-    );
-  });
+  // Defense-in-depth (runHostScript already isolates args via argv).
+  assertJobId(jobId);
+  assertModelId(base);
+  assertTag(tag);
+
+  let stdout: string;
+  try {
+    // Fixed template; values bind to $1/$2/$3 via "$@" — never interpolated.
+    ({ stdout } = await runHostScript('bash ~/nqr_merge.sh "$@"', [jobId, base, tag]));
+  } catch (err) {
+    throw new Error(`Merge for eval failed: ${err instanceof Error ? err.message : err}`);
+  }
+  // The script prints the merged dir as the last absolute-path line; pick the
+  // last line starting with "/" so any trailing log/banner noise is ignored.
+  const modelPath = stdout
+    .trim()
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("/"))
+    .pop();
+  if (!modelPath) throw new Error("Merge produced no model path");
   return { modelPath, label: name };
 }
 
@@ -266,9 +271,8 @@ type LmEvalResults = { results?: Record<string, Record<string, number | string>>
  */
 async function fetchEvalScores(jobId: string): Promise<EvalScore[]> {
   try {
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}/get_eval_results?experimentId=${EVAL_EXPERIMENT}&task=view`,
-      { headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${EVAL_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}/get_eval_results?experimentId=${EVAL_EXPERIMENT}&task=view`
     );
     if (!res.ok) return [];
     // The endpoint returns text/csv ("No evaluation results found") when empty.
@@ -294,27 +298,26 @@ async function fetchEvalScores(jobId: string): Promise<EvalScore[]> {
  * it strips the job_data we classify on) and keep the ones that ran the harness.
  */
 export async function fetchEvalJobs(): Promise<EvalJob[]> {
+  let jobs: EvalJob[];
   try {
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/jobs/list`,
-      { headers: inferenceHeaders() }
-    );
-    const raw = (await res.json().catch(() => [])) as TlEvalJob[] | { data?: TlEvalJob[] };
-    const rows = Array.isArray(raw) ? raw : (raw.data ?? []);
-    const jobs = rows.filter(isEvalJob).map(normalize).reverse();
-    // Scores live in a per-job artifact, not the list payload — fetch them for
-    // finished jobs (eval jobs are few, so the extra calls are cheap).
-    await Promise.all(
-      jobs.map(async (j) => {
-        if (j.status === "COMPLETE" && j.scores.length === 0) {
-          j.scores = await fetchEvalScores(j.id);
-        }
-      })
-    );
-    return jobs;
+    const res = await tlFetch(`/experiment/${EVAL_EXPERIMENT}/jobs/list`);
+    const rows = unwrapList<TlEvalJob>(await res.json().catch(() => []));
+    jobs = rows.filter(isEvalJob).map(normalize).reverse();
   } catch {
-    return [];
+    return []; // only the list fetch failing degrades to empty
   }
+  // Scores live in a per-job artifact, not the list payload — fetch them for
+  // finished jobs. A failed score fetch returns [] for that one job only (see
+  // fetchEvalScores' own catch); it must never blank the whole list, so this
+  // runs OUTSIDE the try above.
+  await Promise.all(
+    jobs.map(async (j) => {
+      if (j.status === "COMPLETE" && j.scores.length === 0) {
+        j.scores = await fetchEvalScores(j.id);
+      }
+    })
+  );
+  return jobs;
 }
 
 function slug(s: string): string {

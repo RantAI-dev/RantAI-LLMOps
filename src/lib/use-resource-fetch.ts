@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 
 import { USE_REAL_API } from "@/lib/api/config";
 
@@ -27,10 +34,19 @@ export function useResourceFetch<T>(
   const enabled = options?.always === true || USE_REAL_API;
   const [status, setStatus] = useState<ResourceStatus>(enabled ? "loading" : "idle");
 
-  // Kick off a fetch; setState happens in the async `.then`/`.catch` (never
+  // Holds the canceller for the in-flight fetch so a newer fetch (from reload or
+  // a re-mount) supersedes an older one. Without this, two responses could land
+  // out of order and the stale one would clobber the fresher list (last-writer
+  // race). setState always happens in the async `.then`/`.catch` (never
   // synchronously in an effect body) and is guarded against post-unmount writes.
+  const cancelRef = useRef<(() => void) | null>(null);
+
   const run = useCallback(() => {
+    cancelRef.current?.(); // supersede any fetch still in flight
     let cancelled = false;
+    cancelRef.current = () => {
+      cancelled = true;
+    };
     fetcher()
       .then((next) => {
         if (cancelled) return;
@@ -40,14 +56,12 @@ export function useResourceFetch<T>(
       .catch(() => {
         if (!cancelled) setStatus("error");
       });
-    return () => {
-      cancelled = true;
-    };
   }, [fetcher, setData]);
 
   useEffect(() => {
     if (!enabled) return;
-    return run();
+    run();
+    return () => cancelRef.current?.();
   }, [enabled, run]);
 
   // Manual retry (called from an event handler, so a synchronous status update
