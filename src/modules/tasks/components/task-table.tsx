@@ -28,11 +28,7 @@ import { TaskStatusBadge } from "./task-status-badge";
 type TaskTableProps = {
   tasks: Task[];
   onView: (id: string) => void;
-  onStart: (id: string) => void;
-  onPause: (id: string) => void;
   onStop: (id: string) => void;
-  onRetry: (id: string) => void;
-  onClone: (id: string) => void;
   onDelete: (id: string) => void;
   onCreateClick: () => void;
 };
@@ -47,11 +43,7 @@ const outputStyles: Record<string, string> = {
 export function TaskTable({
   tasks,
   onView,
-  onStart,
-  onPause,
   onStop,
-  onRetry,
-  onClone,
   onDelete,
   onCreateClick,
 }: TaskTableProps) {
@@ -135,11 +127,7 @@ export function TaskTable({
                   <TaskRowActions
                     status={status}
                     onView={() => onView(task.id)}
-                    onStart={() => onStart(task.id)}
-                    onPause={() => onPause(task.id)}
                     onStop={() => onStop(task.id)}
-                    onRetry={() => onRetry(task.id)}
-                    onClone={() => onClone(task.id)}
                     onDelete={() => onDelete(task.id)}
                   />
                 </TableCell>
@@ -155,28 +143,16 @@ export function TaskTable({
 function TaskRowActions({
   status,
   onView,
-  onStart,
-  onPause,
   onStop,
-  onRetry,
-  onClone,
   onDelete,
 }: {
   status: TaskStatus;
   onView: () => void;
-  onStart: () => void;
-  onPause: () => void;
   onStop: () => void;
-  onRetry: () => void;
-  onClone: () => void;
   onDelete: () => void;
 }) {
   // v0.40.0: only Stop (cancel) and Delete are real for compute-provider jobs.
   const canStop = status === "Running" || status === "Paused" || status === "Retrying";
-  void onStart;
-  void onPause;
-  void onRetry;
-  void onClone;
 
   return (
     <div className="inline-flex items-center gap-1">

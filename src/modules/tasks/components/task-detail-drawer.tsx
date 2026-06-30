@@ -24,22 +24,14 @@ import { TaskStatusBadge } from "./task-status-badge";
 type TaskDetailDrawerProps = {
   task: Task | null;
   onClose: () => void;
-  onStart: (id: string) => void;
-  onPause: (id: string) => void;
   onStop: (id: string) => void;
-  onRetry: (id: string) => void;
-  onClone: (id: string) => void;
   onDelete: (id: string) => void;
 };
 
 export function TaskDetailDrawer({
   task,
   onClose,
-  onStart,
-  onPause,
   onStop,
-  onRetry,
-  onClone,
   onDelete,
 }: TaskDetailDrawerProps) {
   if (!task) return null;

@@ -27,7 +27,6 @@ export function useExperiments() {
     archiveExperiment: ctx.archiveExperiment,
     deleteExperiment: ctx.deleteExperiment,
     changeExperimentStatus: ctx.changeExperimentStatus,
-    openCreateTask: ctx.openCreateTask,
     isLoading: ctx.experimentsLoading,
     isError: ctx.experimentsError,
     reload: ctx.reloadExperiments,

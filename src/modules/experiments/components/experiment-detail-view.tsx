@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { NotebookPen, Plus } from "lucide-react";
 import { useState } from "react";
 
@@ -19,11 +20,10 @@ import {
   getTasksForExperiment,
 } from "@/modules/experiments/lib/utils";
 import type { Experiment } from "@/modules/experiments/types";
-import { CreateTaskSheet } from "@/modules/tasks/components/create-task-sheet";
 import { TaskDetailDrawer } from "@/modules/tasks/components/task-detail-drawer";
 import { TaskTable } from "@/modules/tasks/components/task-table";
 import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
-import type { AITask, CreateTaskInput } from "@/modules/tasks/types";
+import type { AITask } from "@/modules/tasks/types";
 import { cn } from "@/lib/utils";
 
 const TASK_STATUS_ORDER = [
@@ -69,22 +69,8 @@ export function ExperimentDetailView({
   onDelete,
   onChangeStatus,
 }: ExperimentDetailViewProps) {
-  const {
-    experiments,
-    isCreateTaskOpen,
-    closeCreateTask,
-    createTaskPresetExperimentId,
-    openCreateTask,
-    createTask,
-    selectedTask,
-    setSelectedTaskId,
-    startTask,
-    pauseTask,
-    stopTask,
-    retryTask,
-    cloneTask,
-    deleteTask,
-  } = useLlmOps();
+  const { selectedTask, setSelectedTaskId, stopTask, deleteTask } = useLlmOps();
+  const router = useRouter();
 
   const relatedTasks = getTasksForExperiment(tasks, experiment.id);
   const stats = getExperimentTaskStats(tasks, experiment.id);
@@ -122,7 +108,7 @@ export function ExperimentDetailView({
             onArchive={onArchive}
             onDelete={onDelete}
             onChangeStatus={onChangeStatus}
-            onCreateTask={() => openCreateTask(experiment.id)}
+            onCreateTask={() => router.push("/finetune")}
           />
         </div>
       </header>
@@ -246,22 +232,18 @@ export function ExperimentDetailView({
             <p className="mt-1 text-[13px] text-ink-soft">
               Create a task to start fine-tuning, evaluation, or inference for this experiment.
             </p>
-            <Button type="button" size="sm" className="mt-3" onClick={() => openCreateTask(experiment.id)}>
+            <Button type="button" size="sm" className="mt-3" onClick={() => router.push("/finetune")}>
               <Plus className="size-4" />
-              Create Task
+              New run
             </Button>
           </div>
         ) : (
           <TaskTable
             tasks={relatedTasks}
             onView={setSelectedTaskId}
-            onStart={startTask}
-            onPause={pauseTask}
             onStop={stopTask}
-            onRetry={retryTask}
-            onClone={cloneTask}
             onDelete={deleteTask}
-            onCreateClick={() => openCreateTask(experiment.id)}
+            onCreateClick={() => router.push("/finetune")}
           />
         )}
       </section>
@@ -272,25 +254,10 @@ export function ExperimentDetailView({
         onClose={() => setActivityOpen(false)}
       />
 
-      <CreateTaskSheet
-        key={isCreateTaskOpen ? "create-task-open" : "create-task-closed"}
-        open={isCreateTaskOpen}
-        experiments={experiments}
-        defaultExperimentId={createTaskPresetExperimentId ?? experiment.id}
-        onClose={closeCreateTask}
-        onSubmit={(input: CreateTaskInput) => {
-          createTask(input);
-        }}
-      />
-
       <TaskDetailDrawer
         task={selectedTask}
         onClose={() => setSelectedTaskId(null)}
-        onStart={startTask}
-        onPause={pauseTask}
         onStop={stopTask}
-        onRetry={retryTask}
-        onClone={cloneTask}
         onDelete={deleteTask}
       />
     </article>

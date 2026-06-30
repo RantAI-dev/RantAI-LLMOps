@@ -1124,3 +1124,13 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
   - **Docs:** docs/ROADMAP.md (section "Pengerasan kualitas & keamanan", baris Tasks/Auth, Next Steps + Docker-ready), docs/SETUP.md (Access gate: AUTH_SECRET/constant-time/rate-limit; section Host runner WSL/Docker).
 - **Files:** src/lib/use-resource-fetch.ts, src/modules/llm-ops/context/llm-ops-provider.tsx, src/modules/tasks/services/tasks-service.ts, docs/ROADMAP.md, docs/SETUP.md.
 - **Result:** tsc 0 error, eslint 0 warning, vitest 90/90. Belum commit.
+
+## 2026-06-30 08:31:46 GMT
+- **Task:** Tutup audit kejujuran UI — buang fitur "Create Task" palsu (local-only) + dead plumbing Start/Pause/Retry/Clone. Tanpa commit.
+- **Action:**
+  - **Provider:** hapus mock actions createTask/startTask/pauseTask/retryTask/cloneTask + openCreateTask/closeCreateTask + state dialog create-task (isCreateTaskOpen/createTaskPresetExperimentId) + entri context type/value/deps + import yang jadi nyangkut (generateTaskId/generateRunId/buildDefaultTimeline/formatLogTime/startNewRun/runningResourceUsage/ZERO_RESOURCE/CreateTaskInput). Pertahankan stopTask/deleteTask (real) + updateLatestRun/appendRunLog (dipakai stopTask).
+  - **Hooks:** use-tasks & use-experiments dibuang field yang sudah tak ada.
+  - **Komponen:** tasks-page & experiment-detail-view hapus <CreateTaskSheet/> + prop mati; tombol "Create Task" diarahkan ke /finetune (label jadi "New run", konsisten); task-table & task-detail-drawer hapus prop onStart/onPause/onRetry/onClone; evals-rag-page (mock) tombol "Run evaluation" diarahkan ke /evals.
+  - **Hapus file:** src/modules/tasks/components/create-task-sheet.tsx.
+- **Files:** llm-ops-provider.tsx, use-tasks.ts, use-experiments.ts, tasks-page.tsx, experiment-detail-view.tsx, experiment-detail-toolbar.tsx, task-table.tsx, task-detail-drawer.tsx, evals-rag-page.tsx (−create-task-sheet.tsx).
+- **Result:** tsc 0 error, eslint 0 warning, vitest 90/90, /tasks & /experiments render 200 tanpa error. Tak ada lagi tombol/aksi palsu yang cuma sentuh state lokal. Belum commit.

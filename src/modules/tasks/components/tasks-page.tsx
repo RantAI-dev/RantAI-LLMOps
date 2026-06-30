@@ -10,7 +10,6 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useTasks } from "@/modules/tasks/hooks/use-tasks";
 import { cn } from "@/lib/utils";
 
-import { CreateTaskSheet } from "./create-task-sheet";
 import { TaskDetailDrawer } from "./task-detail-drawer";
 import { TaskFiltersBar } from "./task-filters";
 import { TaskSummaryCards } from "./task-summary-cards";
@@ -20,22 +19,13 @@ import { taskUi } from "@/modules/tasks/constants/task-ui";
 export function TasksPage() {
   const {
     tasks,
-    experiments,
     filteredTasks,
     filters,
     setFilters,
     resetFilters,
     selectedTask,
     setSelectedTaskId,
-    isCreateOpen,
-    setIsCreateOpen,
-    createTaskPresetExperimentId,
-    createTask,
-    startTask,
-    pauseTask,
     stopTask,
-    retryTask,
-    cloneTask,
     deleteTask,
     isLoading,
     isError,
@@ -94,33 +84,16 @@ export function TasksPage() {
         <TaskTable
           tasks={filteredTasks}
           onView={setSelectedTaskId}
-          onStart={startTask}
-          onPause={pauseTask}
           onStop={stopTask}
-          onRetry={retryTask}
-          onClone={cloneTask}
           onDelete={deleteTask}
           onCreateClick={() => router.push("/finetune")}
         />
       )}
 
-      <CreateTaskSheet
-        key={isCreateOpen ? "create-task-open" : "create-task-closed"}
-        open={isCreateOpen}
-        experiments={experiments}
-        defaultExperimentId={createTaskPresetExperimentId}
-        onClose={() => setIsCreateOpen(false)}
-        onSubmit={createTask}
-      />
-
       <TaskDetailDrawer
         task={selectedTask}
         onClose={() => setSelectedTaskId(null)}
-        onStart={startTask}
-        onPause={pauseTask}
         onStop={stopTask}
-        onRetry={retryTask}
-        onClone={cloneTask}
         onDelete={deleteTask}
       />
     </div>

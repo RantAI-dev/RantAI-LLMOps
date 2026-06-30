@@ -15,19 +15,7 @@ export function useTasks() {
     selectedTask: ctx.selectedTask,
     selectedTaskId: ctx.selectedTaskId,
     setSelectedTaskId: ctx.setSelectedTaskId,
-    isCreateOpen: ctx.isCreateTaskOpen,
-    setIsCreateOpen: (open: boolean) => {
-      if (open) ctx.openCreateTask(ctx.createTaskPresetExperimentId ?? undefined);
-      else ctx.closeCreateTask();
-    },
-    openCreateTask: ctx.openCreateTask,
-    createTaskPresetExperimentId: ctx.createTaskPresetExperimentId,
-    createTask: ctx.createTask,
-    startTask: ctx.startTask,
-    pauseTask: ctx.pauseTask,
     stopTask: ctx.stopTask,
-    retryTask: ctx.retryTask,
-    cloneTask: ctx.cloneTask,
     deleteTask: ctx.deleteTask,
     isLoading: ctx.tasksLoading,
     isError: ctx.tasksError,

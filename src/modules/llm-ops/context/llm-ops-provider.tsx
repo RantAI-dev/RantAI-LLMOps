@@ -28,23 +28,9 @@ import type {
   ExperimentFilters,
 } from "@/modules/experiments/types";
 import { fetchTasks, seedTasks } from "@/modules/tasks/services/tasks-service";
-import {
-  buildDefaultTimeline,
-  formatLogTime,
-  generateRunId,
-  generateTaskId,
-  latestRun,
-  taskProgress,
-  taskStatus,
-} from "@/modules/tasks/lib/utils";
-import {
-  appendRunLog,
-  runningResourceUsage,
-  startNewRun,
-  ZERO_RESOURCE,
-} from "@/modules/tasks/lib/run-engine";
+import { latestRun, taskProgress, taskStatus } from "@/modules/tasks/lib/utils";
+import { appendRunLog } from "@/modules/tasks/lib/run-engine";
 import type {
-  CreateTaskInput,
   Task,
   TaskFilters,
   TaskRun,
@@ -78,16 +64,7 @@ type LlmOpsContextValue = {
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   selectedTask: Task | null;
-  isCreateTaskOpen: boolean;
-  createTaskPresetExperimentId: string | null;
-  openCreateTask: (experimentId?: string) => void;
-  closeCreateTask: () => void;
-  createTask: (input: CreateTaskInput) => string | undefined;
-  startTask: (id: string) => void;
-  pauseTask: (id: string) => void;
   stopTask: (id: string) => void;
-  retryTask: (id: string) => void;
-  cloneTask: (id: string) => void;
   deleteTask: (id: string) => void;
   experimentFilters: ExperimentFilters;
   setExperimentFilters: React.Dispatch<React.SetStateAction<ExperimentFilters>>;
@@ -138,10 +115,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     useState<ExperimentFilters>(defaultExperimentFilters);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(null);
-  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
-  const [createTaskPresetExperimentId, setCreateTaskPresetExperimentId] = useState<
-    string | null
-  >(null);
   const [isCreateExperimentOpen, setIsCreateExperimentOpen] = useState(false);
   const [isEditExperimentOpen, setIsEditExperimentOpen] = useState(false);
   const [deleteExperimentTargetId, setDeleteExperimentTargetId] = useState<string | null>(
@@ -288,123 +261,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  const openCreateTask = useCallback((experimentId?: string) => {
-    setCreateTaskPresetExperimentId(experimentId ?? null);
-    setIsCreateTaskOpen(true);
-  }, []);
-
-  const closeCreateTask = useCallback(() => {
-    setIsCreateTaskOpen(false);
-    setCreateTaskPresetExperimentId(null);
-  }, []);
-
-  const createTask = useCallback(
-    (input: CreateTaskInput) => {
-      const experiment = getExperimentById(input.experimentId);
-      if (!experiment) return undefined;
-
-      const id = generateTaskId();
-      const createdAt = new Date().toISOString();
-      const newTask: Task = {
-        id,
-        name: input.name,
-        type: input.type,
-        experimentId: experiment.id,
-        experimentName: experiment.name,
-        computeTarget: input.computeTarget,
-        engine: input.engine,
-        createdAt,
-        description: input.description,
-        owner: "Admin-NQR",
-        priority: input.priority,
-        baseModel: input.baseModel,
-        dataset: input.dataset,
-        gpuRequired: input.gpuRequired,
-        runtime: "Auto-detected",
-        hyperparameters: input.hyperparameters,
-        // Creating a task queues its first run (run #1).
-        runs: [
-          {
-            id: generateRunId(),
-            taskId: id,
-            attempt: 1,
-            status: "Queued",
-            progress: 0,
-            createdAt,
-            durationMs: 0,
-            outputStatus: "None",
-            logs: [
-              { time: formatLogTime(), message: "Run #1 created" },
-              { time: formatLogTime(), message: "Run #1 queued" },
-            ],
-            artifacts: [],
-            resourceUsage: { ...ZERO_RESOURCE },
-            timeline: buildDefaultTimeline().map((s, i) =>
-              i <= 1 ? { ...s, status: i === 0 ? "completed" : "active" } : s
-            ),
-          },
-        ],
-      };
-      setTasks((prev) => [newTask, ...prev]);
-      appendExperimentActivity(experiment.id, "task_created", `Task created: ${newTask.name}`);
-      closeCreateTask();
-      return id;
-    },
-    [appendExperimentActivity, closeCreateTask, getExperimentById]
-  );
-
-  const startTask = useCallback(
-    (id: string) => {
-      const task = tasks.find((t) => t.id === id);
-      if (!task) return;
-      const latest = latestRun(task);
-      const resumable = latest && (latest.status === "Paused" || latest.status === "Queued");
-
-      setTasks((prev) =>
-        prev.map((t) => {
-          if (t.id !== id) return t;
-          const current = t.runs[0];
-          if (current && (current.status === "Paused" || current.status === "Queued")) {
-            const resumed = appendRunLog(
-              {
-                ...current,
-                status: "Running",
-                startedAt: current.startedAt ?? new Date().toISOString(),
-                outputStatus: "Pending",
-                resourceUsage: runningResourceUsage(t, current.resourceUsage),
-                timeline: current.timeline.map((s) => {
-                  if (s.id === "queued") return { ...s, status: "completed" as const };
-                  if (s.id === "started" || s.id === "running") return { ...s, status: "active" as const };
-                  return s;
-                }),
-              },
-              current.status === "Paused" ? "Run resumed" : "Training started"
-            );
-            return { ...t, runs: [resumed, ...t.runs.slice(1)] };
-          }
-          // No active run (fresh template or last run finished) → start a new run.
-          return { ...t, runs: [startNewRun(t, "Running"), ...t.runs] };
-        })
-      );
-
-      appendExperimentActivity(
-        task.experimentId,
-        "task_started",
-        resumable ? `Run resumed: ${task.name}` : `Run started: ${task.name}`
-      );
-    },
-    [appendExperimentActivity, tasks]
-  );
-
-  const pauseTask = useCallback(
-    (id: string) => {
-      updateLatestRun(id, (run) =>
-        run.status === "Running" ? appendRunLog({ ...run, status: "Paused" }, "Run paused by user") : run
-      );
-    },
-    [updateLatestRun]
-  );
-
   const stopTask = useCallback(
     (id: string) => {
       // Optimistically mark the run cancelled; on failure re-sync from TL + toast.
@@ -433,45 +289,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       });
     },
     [updateLatestRun, reloadTasks]
-  );
-
-  const retryTask = useCallback(
-    (id: string) => {
-      const task = tasks.find((t) => t.id === id);
-      if (!task || latestRun(task)?.status !== "Failed") return;
-
-      setTasks((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, runs: [startNewRun(t, "Retrying"), ...t.runs] } : t))
-      );
-      appendExperimentActivity(task.experimentId, "task_started", `Run retried: ${task.name}`);
-
-      window.setTimeout(() => {
-        updateLatestRun(id, (run) =>
-          run.status === "Retrying"
-            ? appendRunLog({ ...run, status: "Running" }, "Retry started — reloading configuration")
-            : run
-        );
-      }, 1500);
-    },
-    [appendExperimentActivity, tasks, updateLatestRun]
-  );
-
-  const cloneTask = useCallback(
-    (id: string) => {
-      const source = tasks.find((t) => t.id === id);
-      if (!source) return;
-      // Cloning duplicates the template only — a fresh recipe with no runs.
-      const clone: Task = {
-        ...source,
-        id: generateTaskId(),
-        name: `${source.name} (copy)`,
-        createdAt: new Date().toISOString(),
-        runs: [],
-      };
-      setTasks((prev) => [clone, ...prev]);
-      appendExperimentActivity(source.experimentId, "task_created", `Task cloned: ${clone.name}`);
-    },
-    [appendExperimentActivity, tasks]
   );
 
   const deleteTask = useCallback(
@@ -723,16 +540,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       selectedTaskId,
       setSelectedTaskId,
       selectedTask,
-      isCreateTaskOpen,
-      createTaskPresetExperimentId,
-      openCreateTask,
-      closeCreateTask,
-      createTask,
-      startTask,
-      pauseTask,
       stopTask,
-      retryTask,
-      cloneTask,
       deleteTask,
       experimentFilters,
       setExperimentFilters,
@@ -771,16 +579,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       filteredTasks,
       selectedTaskId,
       selectedTask,
-      isCreateTaskOpen,
-      createTaskPresetExperimentId,
-      openCreateTask,
-      closeCreateTask,
-      createTask,
-      startTask,
-      pauseTask,
       stopTask,
-      retryTask,
-      cloneTask,
       deleteTask,
       experimentFilters,
       resetExperimentFilters,

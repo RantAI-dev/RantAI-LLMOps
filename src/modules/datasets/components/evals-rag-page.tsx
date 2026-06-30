@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FlaskConical, Plus, TrendingUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -15,13 +16,10 @@ import {
 } from "@/components/ui/table";
 import { MOCK_RAG_EVAL_RUNS } from "@/modules/datasets/data/rag-mock-data";
 import { datasetUi, panelClassName } from "@/modules/datasets/constants/dataset-ui";
-import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
 import type { RagEvalMetric } from "@/modules/datasets/types";
 import { cn } from "@/lib/utils";
 
 export function EvalsRagPage() {
-  const { openCreateTask } = useLlmOps();
-
   return (
     <div className="min-w-0 w-full space-y-4">
       <div className="flex flex-col gap-4 border-b border-hairline pb-4 sm:flex-row sm:items-start sm:justify-between">
@@ -32,10 +30,12 @@ export function EvalsRagPage() {
             trustworthy answers.
           </p>
         </div>
-        <Button type="button" onClick={() => openCreateTask()}>
-          <Plus className="size-4" />
-          Run evaluation
-        </Button>
+        <Button type="button" nativeButton={false} render={
+          <Link href="/evals">
+            <Plus className="size-4" />
+            Run evaluation
+          </Link>
+        } />
       </div>
 
       <MockBanner>
