@@ -1134,3 +1134,32 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
   - **Hapus file:** src/modules/tasks/components/create-task-sheet.tsx.
 - **Files:** llm-ops-provider.tsx, use-tasks.ts, use-experiments.ts, tasks-page.tsx, experiment-detail-view.tsx, experiment-detail-toolbar.tsx, task-table.tsx, task-detail-drawer.tsx, evals-rag-page.tsx (−create-task-sheet.tsx).
 - **Result:** tsc 0 error, eslint 0 warning, vitest 90/90, /tasks & /experiments render 200 tanpa error. Tak ada lagi tombol/aksi palsu yang cuma sentuh state lokal. Belum commit.
+
+## 2026-06-30 13:08:21 GMT
+- **Task:** Scaffold Dockerfile + docker-compose buat run TL backend di Docker pakai source/conda lokal (bind-mount). Tanpa commit.
+- **Action:** Buat docker/Dockerfile (thin: nvidia/cuda base + bubblewrap/git/tini; torch+CUDA dari conda env yang di-mount), docker/docker-compose.yml (service transformerlab, same-path bind-mount $HOME/.transformerlab + serve scripts dari repo, command conda-activate+run.sh -c -p 8339, port 8339, privileged buat bwrap, gpus:all + fallback deploy.resources, host-gateway buat Ollama host, container_name=transformerlab cocok dgn DOCKER_CONTAINER), docker/README.md (alasan bind-mount, prereq nvidia-container-toolkit, urutan bring-up API→GPU→bwrap→serve, bagian-sulit jujur: bwrap nested + serve→Ollama cross-container + path coupling, + jalur image fully-baked nanti).
+- **Validasi:** docker compose config LULUS (escaping $$/${HOME} & gpus:all resolve), YAML valid. BELUM `compose up` (butuh mesin user + GPU).
+- **Files:** docker/Dockerfile, docker/docker-compose.yml, docker/README.md.
+- **Result:** Scaffold siap diiterasi user. Belum commit. Catatan: jalankan `docker compose` dari WSL (bukan Windows shell) supaya ${HOME} cocok dgn path conda env.
+
+## 2026-06-30 13:13:45 GMT
+- **Task:** Cara tes apakah backend bisa jalan di Docker. Tanpa commit.
+- **Action:** Probe prasyarat via WSL: Docker client ada di Ubuntu, TL source+conda env+run.sh ada, GPU RTX 3060 kebaca, HOME=/home/idham. TEMUAN BLOKIR: daemon Docker hidup (kebaca dari Windows, OS linux) TAPI WSL-Integration buat distro Ubuntu BELUM aktif → /var/run/docker.sock ngga ada di Ubuntu, DOCKER_HOST unset, jadi 'docker run' dari WSL gagal. Bikin docker/test-backend.sh (verifier bertahap: [0] daemon reachable [1] source+env [2] GPU passthrough [3] container :8339 [4] GPU+bwrap di container, lalu arahkan tes final via app).
+- **Files:** docker/test-backend.sh.
+- **Result:** Belum bisa dites sampai user aktifin Docker Desktop -> Settings -> Resources -> WSL Integration -> Ubuntu (Apply & Restart). Setelah itu: bash docker/test-backend.sh. Belum commit.
+
+## 2026-06-30 13:19:35 GMT
+- **Task:** Tes nyata backend TL di Docker (user sudah aktifin WSL Integration). Tanpa commit.
+- **Action:** Verifier [0-2] PASS (docker dari WSL, source/env, GPU passthrough RTX 3060). Tambah TL_PORT override ke compose biar tes paralel tanpa matiin native. Build image (CUDA base cached, apt bubblewrap/git/tini) + 'TL_PORT=8340 docker compose up -d --build'. Container 'transformerlab' Up (0.0.0.0:8340->8339).
+- **HASIL:** Backend TL JALAN PENUH di Docker — logs: conda env aktif, "NVIDIA GPU detected adding CUDA libraries", DB migrations applied, galleries updated, Uvicorn on 0.0.0.0:8339, deteksi "Running on WSL". GPU kebaca di dalam container (nvidia-smi), bwrap=/usr/bin/bwrap ada, curl :8340 = 200 (3x). Paralel dgn native :8339 (tak terganggu).
+- **Belum dites:** eksekusi JOB nyata di dalam bwrap container (fine-tune e2e) + serve→Ollama. Container masih running di :8340.
+- **Files:** docker/docker-compose.yml (TL_PORT override).
+- **Result:** Core backend TERBUKTI jalan di Docker (API+GPU+startup). Belum commit. Teardown: cd docker && docker compose down.
+
+## 2026-06-30 13:40:56 GMT
+- **Task:** Tes job e2e di Docker container (fine-tune). Tanpa commit.
+- **Action:** Stop native :8339 (hindari konflik SQLite) → pindah container ke :8339 (down/up) → app otomatis ngomong ke container (tanpa ubah env). Submit fine-tune kecil via BFF app (docker-smoke, maxSteps=3).
+- **TEMUAN #1:** Job FAILED exit 127 di 'conda run --prefix <env> uv venv' → uv ngga ada di container (native uv di ~/.local/bin/uv v0.11.21, di luar mount). FIX: tambah install uv 0.11.21 ke docker/Dockerfile (UV_INSTALL_DIR=/usr/local/bin). Rebuild.
+- **TEMUAN #2 (PROOF):** Submit ulang (docker-smoke-2) → job LAUNCHING → venv kebangun (316M+ naik) → log: "Sandbox backend: bwrap", "Setup sandboxed via bwrap: .../bin/bwrap". bwrap JOB EXECUTION TERBUKTI JALAN di container. Setup (git clone + uv pip install torch/unsloth) jalan di dalam bwrap. Install berat masih lanjut (~GB, sama kayak native).
+- **Files:** docker/Dockerfile (+uv).
+- **Result:** Backend TL FULLY FUNCTIONAL di Docker — API+GPU+startup+bwrap-job semua kebukti. Cuma butuh uv di image. State: native DOWN, container UP di :8339 (app pakai Docker sekarang), job install lanjut. Belum commit. Revert ke native: docker compose down + bash scripts/start-all.sh.

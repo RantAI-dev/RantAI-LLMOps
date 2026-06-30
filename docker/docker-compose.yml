@@ -1,0 +1,89 @@
+# Run the Transformer Lab v0.40.0 backend in Docker, against your LOCAL source +
+# conda env (bind-mounted). See docker/README.md for the GPU / bwrap caveats and
+# the recommended bring-up order.
+#
+# Run from WSL (where your ~/.transformerlab lives), inside this repo:
+#   cd docker && docker compose up --build
+#
+# NOTE: ${HOME} is resolved by Docker Compose from the shell you run it in, so
+# run `docker compose` from WSL — NOT a Windows shell — or the paths won't match
+# the conda env that was built under your WSL home.
+
+services:
+  transformerlab:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Must match DOCKER_CONTAINER in .env.local — the app's serve/merge pipeline
+    # runs `docker exec <this name> …` when HOST_RUNNER=docker.
+    container_name: transformerlab
+
+    # SAME-PATH mounts: the conda env has absolute paths (shebangs) baked in, so
+    # the host dir must appear at the identical path inside the container.
+    environment:
+      - HOME=${HOME}
+      # conda (miniforge) on PATH so `conda` + the env's python resolve.
+      - PATH=${HOME}/.transformerlab/miniforge3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # The whole TL home: src + conda envs + miniforge + orgs/workspace/jobs data.
+      - ${HOME}/.transformerlab:${HOME}/.transformerlab
+      # Serve/merge pipeline scripts (used when HOST_RUNNER=docker). Mounted from
+      # the repo so they always exist and stay version-controlled.
+      - ../scripts/serve/nqr_serve_finetune.sh:${HOME}/nqr_serve_finetune.sh:ro
+      - ../scripts/serve/nqr_merge.sh:${HOME}/nqr_merge.sh:ro
+      - ../scripts/serve/nqr_export_gguf.sh:${HOME}/nqr_export_gguf.sh:ro
+
+    working_dir: ${HOME}/.transformerlab/src
+    # Launch TL the same way scripts/start-all.sh does, but in the foreground.
+    # ($$ escapes a literal $ so Compose doesn't try to interpolate it.)
+    command: >
+      bash -lc 'eval "$$(conda shell.bash hook)"
+      && conda activate "$$HOME/.transformerlab/envs/transformerlab"
+      && exec ./run.sh -c -p 8339'
+
+    ports:
+      # Host port is overridable (TL_PORT) so you can smoke-test the container
+      # alongside a native backend already on 8339. Container always listens 8339.
+      - "${TL_PORT:-8339}:8339"
+
+    # --- bwrap (the compute-provider sandbox) needs elevated privileges to nest
+    #     inside the container. Start with `privileged` to get jobs running, then
+    #     try narrowing to the cap_add/security_opt block below. ---
+    privileged: true
+    # cap_add: ["SYS_ADMIN"]
+    # security_opt:
+    #   - seccomp:unconfined
+    #   - apparmor:unconfined
+
+    # --- GPU passthrough (requires nvidia-container-toolkit on the host) ---
+    gpus: all
+    # If your Compose version rejects `gpus: all`, delete it and use:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - { driver: nvidia, count: all, capabilities: [gpu] }
+
+    # Lets the container reach a HOST-side Ollama at host.docker.internal:11434.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    restart: unless-stopped
+
+  # --- Ollama -----------------------------------------------------------------
+  # Simplest: keep Ollama on the HOST (`bash scripts/start-all.sh`) — the app's
+  # chat BFF reaches it at localhost:11434 and the in-container serve pipeline
+  # can `ollama create` against host.docker.internal (set OLLAMA_HOST in the
+  # serve scripts). To run it here instead, uncomment — but then the GGUF the
+  # merge step writes must be on a volume BOTH containers can see (see README).
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   gpus: all
+  #   ports: ["11434:11434"]
+  #   volumes: ["ollama:/root/.ollama"]
+  #   restart: unless-stopped
+
+# volumes:
+#   ollama:
