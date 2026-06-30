@@ -284,16 +284,6 @@ export async function stopServing(): Promise<boolean> {
   return unloadOllama();
 }
 
-/**
- * Pull a model into Ollama (downloads if missing). `repo` is an Ollama tag.
- * Long-running for large models — Ollama streams the bytes. (`ggufFile` is a
- * legacy TL param, ignored: Ollama tags are self-contained.)
- */
-export async function downloadModel(repo: string, _ggufFile?: string): Promise<void> {
-  void _ggufFile;
-  await pullOllamaModel(repo);
-}
-
 /** The model currently resident in Ollama's VRAM, if any. */
 export async function fetchLoaded(): Promise<string | null> {
   return loadedOllamaModel();

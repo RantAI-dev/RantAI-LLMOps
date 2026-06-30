@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { CatalogModel, ModelCatalog } from "@/lib/models-catalog";
+import { pullModelWithProgress } from "@/lib/pull-progress";
 
 const EMPTY: ModelCatalog = {
   loaded: null,
@@ -16,6 +17,8 @@ const EMPTY: ModelCatalog = {
 export type CatalogBusy = {
   id: string;
   action: "load" | "download" | "export" | "delete";
+  /** Download progress 0–100 (null until Ollama reports a total). */
+  percent?: number | null;
 } | null;
 
 async function getCatalog(): Promise<ModelCatalog> {
@@ -91,15 +94,11 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
   const downloadAndLoad = useCallback(
     async (model: CatalogModel) => {
       setError(null);
-      setBusy({ id: model.id, action: "download" });
+      setBusy({ id: model.id, action: "download", percent: null });
       try {
-        const res = await fetch("/api/models/download", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repo: model.hfRepo ?? model.id, ggufFile: model.ggufFile }),
-        });
-        const data = (await res.json()) as { error?: string };
-        if (!res.ok) throw new Error(data.error || "Download failed");
+        await pullModelWithProgress(model.hfRepo ?? model.id, (percent) =>
+          setBusy((b) => (b && b.id === model.id ? { ...b, percent } : b))
+        );
         await refresh();
         await load(model);
       } catch (err) {

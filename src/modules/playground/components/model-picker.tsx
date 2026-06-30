@@ -217,6 +217,7 @@ export function ModelPicker({
                             model={m}
                             busy={busy?.id === m.id ? busy.action : null}
                             elapsed={elapsed}
+                            percent={busy?.id === m.id ? (busy.percent ?? null) : null}
                             downloadable
                             onClick={() => {
                               downloadAndLoad(m).then(() => setOpen(false));
@@ -290,6 +291,7 @@ function ModelRow({
   active,
   busy,
   elapsed = 0,
+  percent = null,
   downloadable,
   onClick,
 }: {
@@ -297,6 +299,7 @@ function ModelRow({
   active?: boolean;
   busy: "load" | "download" | "export" | "delete" | null;
   elapsed?: number;
+  percent?: number | null;
   downloadable?: boolean;
   onClick: () => void;
 }) {
@@ -305,7 +308,7 @@ function ModelRow({
       type="button"
       onClick={onClick}
       disabled={busy !== null}
-      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-surface-2 disabled:opacity-60"
+      className="relative flex w-full items-center gap-2 overflow-hidden rounded-lg px-2 py-1.5 text-left hover:bg-surface-2 disabled:opacity-60"
     >
       <div className="grid size-4 shrink-0 place-items-center">
         {busy ? (
@@ -328,12 +331,21 @@ function ModelRow({
         ) : null}
         <span className="text-[11px] tabular-nums text-ink-soft">
           {busy === "download"
-            ? `Downloading… ${elapsed}s`
+            ? percent != null
+              ? `Downloading… ${percent}%`
+              : `Downloading… ${elapsed}s`
             : busy === "load"
               ? "Loading…"
               : formatSize(model.sizeMb)}
         </span>
       </div>
+      {busy === "download" && percent != null ? (
+        <span
+          className="absolute inset-x-0 bottom-0 h-0.5 bg-primary transition-[width] duration-300"
+          style={{ width: `${percent}%` }}
+          aria-hidden
+        />
+      ) : null}
     </button>
   );
 }

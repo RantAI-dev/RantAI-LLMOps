@@ -91,6 +91,52 @@ export async function pullOllamaModel(tag: string): Promise<void> {
   if (data.error) throw new Error(data.error);
 }
 
+export type PullProgress = { status: string; percent: number | null };
+
+/**
+ * Pull a model and YIELD progress as it goes. `ref` is anything Ollama can pull:
+ * an Ollama library tag (`qwen2.5:1.5b`) OR a Hugging Face GGUF repo
+ * (`hf.co/{owner}/{repo}:{quant}`). Streams Ollama's NDJSON progress
+ * (`{status,total,completed}` per layer); throws on a terminal error.
+ */
+export async function* pullOllamaModelProgress(ref: string): AsyncGenerator<PullProgress> {
+  const res = await fetch(`${OLLAMA_BASE_URL}/api/pull`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model: ref, stream: true }),
+  });
+  if (!res.ok || !res.body) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(detail || `Ollama pull failed (${res.status})`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line) continue;
+      let evt: { status?: string; total?: number; completed?: number; error?: string };
+      try {
+        evt = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (evt.error) throw new Error(evt.error);
+      const percent =
+        typeof evt.total === "number" && evt.total > 0 && typeof evt.completed === "number"
+          ? Math.round((evt.completed / evt.total) * 100)
+          : null;
+      yield { status: evt.status ?? "", percent };
+    }
+  }
+}
+
 /** Delete a model from Ollama (`DELETE /api/delete`). Returns whether it worked. */
 export async function deleteOllamaModel(tag: string): Promise<boolean> {
   try {

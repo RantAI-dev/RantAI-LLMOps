@@ -1163,3 +1163,14 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 - **TEMUAN #2 (PROOF):** Submit ulang (docker-smoke-2) → job LAUNCHING → venv kebangun (316M+ naik) → log: "Sandbox backend: bwrap", "Setup sandboxed via bwrap: .../bin/bwrap". bwrap JOB EXECUTION TERBUKTI JALAN di container. Setup (git clone + uv pip install torch/unsloth) jalan di dalam bwrap. Install berat masih lanjut (~GB, sama kayak native).
 - **Files:** docker/Dockerfile (+uv).
 - **Result:** Backend TL FULLY FUNCTIONAL di Docker — API+GPU+startup+bwrap-job semua kebukti. Cuma butuh uv di image. State: native DOWN, container UP di :8339 (app pakai Docker sekarang), job install lanjut. Belum commit. Revert ke native: docker compose down + bash scripts/start-all.sh.
+
+## 2026-06-30 16:09:39 GMT
+- **Task:** Fitur download model dari HF + section Hub (browse model & dataset ala HF). Tanpa commit.
+- **Action:**
+  - **Fase 1 (download + progress):** ollama.ts `pullOllamaModelProgress` (stream NDJSON); /api/models/download di-upgrade jadi SSE progress; client helper `pull-progress.ts`; chat picker (use-model-catalog + model-picker) tampil bar % saat download. Hapus `downloadModel` lama. Verified SSE live (pulling→percent→success→done).
+  - **Fase 2 (Hub Models):** `src/lib/hf-hub.ts` (searchHfModels filter=gguf, hfModelDetail→quants, searchHfDatasets) pakai HF public API; route /api/hub/{models,model,datasets}; nav "Hub" (Compass) di app-shell; halaman /hub modul src/modules/hub (hub-page tabs, hub-models: search+filter task/sort+kartu+download quant+progress, hub-datasets). Download = `ollama pull hf.co/{repo}:{quant}`.
+  - **Fase 3 (Hub Datasets):** tab Datasets (search+sort) + "Use in fine-tune" (copy id + ke /finetune; dataset ditarik HF by-id runtime, ngga perlu download).
+  - Konsep: manfaatin Ollama native (pull HF GGUF via hf.co/) — pass-through, ngga ada logika convert. Safetensors (perlu convert) = di luar scope (Tier 2).
+  - Docs: .env.example (HF_TOKEN opsional), ROADMAP (fitur Hub).
+- **Files:** +src/lib/{hf-hub,pull-progress}.ts, +src/app/api/hub/{models,model,datasets}/route.ts, +src/app/(app)/hub/page.tsx, +src/modules/hub/** (hooks+components+lib), ubah ollama.ts, models-catalog.ts (−downloadModel), app/api/models/download/route.ts, use-model-catalog.ts, model-picker.tsx, app-shell.tsx.
+- **Result:** tsc 0 error, eslint 0 error, vitest 90/90. Smoke live: /api/hub/models (30 GGUF), /api/hub/model (quants), /api/hub/datasets (alpaca dst), /hub 200. Belum commit.

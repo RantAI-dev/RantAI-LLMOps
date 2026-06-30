@@ -64,7 +64,8 @@ v0.40.0 **mencabut inference dari backend** + memindah semua eksekusi (train/eva
 - [x] **Sweep** — latih grid hyperparameter; tiap combo jadi adaptor → bandingkan via Export+chat
 - [x] **Notes** — **server-side** (`/experiment/{id}/notes`, tersimpan di TL, team-visible)
 - [x] **Chat history (Conversations)** — **server-side**: kita **tambah router `conversations` ke source TL** (mirror `notes.py`); riwayat chat tersimpan di TL, team-visible (bukan localStorage lagi)
-- [x] **Model picker / Registry** — model Ollama (servable) + rekomendasi; delete (Ollama rm)
+- [x] **Hub (browse HF)** — section dedicated: cari & **download model GGUF langsung dari Hugging Face** (`ollama pull hf.co/...`) dengan filter (task/sort), pilih quant, + **progress bar streaming**; tab Datasets (cari + "use in fine-tune"). Inference via Ollama.
+- [x] **Model picker / Registry** — model Ollama (servable) + rekomendasi; delete (Ollama rm); download pakai **progress bar** (SSE)
 - [x] **Dataset** — list / preview / create (`/data/*`)
 - [x] **Recipes** — repoint ke **task gallery v0.40.0** (25 template); "use" = buat experiment
 - [x] **Dashboard** — agregat dari catalog + datasets + tasks

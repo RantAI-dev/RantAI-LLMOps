@@ -10,6 +10,7 @@ import {
   Boxes,
   BrainCog,
   Columns2,
+  Compass,
   ChevronUp,
   Database,
   FlaskConical,
@@ -62,6 +63,7 @@ const mainNav: NavItem[] = [
 ];
 
 const workspaceNav: NavItem[] = [
+  { label: "Hub", href: "/hub", icon: Compass },
   { label: "Recipes", href: "/recipes", icon: BookTemplate },
   { label: "Model Registry", href: "/models", icon: Boxes },
   { label: "Dataset", href: "/datasets", icon: Database },
