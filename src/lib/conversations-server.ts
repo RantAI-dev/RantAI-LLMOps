@@ -8,6 +8,7 @@
  */
 import { inferenceHeaders } from "@/lib/inference";
 import { TL_ROOT } from "@/lib/models-catalog";
+import { logServerError } from "@/lib/log";
 
 /** Experiment used purely as the storage bucket for chat conversations. */
 const CHAT_EXPERIMENT = "nqr-ft";
@@ -21,7 +22,8 @@ export async function listConversations(): Promise<unknown[]> {
     if (!res.ok) return [];
     const data = await res.json().catch(() => []);
     return Array.isArray(data) ? data : [];
-  } catch {
+  } catch (err) {
+    logServerError("listConversations", err);
     return [];
   }
 }

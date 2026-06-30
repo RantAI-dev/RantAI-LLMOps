@@ -65,12 +65,16 @@ export function useResourceFetch<T>(
   }, [enabled, run]);
 
   // Manual retry (called from an event handler, so a synchronous status update
-  // here is fine).
-  const reload = useCallback(() => {
-    if (!enabled) return;
-    setStatus("loading");
-    run();
-  }, [enabled, run]);
+  // here is fine). Pass `silent: true` for background polling so the UI doesn't
+  // flash its loading state on every poll.
+  const reload = useCallback(
+    (silent = false) => {
+      if (!enabled) return;
+      if (!silent) setStatus("loading");
+      run();
+    },
+    [enabled, run]
+  );
 
   return {
     isLoading: status === "loading",

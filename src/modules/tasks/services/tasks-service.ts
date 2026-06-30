@@ -38,8 +38,11 @@ export async function fetchTasks(): Promise<Task[]> {
     if (!res.ok) throw new Error(`tasks ${res.status}`);
     const data = (await res.json()) as TasksResponse;
     const now = new Date().toISOString();
-    const tasks = (data.jobs ?? []).map((j) => tlJobToTask(j, now));
-    return tasks.length > 0 ? tasks : initialMockTasks;
+    // Return the REAL list even when empty — "the backend has no jobs" is honest
+    // data, not a reason to show demo tasks. (Demo mocks would also include a
+    // perpetually-"Running" row, which would keep the live poller running
+    // forever.) Mocks are only for the instant-paint seed + unreachable BFF.
+    return (data.jobs ?? []).map((j) => tlJobToTask(j, now));
   } catch {
     // BFF unreachable (or non-browser context): degrade to the mock seed.
     return initialMockTasks;

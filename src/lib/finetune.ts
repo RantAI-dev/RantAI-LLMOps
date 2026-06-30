@@ -29,6 +29,7 @@ import { listOllamaModels } from "@/lib/ollama";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
+import { logServerError } from "@/lib/log";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
 
@@ -148,7 +149,8 @@ async function fetchLocalDatasets(): Promise<TlDataset[]> {
     if (!res.ok) return [];
     const rows = (await res.json()) as TlDataset[];
     return Array.isArray(rows) ? rows.filter((r) => r.dataset_id) : [];
-  } catch {
+  } catch (err) {
+    logServerError("fetchLocalDatasets", err);
     return [];
   }
 }
@@ -451,7 +453,8 @@ export async function fetchFineTuned(): Promise<FineTunedModel[]> {
   try {
     const res = await tlFetch(`/experiment/${FINETUNE_EXPERIMENT}/jobs/list`);
     rows = unwrapList<TlJob>(await res.json().catch(() => []));
-  } catch {
+  } catch (err) {
+    logServerError("fetchFineTuned", err);
     return [];
   }
   const servable = new Set(
@@ -527,7 +530,8 @@ export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
     const rows = unwrapList<TlJob>(await res.json().catch(() => []));
     const jobs = rows.filter(isTrainJob).map(normalizeJob);
     return jobs.reverse();
-  } catch {
+  } catch (err) {
+    logServerError("fetchTrainingJobs", err);
     return [];
   }
 }
@@ -567,7 +571,8 @@ export async function fetchTrainingJob(id: string): Promise<TrainingJob | null> 
     );
     if (!res.ok) return null;
     return normalizeJob((await res.json()) as TlJob);
-  } catch {
+  } catch (err) {
+    logServerError("fetchTrainingJob", err);
     return null;
   }
 }

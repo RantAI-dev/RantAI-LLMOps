@@ -81,9 +81,21 @@ already up.
 ## Access gate (optional)
 
 Set `APP_PASSWORD` in `.env.local` to require a shared password for the whole
-app (login screen + httpOnly cookie, enforced by Next middleware). Leave it empty
-to disable (frictionless local single-user dev). It's a simple team gate, not
-per-user accounts.
+app (login screen + httpOnly cookie, enforced by `proxy.ts`). Also set
+`AUTH_SECRET` (e.g. `openssl rand -hex 32`) so the session token isn't a plain
+hash of the password — rotating it logs everyone out. Login is compared in
+constant time and rate-limited (10 attempts / 5 min per IP). Leave `APP_PASSWORD`
+empty to disable (frictionless local single-user dev). It's a simple team gate,
+not per-user accounts.
+
+## Host runner for export/merge (WSL today, Docker-ready)
+
+The serve/eval-fine-tune pipeline (peft merge → GGUF → Ollama) runs in the
+backend's environment, selected by `HOST_RUNNER` in `.env.local`:
+`wsl` (default; `wsl.exe -d $WSL_DISTRO`), `docker` (`docker exec
+$DOCKER_CONTAINER`), or `local`. Switching the backend to a container later is a
+one-line env change — no code edits. Arguments are passed argv-isolated, so
+job/model/tag values can't break out of the shell.
 
 ## Troubleshooting
 

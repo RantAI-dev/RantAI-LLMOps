@@ -1,6 +1,6 @@
 # Roadmap & Status — NQRust-LLMOps
 
-**Update:** 29 Juni 2026 · **Status:** **Fase 1 + Fase 2 SELESAI** (migrasi v0.40.0 run-from-source) — loop LLMOps penuh live dari browser, terverifikasi end-to-end.
+**Update:** 30 Juni 2026 · **Status:** **Fase 1 + Fase 2 SELESAI** + **pengerasan kualitas/keamanan (senior code review)** — loop LLMOps penuh live dari browser, terverifikasi end-to-end; codebase di-review & di-hardening.
 
 > Produk LLMOps **self-host untuk tim**, berjalan **lokal** (tanpa cloud). Training =
 > Transformer Lab (v0.40.0, dari source) + Unsloth; inference via **Ollama**
@@ -12,6 +12,28 @@
 
 - **Fase 1 (wire fitur LLMOps ke UI): BERES.** Semua fitur loop produk jalan dengan data nyata (lihat tabel). Pengecualian jujur: multi-user auth (sengaja di-skip) + Plugin management (niche/usang) — tak ada yang menghalangi produk.
 - **Fase 2 (run backend dari source, lepas Docker): BERES.** Backend jalan dari `~/.transformerlab/src` (v0.40.0) di `:8339`, patch WSL diterapkan, app di-repoint, loop chat→fine-tune→eval→serve diverifikasi setara/lebih dari Docker. Bonus Fase 2 (Notes server-side) ✅.
+
+---
+
+## 🛡️ Pengerasan kualitas & keamanan — senior code review (30 Juni 2026)
+
+Review menyeluruh + perbaikan. **tsc 0 error · eslint 0 warning · 90/90 test.** Fitur tak berubah — fokus correctness, keamanan, dan kejujuran data. Detail per-perubahan di `AI_KNOWLEDGE_LOG.md`.
+
+**Keamanan**
+- Jembatan WSL (export/merge) **anti-injection**: argv-form (`runHostScript`, template tetap + `"$@"`, nilai user tak pernah masuk string perintah) + validasi per-field (`assertJobId/ModelId/Tag`) saat submit & export. **Sekaligus Docker-ready** → tinggal `HOST_RUNNER=docker`.
+- **Auth diperketat**: banding token **constant-time**, token = SHA-256(`AUTH_SECRET` + password) (bukan password polos; rotasi secret = revoke semua sesi), **rate-limit login** 10×/5 menit per IP.
+- **HF token diredaksi** dari pesan error upstream sebelum sampai ke browser.
+
+**Correctness & kejujuran data**
+- **Optimistic UI jujur** (`runOptimistic`): aksi yang gagal di server (stop/hapus task, buat/hapus experiment, simpan/hapus chat) kini **rollback + toast**, bukan diam-diam "berhasil" palsu.
+- **Simulasi progress palsu (`Math.random`) dihapus** — progress task murni dari job TL nyata, **live via polling** (silent tiap 5s saat ada task aktif, berhenti saat idle). `fetchTasks` jujur saat kosong (0 job → tampil kosong, bukan task demo).
+- Eval list tahan gagal-parsial (satu skor error tak blank-kan seluruh tabel); poll eval berhenti untuk job gagal; tag fine-tune **anti-tabrakan** (sertakan job id).
+
+**Robustness**
+- Semua fetch ke TL via **`tlFetch`** (timeout 30s — backend hang tak gantung worker; unwrap seragam, konstanta experiment terpusat).
+- Hook lifecycle: race `useResourceFetch` (last-writer) ditutup; `use-sweep`/`use-evals` **guard unmount** (stop polling + tak setState pasca-unmount).
+- **Error logging** (`logServerError`): kegagalan read/list yang dulu ditelan diam-diam kini kelihatan di server log (outage ≠ "data kosong").
+- **+25 unit test** untuk helper baru (validate, redact, auth, optimistic, rate-limit, unwrapList, fineTuneTag).
 
 ---
 
@@ -34,7 +56,7 @@ v0.40.0 **mencabut inference dari backend** + memindah semua eksekusi (train/eva
 - [x] **Fine-tune (LoRA)** — submit via compute-provider (Unsloth, base+dataset dari HF) → job COMPLETE di GPU; history + log nyata
 - [x] **Eval (benchmark)** — lm-eval harness via provider; **bisa eval base HF *atau* fine-tune sendiri** (merge adapter→base lokal → `model_path`). Skor `acc` kebaca + Compare. *(verified: fine-tune nqr-real-adaptor acc=0.613)*
 - [x] **Export + Serve fine-tune** — tombol "Export to use": adapter → merge → **GGUF** → import Ollama → **chat dgn model latihan sendiri**
-- [x] **Tasks** — monitor job (REMOTE) + status + **live logs** (provider console di-tail tiap 3s saat RUNNING, badge "Live")
+- [x] **Tasks** — monitor job (REMOTE) + status + **progress live** (polling silent tiap 5s saat ada task aktif, bukan animasi palsu) + **live logs** (provider console di-tail tiap 3s saat RUNNING, badge "Live")
 - [x] **Experiments** — list
 - [x] **Deployments / Serve** — model sbg API (Ollama `/v1`) + test endpoint + lifecycle
 - [x] **Generations** — banding output base vs fine-tuned (per-model, lewat Ollama)
@@ -47,7 +69,7 @@ v0.40.0 **mencabut inference dari backend** + memindah semua eksekusi (train/eva
 - [x] **Recipes** — repoint ke **task gallery v0.40.0** (25 template); "use" = buat experiment
 - [x] **Dashboard** — agregat dari catalog + datasets + tasks
 - [x] **Compute** — wired ke `/compute_provider/providers/` nyata (provider "Local" Connected)
-- [x] **Auth** — gate password ringan opsional (`APP_PASSWORD` → login + cookie + `proxy.ts`); bukan multi-user
+- [x] **Auth** — gate password ringan opsional (`APP_PASSWORD` + `AUTH_SECRET` → login + cookie `proxy.ts`, banding **constant-time** + **rate-limit**); bukan multi-user
 - [x] **Setup reproducible** — `scripts/setup-v0.40.0.sh` + `start-all.sh` + serve scripts + `docs/SETUP.md`
 
 ### ⚠️ Kosong sampai diisi (bukan bug)
@@ -85,8 +107,9 @@ v0.40.0 **mencabut inference dari backend** + memindah semua eksekusi (train/eva
 ## 🚀 Next Steps (opsional — produk sudah lengkap untuk tujuannya)
 1. **Multi-user auth penuh** (TL `fastapi-users`) — kalau mau benar-benar team-ready.
 2. **Persist job logs** — TL menghapus logs pasca-selesai (live cuma saat RUNNING); kalau mau riwayat log, simpan sendiri saat job selesai.
-3. **Rewrite backend ke Rust** — goal jangka panjang (proyek tersendiri).
-4. **Deploy/serving lanjutan** — multi-model, versioning.
+3. **Dockerize backend** (source lokal via bind-mount) — sisi app **sudah Docker-ready** (`HOST_RUNNER=docker` + `DOCKER_CONTAINER`, lihat `.env.example`); sisa kerjaan: Dockerfile + GPU passthrough (`--gpus all` + nvidia-container-toolkit) + bwrap-in-Docker.
+4. **Rewrite backend ke Rust** — goal jangka panjang (proyek tersendiri).
+5. **Deploy/serving lanjutan** — multi-model, versioning.
 
 ## Keputusan Tercatat
 - Target: **produk self-host untuk tim** (privat, bukan SaaS) · **lokal selamanya**

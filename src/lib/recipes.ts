@@ -9,6 +9,7 @@
 import { inferenceHeaders } from "@/lib/inference";
 import { TL_ROOT } from "@/lib/models-catalog";
 import { listTlExperiments } from "@/lib/tasks-server";
+import { logServerError } from "@/lib/log";
 
 export type Recipe = {
   id: string;
@@ -65,7 +66,8 @@ export async function listRecipes(): Promise<Recipe[]> {
     const body = (await res.json().catch(() => ({}))) as { data?: TlGalleryTask[] } | TlGalleryTask[];
     const rows = Array.isArray(body) ? body : (body.data ?? []);
     return rows.filter((t) => t.title || t.github_repo_dir).map(normalize);
-  } catch {
+  } catch (err) {
+    logServerError("listRecipes", err);
     return [];
   }
 }

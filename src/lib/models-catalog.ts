@@ -13,6 +13,7 @@
  */
 import { TL_ROOT } from "@/lib/inference";
 import { tlFetch } from "@/lib/tl-fetch";
+import { logServerError } from "@/lib/log";
 import {
   deleteOllamaModel,
   listOllamaModels,
@@ -253,7 +254,8 @@ export async function fetchAdaptors(baseModelId: string): Promise<string[]> {
     if (!res.ok) return [];
     const list = (await res.json()) as unknown;
     return Array.isArray(list) ? (list as string[]) : [];
-  } catch {
+  } catch (err) {
+    logServerError("fetchAdaptors", err);
     return [];
   }
 }

@@ -9,6 +9,7 @@
  */
 import { inferenceHeaders } from "@/lib/inference";
 import { TL_ROOT } from "@/lib/models-catalog";
+import { logServerError } from "@/lib/log";
 
 export async function getExperimentNotes(experimentId: string): Promise<string> {
   try {
@@ -19,7 +20,8 @@ export async function getExperimentNotes(experimentId: string): Promise<string> 
     if (!res.ok) return "";
     const data = await res.json().catch(() => "");
     return typeof data === "string" ? data : "";
-  } catch {
+  } catch (err) {
+    logServerError("getExperimentNotes", err);
     return "";
   }
 }

@@ -18,6 +18,7 @@ import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
+import { logServerError } from "@/lib/log";
 
 // Evals run against fine-tune jobs, which live under the fine-tune experiment —
 // these MUST be the same id (single source of truth in tl-constants).
@@ -287,7 +288,8 @@ async function fetchEvalScores(jobId: string): Promise<EvalScore[]> {
       }
     }
     return out;
-  } catch {
+  } catch (err) {
+    logServerError("fetchEvalScores", err);
     return [];
   }
 }
@@ -303,7 +305,8 @@ export async function fetchEvalJobs(): Promise<EvalJob[]> {
     const res = await tlFetch(`/experiment/${EVAL_EXPERIMENT}/jobs/list`);
     const rows = unwrapList<TlEvalJob>(await res.json().catch(() => []));
     jobs = rows.filter(isEvalJob).map(normalize).reverse();
-  } catch {
+  } catch (err) {
+    logServerError("fetchEvalJobs", err);
     return []; // only the list fetch failing degrades to empty
   }
   // Scores live in a per-job artifact, not the list payload — fetch them for

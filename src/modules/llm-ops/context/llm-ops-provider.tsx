@@ -39,7 +39,6 @@ import {
 } from "@/modules/tasks/lib/utils";
 import {
   appendRunLog,
-  completeRun,
   runningResourceUsage,
   startNewRun,
   ZERO_RESOURCE,
@@ -688,64 +687,23 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     [selectedExperimentId, reloadExperiments, reloadTasks]
   );
 
-  // Simulate live progress for the latest run of every actively-running task.
+  // Live progress comes from the real Transformer Lab job state, not a fake
+  // animation: while any task is active we silently re-fetch every few seconds
+  // (no loading flash). The poll stops itself when nothing is running, so an
+  // idle dashboard makes no background requests.
+  const hasActiveTask = useMemo(
+    () =>
+      tasks.some((t) => {
+        const s = taskStatus(t);
+        return s === "Running" || s === "Queued" || s === "Retrying";
+      }),
+    [tasks]
+  );
   useEffect(() => {
-    const interval = window.setInterval(() => {
-      // Collected inside the updater, fired AFTER it — never call setState (which
-      // appendExperimentActivity does) from within a setState updater: React may
-      // run an updater more than once (StrictMode/concurrent), double-firing the
-      // "completed" activity. The Map (keyed by task id) dedupes such re-runs.
-      const completed = new Map<string, { experimentId: string; name: string }>();
-      setTasks((prev) => {
-        // Skip the state update entirely when nothing is running — returning the
-        // same reference makes React bail out, avoiding a re-render every tick.
-        const hasActiveRun = prev.some((t) => {
-          const r = t.runs[0];
-          return r && (r.status === "Running" || r.status === "Retrying");
-        });
-        if (!hasActiveRun) return prev;
-
-        return prev.map((task) => {
-          const run = task.runs[0];
-          if (!run || (run.status !== "Running" && run.status !== "Retrying")) return task;
-
-          const increment = 1 + Math.floor(Math.random() * 3);
-          const nextProgress = Math.min(100, run.progress + increment);
-
-          if (nextProgress >= 100) {
-            completed.set(task.id, { experimentId: task.experimentId, name: task.name });
-            return { ...task, runs: [completeRun(task, { ...run, progress: nextProgress }), ...task.runs.slice(1)] };
-          }
-
-          const tokensDelta = Math.floor(8000 + Math.random() * 12000);
-          const milestone =
-            nextProgress % 20 === 0 && nextProgress > run.progress
-              ? appendRunLog(run, `Epoch checkpoint — ${nextProgress}% complete`)
-              : run;
-
-          const nextRun: TaskRun = {
-            ...milestone,
-            progress: nextProgress,
-            durationMs: run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : run.durationMs,
-            resourceUsage: {
-              ...run.resourceUsage,
-              gpu: Math.min(98, run.resourceUsage.gpu + (Math.random() > 0.7 ? 2 : -1)),
-              vram: Math.min(95, run.resourceUsage.vram + (Math.random() > 0.6 ? 1 : 0)),
-              tokensProcessed: run.resourceUsage.tokensProcessed + tokensDelta,
-              estimatedCost: Number((run.resourceUsage.estimatedCost + tokensDelta * 0.000002).toFixed(2)),
-            },
-          };
-          return { ...task, runs: [nextRun, ...task.runs.slice(1)] };
-        });
-      });
-
-      for (const { experimentId, name } of completed.values()) {
-        appendExperimentActivity(experimentId, "task_completed", `Run completed: ${name}`);
-      }
-    }, 1200);
-
+    if (!hasActiveTask) return;
+    const interval = window.setInterval(() => reloadTasks(true), 5000);
     return () => window.clearInterval(interval);
-  }, [appendExperimentActivity]);
+  }, [hasActiveTask, reloadTasks]);
 
   const resetTaskFilters = useCallback(() => setTaskFilters(defaultTaskFilters), []);
   const resetExperimentFilters = useCallback(

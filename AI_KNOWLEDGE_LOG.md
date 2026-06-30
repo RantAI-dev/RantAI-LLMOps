@@ -1101,3 +1101,26 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
   - **Test:** +3 untuk fineTuneTag (anti-collision, stabil, prefix nqr- tunggal).
 - **Files:** src/lib/{evals,finetune,tl-provider}.ts, src/modules/playground/hooks/use-chat-sessions.ts, src/lib/finetune.test.ts.
 - **Result:** tsc 0 error, eslint 0 warning, vitest 90/90. Belum commit.
+
+## 2026-06-30 07:46:45 GMT
+- **Task:** Item struktural opsional — kontrak error seragam + keputusan split context. Tanpa commit.
+- **Action:**
+  - **Kontrak error:** +src/lib/log.ts (logServerError + dokumentasi konvensi: READ degrade+log, MUTATION balikin boolean, sebagian throw). Instrumen catch read/list yang sebelumnya menelan error diam-diam → kini outage kelihatan di server log: fetchLocalDatasets, fetchFineTuned, fetchTrainingJobs, fetchTrainingJob, fetchEvalScores, fetchEvalJobs, listConversations, getExperimentNotes, listRecipes, fetchAdaptors. Ollama (listOllamaModels/loadedOllamaModel) SENGAJA dilewati: di-poll & rutin gagal saat Ollama mati → logging = spam yang nutupin sinyal.
+  - **Split context:** SETELAH analisis, TIDAK dilakukan. Alasan: cuma 9 consumer, di-funnel lewat use-tasks/use-experiments yang dua-duanya baca tasks DAN experiments (kopling nyata: filteredExperiments butuh tasks, use-tasks butuh experiments), jadi split 2-provider tak benar-benar memisah re-render. Lagipula storm re-render cuma muncul saat interval SIMULASI MOCK (Math.random) jalan. Rekomendasi sebenarnya: hapus simulasi progress palsu itu (sumber storm + data menyesatkan) — ditawarkan ke user, belum dikerjakan (perubahan UX).
+- **Files:** +src/lib/log.ts; ubah finetune.ts, evals.ts, conversations-server.ts, notes-server.ts, recipes.ts, models-catalog.ts.
+- **Result:** tsc 0 error, eslint 0 warning, vitest 90/90. Belum commit.
+
+## 2026-06-30 07:55:16 GMT
+- **Task:** Hapus simulasi progress palsu (Math.random) di llm-ops-provider — sumber re-render storm + data menyesatkan. Tanpa commit.
+- **Action:** Hapus useEffect interval 1.2s yang menganimasi progress/gpu/vram/tokens/cost task "Running" pakai Math.random + event "Run completed" palsu. Hapus import yang jadi nyangkut (useEffect, completeRun). Progress task kini murni dari data TL real (fetchTasks), refresh saat reloadTasks. Storm re-render hilang di sumbernya — tanpa perlu split context.
+- **Files:** src/modules/llm-ops/context/llm-ops-provider.tsx.
+- **Result:** tsc 0 error, eslint 0 warning, vitest 90/90. Belum commit. Catatan: task "Running" kini refresh progress saat reload (belum live-polling) — penambahan polling real opsional.
+
+## 2026-06-30 08:11:51 GMT
+- **Task:** Tambah polling progress REAL (ganti simulasi palsu yang dihapus) + update docs. Tanpa commit.
+- **Action:**
+  - **Polling real:** useResourceFetch.reload kini punya opsi `silent` (skip loading flash). Provider poll `reloadTasks(true)` tiap 5s **hanya saat ada task aktif** (Running/Queued/Retrying), berhenti saat idle. Progress task = data TL real, update sendiri tanpa reload manual.
+  - **fetchTasks jujur saat kosong:** sukses-tapi-kosong kini balikin `[]` (bukan task demo mock) — selain jujur, mencegah poller muter selamanya gara-gara mock "Running". Mock hanya untuk seed instant-paint + BFF unreachable.
+  - **Docs:** docs/ROADMAP.md (section "Pengerasan kualitas & keamanan", baris Tasks/Auth, Next Steps + Docker-ready), docs/SETUP.md (Access gate: AUTH_SECRET/constant-time/rate-limit; section Host runner WSL/Docker).
+- **Files:** src/lib/use-resource-fetch.ts, src/modules/llm-ops/context/llm-ops-provider.tsx, src/modules/tasks/services/tasks-service.ts, docs/ROADMAP.md, docs/SETUP.md.
+- **Result:** tsc 0 error, eslint 0 warning, vitest 90/90. Belum commit.
