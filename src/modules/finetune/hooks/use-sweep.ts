@@ -79,6 +79,9 @@ export function useSweep() {
   const cancelledRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => {
+    // Reset on mount so StrictMode's mount→cleanup→mount cycle doesn't leave the
+    // flag stuck true (which would make every sweep bail immediately).
+    cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
       abortRef.current?.abort();

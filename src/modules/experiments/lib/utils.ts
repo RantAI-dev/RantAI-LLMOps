@@ -1,3 +1,4 @@
+import { APP_TIME_ZONE, parseTlDate } from "@/lib/tl-datetime";
 import type { Task, TaskStatus } from "@/modules/tasks/types";
 import { latestRun, taskProgress, taskStatus } from "@/modules/tasks/lib/utils";
 
@@ -12,13 +13,15 @@ export function generateActivityId(): string {
 }
 
 export function formatDateTime(iso: string | undefined): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("en-US", {
+  const d = parseTlDate(iso);
+  if (!d) return "—";
+  return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: APP_TIME_ZONE,
   });
 }
 

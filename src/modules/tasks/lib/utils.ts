@@ -1,3 +1,4 @@
+import { APP_TIME_ZONE, parseTlDate } from "@/lib/tl-datetime";
 import type { Task, TaskRun, TaskStatus, TaskTimelineStep, TaskType } from "@/modules/tasks/types";
 
 export function formatDuration(ms: number): string {
@@ -11,19 +12,10 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-/** Jakarta (WIB, UTC+7) — Transformer Lab stores naive UTC timestamps. */
-const APP_TIME_ZONE = "Asia/Jakarta";
-
-/**
- * Format a timestamp for display in Jakarta time. Transformer Lab returns naive
- * datetimes ("2026-07-02 04:34:53") that are actually UTC but carry no zone, so
- * we tag them as UTC before converting — otherwise the browser/server parses them
- * as local time and the clock is off by the local offset.
- */
+/** Format a timestamp for display in the app timezone (UTC-safe for TL times). */
 export function formatDateTime(iso: string | undefined): string {
-  if (!iso) return "—";
-  const d = new Date(normalizeToUtc(iso));
-  if (Number.isNaN(d.getTime())) return "—";
+  const d = parseTlDate(iso);
+  if (!d) return "—";
   return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
@@ -31,13 +23,6 @@ export function formatDateTime(iso: string | undefined): string {
     minute: "2-digit",
     timeZone: APP_TIME_ZONE,
   });
-}
-
-/** Tag a zone-less "YYYY-MM-DD HH:MM:SS" string as UTC; pass through ISO strings. */
-function normalizeToUtc(s: string): string {
-  const naive = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/;
-  if (naive.test(s)) return `${s.replace(" ", "T")}Z`;
-  return s;
 }
 
 export function formatLogTime(date = new Date()): string {

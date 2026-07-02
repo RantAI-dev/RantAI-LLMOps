@@ -1,13 +1,8 @@
+import { APP_TIME_ZONE, parseTlDate } from "@/lib/tl-datetime";
 import type {
-  CreateDatasetInput,
   Dataset,
   DatasetReadiness,
   DatasetSplit,
-  HuggingFaceDatasetCatalogEntry,
-  HuggingFaceDatasetFeature,
-  HuggingFaceImportConfig,
-  SchemaMappingRow,
-  StandardField,
   ValidationStatus,
   ValidationSummary,
 } from "@/modules/datasets/types";
@@ -40,29 +35,27 @@ export function formatNumber(n: number): string {
 }
 
 export function formatDateTime(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
+  const d = parseTlDate(iso);
+  if (!d) return iso || "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: APP_TIME_ZONE,
+  }).format(d);
 }
 
 export function formatDate(iso: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
+  const d = parseTlDate(iso);
+  if (!d) return iso || "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: APP_TIME_ZONE,
+  }).format(d);
 }
 
 export function computeQualityScore(validRows: number, totalRows: number): number {
@@ -138,10 +131,6 @@ export function splitTotal(split: DatasetSplit): number {
   return split.training + split.validation + split.testing + split.evaluation;
 }
 
-export function generateDatasetId(): string {
-  return `ds-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
 export function generateActivityId(): string {
   return `ds-act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -169,160 +158,3 @@ export function sourceLabel(source: Dataset["source"]): string {
   }
 }
 
-const HF_COLUMN_TO_STANDARD: Record<string, StandardField> = {
-  instruction: "instruction",
-  prompt: "instruction",
-  question: "instruction",
-  input: "input/context",
-  context: "input/context",
-  sentence: "input/context",
-  sentence1: "input/context",
-  text: "input/context",
-  output: "expected_output",
-  response: "expected_output",
-  answer: "expected_output",
-  answers: "expected_output",
-  chosen: "expected_output",
-  label: "label",
-  category: "label",
-  metadata: "metadata",
-  id: "metadata",
-  idx: "metadata",
-  title: "metadata",
-};
-
-export function buildSchemaMappingFromFeatures(
-  features: HuggingFaceDatasetFeature[]
-): SchemaMappingRow[] {
-  return features.map((feature, index) => {
-    const standardField = HF_COLUMN_TO_STANDARD[feature.name] ?? ("" as StandardField | "");
-    const required = standardField === "instruction" || standardField === "expected_output";
-    return {
-      id: `hf-map-${index}-${feature.name}`,
-      datasetColumn: feature.name,
-      standardField,
-      required,
-      dataType: feature.dtype,
-      exampleValue: feature.example ?? "",
-      mappingStatus: standardField ? "Mapped" : "Optional",
-    };
-  });
-}
-
-export function catalogEntryToCreateInput(
-  entry: HuggingFaceDatasetCatalogEntry,
-  config: HuggingFaceImportConfig
-): CreateDatasetInput {
-  const datasetConfig =
-    entry.configs.find((c) => c.name === config.config) ??
-    entry.configs.find((c) => c.default) ??
-    entry.configs[0]!;
-  const splitInfo =
-    datasetConfig.splits.find((s) => s.name === config.split) ?? datasetConfig.splits[0]!;
-  const totalRows = config.maxRows ?? splitInfo.numRows;
-  const invalidRows = Math.max(1, Math.floor(totalRows * 0.002));
-  const schemaMapping = buildSchemaMappingFromFeatures(datasetConfig.features);
-
-  return {
-    name: config.name.trim() || entry.datasetName,
-    description: config.description.trim() || entry.description,
-    datasetType: config.datasetType,
-    source: "Hugging Face",
-    owner: config.owner,
-    tags: config.tags.length > 0 ? config.tags : entry.tags.slice(0, 5),
-    accessLevel: config.accessLevel,
-    notes: `Imported from Hugging Face: ${entry.repoId} (config=${config.config}, split=${config.split}, revision=${config.revision || "main"})`,
-    schemaMapping,
-    validationSummary: buildValidationSummary(totalRows, invalidRows),
-    issues: [],
-    format: config.streaming ? "HF Streaming" : "Parquet / Arrow",
-    huggingFaceSource: {
-      repoId: entry.repoId,
-      repoUrl: `https://huggingface.co/datasets/${entry.repoId}`,
-      config: config.config,
-      split: config.split,
-      revision: config.revision || "main",
-      streaming: config.streaming,
-      trustRemoteCode: config.trustRemoteCode,
-      importMode: config.importMode,
-      license: entry.license,
-      taskCategories: entry.taskCategories,
-    },
-  };
-}
-
-export function datasetFromCreateInput(input: CreateDatasetInput): Dataset {
-  const now = new Date().toISOString();
-  const status: ValidationStatus = input.saveAsDraft
-    ? "Draft"
-    : deriveValidationStatus(
-        input.validationSummary.invalidRows,
-        0,
-        false,
-        false
-      );
-
-  const dataset: Dataset = {
-    id: generateDatasetId(),
-    name: input.name,
-    description: input.description,
-    datasetType: input.datasetType,
-    source: input.source,
-    currentVersion: "v1",
-    totalRows: input.validationSummary.totalRows,
-    validRows: input.validationSummary.validRows,
-    invalidRows: input.validationSummary.invalidRows,
-    validationStatus: status,
-    usageCount: 0,
-    lastUpdated: now,
-    owner: input.owner,
-    tags: input.tags,
-    accessLevel: input.accessLevel,
-    notes: input.notes,
-    format: input.format ?? "JSONL",
-    createdAt: now,
-    schemaMapping: input.schemaMapping,
-    validationSummary: input.validationSummary,
-    issues: input.issues,
-    huggingFaceSource: input.huggingFaceSource ?? null,
-    versions: [
-      {
-        id: generateVersionId(),
-        version: "v1",
-        changes: "Initial upload",
-        rows: input.validationSummary.totalRows,
-        validationStatus: status,
-        qualityScore: input.validationSummary.dataQualityScore,
-        createdBy: input.owner,
-        createdAt: now,
-        isActive: true,
-      },
-    ],
-    split: { training: 80, validation: 10, testing: 10, evaluation: 0 },
-    usage: [],
-    activityLog: [
-      {
-        id: generateActivityId(),
-        timestamp: now,
-        actor: input.owner,
-        activity: input.saveAsDraft ? "Dataset saved as draft" : input.huggingFaceSource ? "Dataset imported from Hugging Face" : "Dataset uploaded",
-        description: input.saveAsDraft
-          ? `${input.name} saved as draft`
-          : input.huggingFaceSource
-            ? `${input.name} imported from ${input.huggingFaceSource.repoId}`
-            : `${input.name} v1 created`,
-      },
-    ],
-    readiness: {
-      fineTuning: "Not Configured",
-      evaluation: "Not Configured",
-      ragKnowledgeBase: "Not Configured",
-      promptTesting: "Not Configured",
-      agentBenchmark: "Not Configured",
-    },
-    rag: null,
-  };
-
-  dataset.readiness = buildReadiness(dataset);
-  return dataset;
-}

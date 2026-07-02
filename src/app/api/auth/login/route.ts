@@ -17,13 +17,17 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   if (!AUTH_ENABLED) return Response.json({ ok: true }); // gate disabled — nothing to do
 
-  // Throttle brute-force guessing: max 10 attempts per IP per 5 minutes.
+  // Throttle brute-force guessing. Per-IP is the primary limit; a global cap is a
+  // backstop so a spoofed X-Forwarded-For (which we can't trust when not behind a
+  // known proxy) can't lift the aggregate rate by spraying fake IPs.
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  const limit = rateLimit(`login:${ip}`, { max: 10, windowMs: 5 * 60_000 });
-  if (!limit.ok) {
+  const perIp = rateLimit(`login:${ip}`, { max: 10, windowMs: 5 * 60_000 });
+  const global = rateLimit("login:*", { max: 60, windowMs: 5 * 60_000 });
+  if (!perIp.ok || !global.ok) {
+    const retryAfter = Math.max(perIp.retryAfter, global.retryAfter);
     return Response.json(
       { error: "Terlalu banyak percobaan. Coba lagi nanti." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } }
+      { status: 429, headers: { "Retry-After": String(retryAfter) } }
     );
   }
 

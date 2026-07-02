@@ -25,8 +25,11 @@ export function useEvals() {
   const [error, setError] = useState<string | null>(null);
 
   // Stops the compare poll loop from running / setState-ing after unmount.
+  // Reset on mount too — under StrictMode the mount→cleanup→mount cycle would
+  // otherwise leave this permanently true and short-circuit every compare.
   const cancelledRef = useRef(false);
   useEffect(() => {
+    cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
     };

@@ -1,3 +1,4 @@
+import { APP_TIME_ZONE, parseTlDate } from "@/lib/tl-datetime";
 import type {
   CompatibilityStatus,
   ModelStatus,
@@ -12,11 +13,13 @@ export function generateId(prefix: string): string {
 }
 
 export function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
+  const d = parseTlDate(iso);
+  if (!d) return "—";
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(iso));
+    timeZone: APP_TIME_ZONE,
+  }).format(d);
 }
 
 export function formatNumber(n: number): string {
@@ -24,9 +27,10 @@ export function formatNumber(n: number): string {
 }
 
 export function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return "Today";
+  const d = parseTlDate(iso);
+  if (!d) return "—";
+  const days = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  if (days <= 0) return "Today"; // guard future/invalid → no "-1 days ago"
   if (days === 1) return "Yesterday";
   if (days < 30) return `${days} days ago`;
   return formatDateTime(iso);

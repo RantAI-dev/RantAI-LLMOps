@@ -1,119 +1,106 @@
 # Roadmap & Status — NQRust-LLMOps
 
-**Update:** 30 Juni 2026 · **Status:** **Fase 1 + Fase 2 SELESAI** + **pengerasan kualitas/keamanan (senior code review)** — loop LLMOps penuh live dari browser, terverifikasi end-to-end; codebase di-review & di-hardening.
+**Update:** 2 Juli 2026 · **Status:** Loop LLMOps penuh live & terverifikasi.
 
 > Produk LLMOps **self-host untuk tim**, berjalan **lokal** (tanpa cloud). Training =
-> Transformer Lab (v0.40.0, dari source) + Unsloth; inference via **Ollama**
-> (OpenAI-compatible). Engine training dan inference kini **terpisah**.
+> Transformer Lab (v0.40.0) + Unsloth (SFT, GRPO, TTS); inference via **Ollama**
+> (OpenAI-compatible). Engine training & inference terpisah.
+
+**Kondisi build:** `tsc 0 error · eslint 0 warning · vitest 94 pass · next build sukses (20/20 halaman)`.
 
 ---
 
-## 🎯 Vonis Fase 1 & Fase 2
+## 🗺️ Fase Pengembangan
 
-- **Fase 1 (wire fitur LLMOps ke UI): BERES.** Semua fitur loop produk jalan dengan data nyata (lihat tabel). Pengecualian jujur: multi-user auth (sengaja di-skip) + Plugin management (niche/usang) — tak ada yang menghalangi produk.
-- **Fase 2 (run backend dari source, lepas Docker): BERES.** Backend jalan dari `~/.transformerlab/src` (v0.40.0) di `:8339`, patch WSL diterapkan, app di-repoint, loop chat→fine-tune→eval→serve diverifikasi setara/lebih dari Docker. Bonus Fase 2 (Notes server-side) ✅.
-
----
-
-## 🛡️ Pengerasan kualitas & keamanan — senior code review (30 Juni 2026)
-
-Review menyeluruh + perbaikan. **tsc 0 error · eslint 0 warning · 90/90 test.** Fitur tak berubah — fokus correctness, keamanan, dan kejujuran data. Detail per-perubahan di `AI_KNOWLEDGE_LOG.md`.
-
-**Keamanan**
-- Jembatan WSL (export/merge) **anti-injection**: argv-form (`runHostScript`, template tetap + `"$@"`, nilai user tak pernah masuk string perintah) + validasi per-field (`assertJobId/ModelId/Tag`) saat submit & export. **Sekaligus Docker-ready** → tinggal `HOST_RUNNER=docker`.
-- **Auth diperketat**: banding token **constant-time**, token = SHA-256(`AUTH_SECRET` + password) (bukan password polos; rotasi secret = revoke semua sesi), **rate-limit login** 10×/5 menit per IP.
-- **HF token diredaksi** dari pesan error upstream sebelum sampai ke browser.
-
-**Correctness & kejujuran data**
-- **Optimistic UI jujur** (`runOptimistic`): aksi yang gagal di server (stop/hapus task, buat/hapus experiment, simpan/hapus chat) kini **rollback + toast**, bukan diam-diam "berhasil" palsu.
-- **Simulasi progress palsu (`Math.random`) dihapus** — progress task murni dari job TL nyata, **live via polling** (silent tiap 5s saat ada task aktif, berhenti saat idle). `fetchTasks` jujur saat kosong (0 job → tampil kosong, bukan task demo).
-- Eval list tahan gagal-parsial (satu skor error tak blank-kan seluruh tabel); poll eval berhenti untuk job gagal; tag fine-tune **anti-tabrakan** (sertakan job id).
-
-**Robustness**
-- Semua fetch ke TL via **`tlFetch`** (timeout 30s — backend hang tak gantung worker; unwrap seragam, konstanta experiment terpusat).
-- Hook lifecycle: race `useResourceFetch` (last-writer) ditutup; `use-sweep`/`use-evals` **guard unmount** (stop polling + tak setState pasca-unmount).
-- **Error logging** (`logServerError`): kegagalan read/list yang dulu ditelan diam-diam kini kelihatan di server log (outage ≠ "data kosong").
-- **+25 unit test** untuk helper baru (validate, redact, auth, optimistic, rate-limit, unwrapList, fineTuneTag).
+| Fase | Isi | Status |
+|------|-----|--------|
+| **Fase 1** | Wire semua fitur LLMOps ke UI dengan data nyata | ✅ Selesai |
+| **Fase 2** | Jalankan backend dari source lokal (v0.40.0), lepas dependency prebuilt | ✅ Selesai |
+| **Fase 3** | Backend di Docker (bind-mount source), pengerasan keamanan/kualitas, semua fitur real (mock dibuang), detail via URL route | ✅ Selesai |
+| **Fase 4** | Team-ready lanjutan (lihat "Fase berikutnya") | ⏳ Belum |
 
 ---
 
-## ⚙️ Arsitektur (BUKAN Docker lagi)
+## 🏗️ Arsitektur
 
-v0.40.0 **mencabut inference dari backend** + memindah semua eksekusi (train/eval/export) ke **compute-provider**. Tiga proses lokal:
+Tiga proses lokal, engine training & inference terpisah:
 
 | Proses | Port | Peran |
 |--------|------|-------|
-| **TL source** (WSL) | `:8339` | Orchestrator: train / eval / export / jobs / data / notes (compute-provider lokal, sandbox bwrap) |
-| **Ollama** (WSL) | `:11434` | Engine inference: chat + serving |
-| **Next BFF** (Windows) | `:3000` | Jembatan UI ↔ kedua backend (WSL↔Windows localhost forwarding) |
+| **Transformer Lab** (Docker) | `:8339` | Orchestrator: train / eval / export / jobs / data / notes. Compute-provider lokal (sandbox bwrap), GPU passthrough |
+| **Ollama** | `:11434` | Engine inference: chat + serving model |
+| **Next.js (BFF)** | `:3000` | Jembatan UI ↔ backend; auth gate |
+
+**Catatan teknis:**
+- Eksekusi train/eval/export = **compute-provider launch** (job bertipe `REMOTE`), bukan plugin+queue.
+- Base model & dataset training **ditarik dari Hugging Face by-id saat runtime** (tidak di-download dulu ke workspace).
+- Inference dicabut dari backend → Ollama.
+- Eval fine-tune: adapter di-**merge ke base lokal** lalu dieval via `model_path`.
 
 ---
 
-## ✅ Status fitur — AUDIT NYATA (verified via BFF `:3000` → `:8339` + Ollama)
+## ✅ Fitur yang SUDAH ada
 
-### Loop inti — JALAN, data nyata, terverifikasi end-to-end
-- [x] **Chat / Interact** — Ollama `/v1` streaming; picker model Ollama (pulled + recommended)
-- [x] **Fine-tune (LoRA)** — submit via compute-provider (Unsloth, base+dataset dari HF) → job COMPLETE di GPU; history + log nyata
-- [x] **Eval (benchmark)** — lm-eval harness via provider; **bisa eval base HF *atau* fine-tune sendiri** (merge adapter→base lokal → `model_path`). Skor `acc` kebaca + Compare. *(verified: fine-tune nqr-real-adaptor acc=0.613)*
-- [x] **Export + Serve fine-tune** — tombol "Export to use": adapter → merge → **GGUF** → import Ollama → **chat dgn model latihan sendiri**
-- [x] **Tasks** — monitor job (REMOTE) + status + **progress live** (polling silent tiap 5s saat ada task aktif, bukan animasi palsu) + **live logs** (provider console di-tail tiap 3s saat RUNNING, badge "Live")
-- [x] **Experiments** — list
-- [x] **Deployments / Serve** — model sbg API (Ollama `/v1`) + test endpoint + lifecycle
-- [x] **Generations** — banding output base vs fine-tuned (per-model, lewat Ollama)
-- [x] **Workflows** — pipeline 1-klik train→eval(fine-tune)→export, terverifikasi e2e
-- [x] **Sweep** — latih grid hyperparameter; tiap combo jadi adaptor → bandingkan via Export+chat
-- [x] **Notes** — **server-side** (`/experiment/{id}/notes`, tersimpan di TL, team-visible)
-- [x] **Chat history (Conversations)** — **server-side**: kita **tambah router `conversations` ke source TL** (mirror `notes.py`); riwayat chat tersimpan di TL, team-visible (bukan localStorage lagi)
-- [x] **Hub (browse HF)** — section dedicated: cari & **download model GGUF langsung dari Hugging Face** (`ollama pull hf.co/...`) dengan filter (task/sort), pilih quant, + **progress bar streaming**; tab Datasets (cari + "use in fine-tune"). Inference via Ollama.
-- [x] **Model picker / Registry** — model Ollama (servable) + rekomendasi; delete (Ollama rm); download pakai **progress bar** (SSE)
-- [x] **Dataset** — list / preview / create (`/data/*`)
-- [x] **Recipes** — repoint ke **task gallery v0.40.0** (25 template); "use" = buat experiment
-- [x] **Dashboard** — agregat dari catalog + datasets + tasks
-- [x] **Compute** — wired ke `/compute_provider/providers/` nyata (provider "Local" Connected)
-- [x] **Auth** — gate password ringan opsional (`APP_PASSWORD` + `AUTH_SECRET` → login + cookie `proxy.ts`, banding **constant-time** + **rate-limit**); bukan multi-user
-- [x] **Setup reproducible** — `scripts/setup-v0.40.0.sh` + `start-all.sh` + serve scripts + `docs/SETUP.md`
+**Loop inti (train → eval → serve):**
+- **Chat / Interact** — streaming via Ollama `/v1`; picker model.
+- **Fine-tune (LoRA)** — 3 metode via Unsloth: **SFT**, **GRPO** (reasoning/RL), **TTS** (text-to-speech). Submit ke compute-provider → job jalan di GPU; history + log nyata.
+- **Eval (benchmark)** — lm-eval harness; eval model base HF *atau* fine-tune sendiri. Skor `acc` + Compare.
+- **Export + Serve** — adapter → merge → GGUF → Ollama → chat dengan model latihan sendiri.
+- **Workflows** — pipeline 1-klik train → eval → export.
+- **Sweep** — grid hyperparameter; tiap kombinasi jadi adaptor untuk dibandingkan.
 
-### ⚠️ Kosong sampai diisi (bukan bug)
-- [ ] **Model Registry "downloaded" (TL)** kosong — v0.40.0 tak "download model ke workspace"; base model **by HF id** (trainer pull runtime). Picker fine-tune/eval menyodorkan base HF rekomendasi.
+**Manajemen & monitoring:**
+- **Tasks** — monitor job + progress live (polling) + live logs (tail saat RUNNING). Detail lewat URL (`?task=`).
+- **Experiments** — list + detail; KPI dihitung dari task nyata. Detail lewat URL (`/experiments/[id]`).
+- **Model Registry** — model Ollama nyata (servable) + delete. Detail lewat URL (`/models/[id]`).
+- **Deployments / Serve** — serve model sebagai API + test endpoint + lifecycle. Daftar deployment tersimpan **server-side (shared antar anggota)**.
+- **Generations** — banding output base vs fine-tuned.
+- **Dashboard** — agregat nyata (model + dataset + job).
+- **Compute** — provider nyata dari `/compute_provider/providers/`.
 
-### ❌ Tidak dikerjakan — alasan jujur (tak menghalangi produk)
-- [ ] **Multi-user accounts / RBAC** — sengaja di-skip; pakai gate password bersama. TL `fastapi-users` ada bila mau full nanti.
-- [ ] **Plugin management** — niche, low value, **usang di v0.40.0** (trainer = task GitHub, bukan plugin lagi).
+**Data & aset:**
+- **Hub** — cari & download model GGUF dari Hugging Face (`ollama pull hf.co/...`) dengan filter + pilih quant + progress bar. Tab Datasets (cari + "use in fine-tune" → prefill ke form).
+- **Dataset** — viewer dataset TL + download sample JSONL + preview live.
+- **Recipes** — task gallery v0.40.0; "use" = buat experiment.
+- **Notes** — server-side (tersimpan di TL, team-visible).
+- **Chat history** — server-side (router `conversations` di TL, team-visible).
 
-**Di luar scope (sengaja):** RAG/Documents, Diffusion, Audio (TTS), cloud.
-
----
-
-## 🔧 Catatan teknis migrasi v0.40.0
-
-**Perubahan paradigma vs v0.30.3:**
-- Eksekusi train/eval/export = **compute-provider launch** (bukan plugin+queue). Job bertipe `REMOTE`.
-- Inference **dicabut dari backend** → Ollama di host.
-- Base model & dataset training **di-pull dari HF by id** saat runtime.
-- Skor eval pindah ke **artifacts** (`get_eval_results`).
-- Eval fine-tune: harness tak bisa load LoRA adapter dari HF → kita **merge ke base lokal** lalu eval via `model_path`.
-
-**Setup environment (di luar repo, sudah di-script):**
-- `scripts/setup/apply-sandbox-patch.sh` — fix bwrap WSL (`/etc/resolv.conf`). Tanpa ini semua job FAILED.
-- `scripts/setup/apply-conversations.sh` — tambah router `conversations` ke source TL (chat history server-side), mirror `notes.py`. Idempotent.
-- `scripts/setup/install-ollama.sh` — Ollama userspace (`~/.local/bin`, tanpa sudo).
-- `scripts/serve/nqr_export_gguf.sh` + `nqr_serve_finetune.sh` + `nqr_merge.sh` — serve/eval fine-tune (merge→GGUF→Ollama / merge-only).
-- `scripts/setup-v0.40.0.sh` — orchestrate semua + quota team + experiments + pull model default.
-- `scripts/start-all.sh` — start TL + Ollama. `.env.local` — lihat `.env.example`.
-
-→ Detail lengkap di `docs/SETUP.md` + `AI_KNOWLEDGE_LOG.md`.
+**Platform:**
+- **Backend di Docker** — container dari source lokal, GPU passthrough.
+- **Auth** — gate password bersama (`APP_PASSWORD` + `AUTH_SECRET`; banding constant-time + rate-limit login).
+- **Keamanan** — jembatan host script anti-injection (argv-form + validasi id); HF token diredaksi dari error.
+- **Kualitas** — optimistic UI jujur (aksi gagal → rollback + toast); semua fetch ke TL via `tlFetch` (timeout); error read/list ke-log; detail entity punya URL sendiri (share/bookmark/back).
 
 ---
 
-## 🚀 Next Steps (opsional — produk sudah lengkap untuk tujuannya)
-1. **Multi-user auth penuh** (TL `fastapi-users`) — kalau mau benar-benar team-ready.
-2. **Persist job logs** — TL menghapus logs pasca-selesai (live cuma saat RUNNING); kalau mau riwayat log, simpan sendiri saat job selesai.
-3. **Dockerize backend** (source lokal via bind-mount) — sisi app **sudah Docker-ready** (`HOST_RUNNER=docker` + `DOCKER_CONTAINER`, lihat `.env.example`); sisa kerjaan: Dockerfile + GPU passthrough (`--gpus all` + nvidia-container-toolkit) + bwrap-in-Docker.
-4. **Rewrite backend ke Rust** — goal jangka panjang (proyek tersendiri).
-5. **Deploy/serving lanjutan** — multi-model, versioning.
+## ⏳ Fitur yang BELUM ada
 
-## Keputusan Tercatat
-- Target: **produk self-host untuk tim** (privat, bukan SaaS) · **lokal selamanya**
-- Backend: **run from source v0.40.0** (Docker ditinggalkan); rewrite (Rust) ditunda
-- Inference: **Ollama** (selaras goal "serve via ollama/vllm/llamacpp")
-- Auth: **gate password bersama** (multi-user ditunda) · Lisensi: ditangguhkan (internal)
+| Fitur | Alasan |
+|-------|--------|
+| **Multi-user accounts / RBAC** | Sengaja ditunda; pakai gate password bersama. TL `fastapi-users` tersedia bila mau. |
+| **Persist job logs** | TL menghapus log setelah job selesai (live hanya saat RUNNING); riwayat log perlu disimpan sendiri. |
+| **Serve fine-tune di dalam Docker** | Serving saat ini di host (jaringan container ↔ Ollama). |
+| **Plugin management** | Usang di v0.40.0 (trainer = task GitHub, bukan plugin). |
+
+**Di luar scope produk:** RAG/Documents, Diffusion, cloud/SaaS.
+
+---
+
+## 🚀 Fase berikutnya (opsional)
+
+1. **Multi-user auth penuh** (TL `fastapi-users`) — untuk benar-benar team-ready.
+2. **Persist job logs** — simpan riwayat log saat job selesai.
+3. **Serve fine-tune di dalam Docker** — jaringan container ↔ inference.
+4. **Deploy/serving lanjutan** — multi-model, versioning.
+5. **Rewrite backend ke Rust** — goal jangka panjang (proyek tersendiri).
+
+---
+
+## 📌 Keputusan Tercatat
+
+- Target: **produk self-host untuk tim** (privat, bukan SaaS) · **lokal selamanya**.
+- Backend: **run from source v0.40.0**, dijalankan **di Docker** (bind-mount source lokal).
+- Inference: **Ollama** (selaras goal serve via ollama/vllm/llama.cpp).
+- Training: **Unsloth** (SFT + GRPO + TTS).
+- Auth: **gate password bersama** (multi-user ditunda) · Lisensi: ditangguhkan (internal).
+- **Prinsip data:** tidak menampilkan data/tombol palsu sebagai nyata.

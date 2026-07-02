@@ -105,7 +105,10 @@ export function quantFromFile(file: string): string {
 
 /** A model's GGUF quants + gated status (drives the download quant picker). */
 export async function hfModelDetail(repo: string): Promise<HubModelDetail> {
-  const res = await fetch(`${HF_API}/models/${repo}`, {
+  // `repo` is client-supplied ("owner/name"); encode each segment so it can't
+  // manipulate the request path/query (e.g. "x?full=true" or "../").
+  const encoded = repo.split("/").map(encodeURIComponent).join("/");
+  const res = await fetch(`${HF_API}/models/${encoded}`, {
     headers: hfHeaders(),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });

@@ -1,3 +1,4 @@
+import { FINETUNE_EXPERIMENT as EXPERIMENT_ID } from "@/lib/tl-constants";
 import type {
   ComputeTarget,
   EnginePlugin,
@@ -130,8 +131,6 @@ function durationMs(start: string, end: string): number {
   const e = Date.parse(end);
   return Number.isFinite(s) && Number.isFinite(e) && e > s ? e - s : 0;
 }
-
-const EXPERIMENT_ID = "nqr-ft";
 
 export function tlJobToTask(row: TlJobRow, now: string): Task {
   const type = mapType(row.subtype, row.type);

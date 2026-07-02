@@ -30,6 +30,12 @@ export function ChatArea({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
+  // Abort any in-flight stream when this session's ChatArea unmounts (it's keyed
+  // by session id, so switching sessions unmounts it). Without this, the read
+  // loop keeps calling setMessages after unmount and leaks tokens into whatever
+  // session becomes active. The catch treats AbortError as a clean stop.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   async function send() {
     const text = input.trim();
     if (!text || isStreaming) return;

@@ -58,6 +58,9 @@ export async function POST(req: NextRequest) {
         frequency_penalty: body.frequency_penalty ?? 0.4,
         presence_penalty: body.presence_penalty ?? 0.3,
       }),
+      // Abort if the client disconnects, and hard-cap at 10 min so a hung engine
+      // can't pin a request worker indefinitely.
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(10 * 60_000)]),
     });
   } catch {
     return Response.json(

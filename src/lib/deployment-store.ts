@@ -40,10 +40,23 @@ export function normalizeStore(raw: unknown): DeploymentStore {
 }
 
 export async function readDeploymentStore(): Promise<DeploymentStore> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(FILE, "utf8");
+    raw = await fs.readFile(FILE, "utf8");
+  } catch (err) {
+    // ENOENT = never written yet (legitimately empty). Anything else is a real
+    // read failure worth surfacing rather than masking as "no deployments".
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error("[deployment-store] read failed:", err);
+    }
+    return EMPTY;
+  }
+  try {
     return normalizeStore(JSON.parse(raw));
-  } catch {
+  } catch (err) {
+    // Corrupt JSON — log it (don't silently reset to empty and let the next write
+    // overwrite good-but-unparseable data without anyone noticing).
+    console.error("[deployment-store] corrupt store JSON, returning empty:", err);
     return EMPTY;
   }
 }
@@ -51,6 +64,10 @@ export async function readDeploymentStore(): Promise<DeploymentStore> {
 export async function writeDeploymentStore(store: DeploymentStore): Promise<DeploymentStore> {
   const clean = normalizeStore(store);
   await fs.mkdir(DATA_DIR, { recursive: true });
-  await fs.writeFile(FILE, JSON.stringify(clean, null, 2), "utf8");
+  // Atomic write: write a temp file then rename over the target, so a crash or
+  // concurrent write can't leave a half-written / corrupt deployments.json.
+  const tmp = `${FILE}.${process.pid}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(clean, null, 2), "utf8");
+  await fs.rename(tmp, FILE);
   return clean;
 }

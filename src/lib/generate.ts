@@ -33,6 +33,8 @@ export async function completeOnLoadedModel(
       max_tokens: opts.maxTokens ?? 256,
       temperature: opts.temperature ?? 0.3,
     }),
+    // Bound the wait so a hung engine can't pin the request worker.
+    signal: AbortSignal.timeout(2 * 60_000),
   });
   const data = (await res.json().catch(() => ({}))) as {
     choices?: Array<{ message?: { content?: string } }>;
