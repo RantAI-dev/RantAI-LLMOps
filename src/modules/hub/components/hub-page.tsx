@@ -4,11 +4,12 @@ import { useState } from "react";
 import { Compass } from "lucide-react";
 
 import { HubDatasets } from "@/modules/hub/components/hub-datasets";
+import { HubDownloaded } from "@/modules/hub/components/hub-downloaded";
 import { HubModels } from "@/modules/hub/components/hub-models";
 import { cn } from "@/lib/utils";
 
 export function HubPage() {
-  const [tab, setTab] = useState<"models" | "datasets">("models");
+  const [tab, setTab] = useState<"models" | "datasets" | "downloaded">("models");
 
   return (
     <div className="min-w-0 w-full space-y-4">
@@ -29,9 +30,12 @@ export function HubPage() {
         <TabButton active={tab === "datasets"} onClick={() => setTab("datasets")}>
           Datasets
         </TabButton>
+        <TabButton active={tab === "downloaded"} onClick={() => setTab("downloaded")}>
+          Downloaded
+        </TabButton>
       </div>
 
-      {tab === "models" ? <HubModels /> : <HubDatasets />}
+      {tab === "models" ? <HubModels /> : tab === "datasets" ? <HubDatasets /> : <HubDownloaded />}
     </div>
   );
 }

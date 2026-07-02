@@ -25,14 +25,9 @@ export function HubDatasets() {
   const { datasets, loading, error } = useHubDatasets(search, sort);
   const router = useRouter();
 
-  async function pickForFinetune(id: string) {
-    try {
-      await navigator.clipboard.writeText(id);
-      toast.success(`Dataset id "${id}" disalin — paste di form Fine-tune`);
-    } catch {
-      toast.message(`Pakai dataset id: ${id}`);
-    }
-    router.push("/finetune");
+  function pickForFinetune(id: string) {
+    toast.success(`Dataset "${id}" dipilih untuk fine-tune`);
+    router.push(`/finetune?dataset=${encodeURIComponent(id)}`);
   }
 
   return (

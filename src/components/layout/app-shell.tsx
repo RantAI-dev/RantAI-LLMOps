@@ -148,6 +148,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   height={32}
                   className="object-contain p-0.5"
                   priority
+                  unoptimized
                 />
               </div>
               {isSidebarOpen ? (

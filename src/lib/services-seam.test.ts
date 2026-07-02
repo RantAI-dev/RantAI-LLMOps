@@ -2,19 +2,21 @@ import { describe, expect, it } from "vitest";
 
 import { fetchExperiments, seedExperiments } from "@/modules/experiments/services/experiments-service";
 import { fetchTasks, seedTasks } from "@/modules/tasks/services/tasks-service";
-import { fetchModels, seedModels } from "@/modules/model-registry/services/model-registry-service";
 import { fetchDatasets, seedDatasets } from "@/modules/datasets/services/datasets-service";
 import { fetchComputeProviders, seedComputeProviders } from "@/modules/compute/services/compute-service";
 
 /**
- * Default (mock) mode: every service's sync seed returns non-empty data and the
+ * Default (mock) mode: these services' sync seed returns non-empty data and the
  * async fetch resolves to the same shape. This locks the seam contract so the
  * mock→real swap stays a drop-in.
+ *
+ * NOTE: the Model Registry has graduated to real-only (seed = [], fetch pulls the
+ * real Ollama models and throws on backend error) so it's intentionally NOT in
+ * this mock-seam contract.
  */
 const seeds = [
   ["experiments", seedExperiments, fetchExperiments],
   ["tasks", seedTasks, fetchTasks],
-  ["models", seedModels, fetchModels],
   ["datasets", seedDatasets, fetchDatasets],
   ["compute", seedComputeProviders, fetchComputeProviders],
 ] as const;

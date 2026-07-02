@@ -31,6 +31,9 @@ export async function proxy(req: NextRequest) {
 }
 
 export const config = {
-  // Run on everything except Next internals + static assets.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // Run on everything except Next internals + static assets. Static image files
+  // (e.g. /nq-logo.png) must be excluded too — otherwise the gate 307-redirects
+  // them to /login, so the Image optimizer fetches HTML instead of a PNG ("not a
+  // valid image") and the login screen's own logo can't load pre-auth.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|ico|webp)).*)"],
 };

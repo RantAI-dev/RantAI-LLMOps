@@ -97,9 +97,9 @@ export type HubQuant = { file: string; quant: string };
 export type HubModelDetail = { id: string; gated: boolean; quants: HubQuant[] };
 
 /** Quant tag from a GGUF filename, e.g. "Model-Q4_K_M.gguf" -> "Q4_K_M". */
-function quantFromFile(file: string): string {
+export function quantFromFile(file: string): string {
   const base = file.replace(/\.gguf$/i, "");
-  const m = base.match(/(?:^|[._-])((?:IQ|Q)\d[A-Za-z0-9_]*|F16|F32|BF16)$/);
+  const m = base.match(/(?:^|[._-])((?:IQ|Q)\d[A-Za-z0-9_]*|F16|F32|BF16)$/i);
   return (m ? m[1] : (base.split(/[._-]/).pop() ?? "default")).toUpperCase();
 }
 

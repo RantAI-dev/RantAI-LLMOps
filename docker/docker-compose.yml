@@ -36,11 +36,14 @@ services:
 
     working_dir: ${HOME}/.transformerlab/src
     # Launch TL the same way scripts/start-all.sh does, but in the foreground.
-    # ($$ escapes a literal $ so Compose doesn't try to interpolate it.)
+    # First WAIT for the bind mount to be ready — on a Docker Desktop restart the
+    # container can come up before WSL has re-mounted ~/.transformerlab, which
+    # would make conda/run.sh "not found" (exit 127). ($$ escapes a literal $.)
     command: >
-      bash -lc 'eval "$$(conda shell.bash hook)"
-      && conda activate "$$HOME/.transformerlab/envs/transformerlab"
-      && exec ./run.sh -c -p 8339'
+      bash -lc 'until [ -x "$$HOME/.transformerlab/miniforge3/bin/conda" ] && [ -f "$$HOME/.transformerlab/src/run.sh" ]; do echo "waiting for ~/.transformerlab mount"; sleep 2; done &&
+      eval "$$(conda shell.bash hook)" &&
+      conda activate "$$HOME/.transformerlab/envs/transformerlab" &&
+      exec ./run.sh -c -p 8339'
 
     ports:
       # Host port is overridable (TL_PORT) so you can smoke-test the container

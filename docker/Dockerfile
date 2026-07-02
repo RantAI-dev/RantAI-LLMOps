@@ -28,6 +28,13 @@ ENV UV_INSTALL_DIR=/usr/local/bin
 RUN curl -LsSf https://astral.sh/uv/0.11.21/install.sh | env INSTALLER_NO_MODIFY_PATH=1 sh \
     && uv --version
 
+# NOTE on serving fine-tunes: the export→Ollama pipeline (merge → GGUF →
+# `ollama create`) does NOT run in this container. Ollama's daemon lives in the
+# host WSL distro and isn't reachable from the docker-desktop distro's network.
+# Instead the app's serve step uses HOST_RUNNER=wsl|local: it runs on the host
+# against the SAME ~/.transformerlab bind mount, so it sees the adapters this
+# container trained and talks to the host Ollama directly. See docker/README.md.
+
 # Everything real (source, conda env, miniforge, workspace/jobs data) is
 # bind-mounted under $HOME/.transformerlab at the SAME absolute path as the host
 # (see compose), so the conda env's baked-in shebangs keep resolving. Nothing

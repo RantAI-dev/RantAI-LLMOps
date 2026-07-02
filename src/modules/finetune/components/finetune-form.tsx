@@ -1,7 +1,7 @@
 "use client";
 
 import { Loader2, Sparkles, Trash2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,8 +39,27 @@ export function FinetuneForm({
   const [touchedName, setTouchedName] = useState(false);
   const [deletingDataset, setDeletingDataset] = useState(false);
 
+  // Prefill the dataset from `?dataset=` (e.g. picked in Hub → "Use in fine-tune").
+  // Read from the URL once on mount (not lazy useState init) to avoid an SSR/
+  // client hydration mismatch on the <select value>.
+  useEffect(() => {
+    const ds = new URLSearchParams(window.location.search).get("dataset");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync from the URL on mount
+    if (ds) setDataset(ds);
+  }, []);
+
+  // Show the chosen dataset in the select even if it's a HF id not in the local
+  // list — the trainer pulls HF datasets by id at runtime.
+  const datasetOptions = useMemo(() => {
+    const list = [...options.datasets];
+    if (dataset && !list.some((d) => d.id === dataset)) {
+      list.unshift({ id: dataset, name: `${dataset} (HF)`, sizeMb: null, downloaded: false });
+    }
+    return list;
+  }, [options.datasets, dataset]);
+
   const selectedModel = options.models.find((m) => m.id === baseModel);
-  const selectedDataset = options.datasets.find((d) => d.id === dataset);
+  const selectedDataset = datasetOptions.find((d) => d.id === dataset);
 
   // Suggest an adaptor name from the chosen model + dataset until the user edits it.
   const suggestedName = useMemo(
@@ -104,7 +123,7 @@ export function FinetuneForm({
               onChange={(e) => setDataset(e.target.value)}
             >
               <option value="">Select a dataset…</option>
-              {options.datasets.map((d) => (
+              {datasetOptions.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                   {d.downloaded ? "" : " — will download"}

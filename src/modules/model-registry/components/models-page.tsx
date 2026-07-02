@@ -1,17 +1,16 @@
 "use client";
 
-import { Download, HardDrive } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Download } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ArchiveModelDialog } from "@/modules/model-registry/components/archive-model-dialog";
-import { ImportHuggingFaceSheet } from "@/modules/model-registry/components/import-huggingface-sheet";
 import { ModelDetailView } from "@/modules/model-registry/components/model-detail-view";
 import { ModelFiltersBar } from "@/modules/model-registry/components/model-filters";
 import { ModelSummaryCards } from "@/modules/model-registry/components/model-summary-cards";
 import { ModelTable } from "@/modules/model-registry/components/model-table";
-import { RegisterLocalSheet } from "@/modules/model-registry/components/register-local-sheet";
 import { modelRegistryUi } from "@/modules/model-registry/constants/model-registry-ui";
 import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-registry";
 import { cn } from "@/lib/utils";
@@ -27,39 +26,19 @@ export function ModelsPage() {
     selectedModel,
     selectedModelId,
     setSelectedModelId,
-    isImportOpen,
-    setIsImportOpen,
-    isRegisterLocalOpen,
-    setIsRegisterLocalOpen,
     archiveTargetId,
     setArchiveTargetId,
-    hfToken,
-    setHfToken,
-    tokenStatus,
-    validateToken,
-    searchQuery,
-    setSearchQuery,
-    searchResults,
-    searchHuggingFace,
-    selectedCatalogEntry,
-    setSelectedCatalogEntry,
-    importConfig,
-    setImportConfig,
-    importStep,
-    setImportStep,
-    importProgress,
-    importCurrentStep,
-    importError,
-    isImporting,
-    startImport,
-    resetImportFlow,
     archiveModel,
-    registerLocalModel,
     showToast,
     modelsLoading,
     modelsError,
     reloadModels,
   } = useModelRegistry();
+  const router = useRouter();
+  // Downloading from Hugging Face lives in the dedicated Hub (real `ollama pull
+  // hf.co/…` with quant + progress), so the registry's Import button points there
+  // instead of the old preview flow.
+  const goToHub = () => router.push("/hub");
 
   const archiveTarget = archiveTargetId
     ? models.find((m) => m.id === archiveTargetId) ?? null
@@ -109,11 +88,7 @@ export function ModelsPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={() => setIsRegisterLocalOpen(true)}>
-            <HardDrive className="size-4" />
-            Register Local Model
-          </Button>
-          <Button type="button" onClick={() => setIsImportOpen(true)}>
+          <Button type="button" onClick={goToHub}>
             <Download className="size-4" />
             Import from Hugging Face
           </Button>
@@ -135,10 +110,7 @@ export function ModelsPage() {
       ) : modelsError ? (
         <ErrorState onRetry={reloadModels} />
       ) : showEmpty ? (
-        <EmptyState
-          onImport={() => setIsImportOpen(true)}
-          onRegisterLocal={() => setIsRegisterLocalOpen(true)}
-        />
+        <EmptyState onImport={goToHub} />
       ) : showFilteredEmpty ? (
         <FilteredEmptyState onReset={resetFilters} />
       ) : (
@@ -162,40 +134,6 @@ export function ModelsPage() {
         />
       )}
 
-      <ImportHuggingFaceSheet
-        open={isImportOpen}
-        onClose={() => setIsImportOpen(false)}
-        importStep={importStep}
-        setImportStep={setImportStep}
-        hfToken={hfToken}
-        setHfToken={setHfToken}
-        tokenStatus={tokenStatus}
-        validateToken={validateToken}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        searchResults={searchResults}
-        searchHuggingFace={searchHuggingFace}
-        selectedCatalogEntry={selectedCatalogEntry}
-        setSelectedCatalogEntry={setSelectedCatalogEntry}
-        importConfig={importConfig}
-        setImportConfig={setImportConfig}
-        importProgress={importProgress}
-        importCurrentStep={importCurrentStep}
-        importError={importError}
-        isImporting={isImporting}
-        startImport={startImport}
-        resetImportFlow={resetImportFlow}
-        onImportComplete={(modelId) => setSelectedModelId(modelId)}
-      />
-
-      <RegisterLocalSheet
-        key={isRegisterLocalOpen ? "register-open" : "register-closed"}
-        open={isRegisterLocalOpen}
-        onClose={() => setIsRegisterLocalOpen(false)}
-        onSubmit={registerLocalModel}
-        onViewModel={setSelectedModelId}
-      />
-
       <ArchiveModelDialog
         model={archiveTarget}
         onClose={() => setArchiveTargetId(null)}
@@ -205,27 +143,17 @@ export function ModelsPage() {
   );
 }
 
-function EmptyState({
-  onImport,
-  onRegisterLocal,
-}: {
-  onImport: () => void;
-  onRegisterLocal: () => void;
-}) {
+function EmptyState({ onImport }: { onImport: () => void }) {
   return (
     <div className="rounded-lg border border-dashed border-border p-10 text-center">
-      <h3 className="text-base font-semibold text-primary">No models registered yet</h3>
+      <h3 className="text-base font-semibold text-primary">No models yet</h3>
       <p className="mx-auto mt-2 max-w-md text-sm text-ink-soft">
-        Import models from Hugging Face or register your local model to start building your LLM workflow.
+        Download a model from Hugging Face (via the Hub) to start building your LLM workflow.
       </p>
       <div className="mt-4 flex flex-wrap justify-center gap-2">
         <Button type="button" onClick={onImport}>
           <Download className="size-4" />
           Import from Hugging Face
-        </Button>
-        <Button type="button" variant="outline" onClick={onRegisterLocal}>
-          <HardDrive className="size-4" />
-          Register Local Model
         </Button>
       </div>
     </div>

@@ -42,10 +42,6 @@ const clusterStateStyles: Record<ClusterState, string> = {
   unknown: "bg-surface-2 text-ink-faint-strong",
 };
 
-function makeId() {
-  return `prov-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-}
-
 export function ComputePage() {
   const [providers, setProviders] = useState<ComputeProvider[]>(seedComputeProviders);
   const providersFetch = useResourceFetch(setProviders, fetchComputeProviders);

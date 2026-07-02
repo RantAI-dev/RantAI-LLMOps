@@ -1,9 +1,10 @@
 # Run the Transformer Lab backend in Docker (local source)
 
 Scaffold to run the **v0.40.0 TL backend in a container** while reusing your
-**local source + conda env** via bind mount — same code, just isolated. The app
-side is already Docker-ready: set `HOST_RUNNER=docker` and the serve/merge
-pipeline runs via `docker exec` instead of `wsl.exe`.
+**local source + conda env** via bind mount — same code, just isolated. Training,
+eval and jobs run in the container; the serve→Ollama step stays on the host
+(`HOST_RUNNER=wsl`, the default) against the shared `~/.transformerlab` — see
+"Serve → Ollama" below for why.
 
 > **Status: verified end-to-end on RTX 3060 / WSL2.** API + GPU passthrough +
 > the nested `bwrap` sandbox + a real fine-tune job all run in the container.
@@ -61,7 +62,7 @@ Windows) so the serve/merge `docker exec` works.
 3. **bwrap sandbox.** Compute-provider jobs run inside `bwrap`. `privileged:
    true` is the sledgehammer to get them green; once working, try narrowing to
    the `cap_add: [SYS_ADMIN]` + `security_opt` block in the compose file.
-4. **Serve → Ollama.** See below — the trickiest piece.
+4. **Serve → Ollama.** Runs on the HOST, not this container — see below.
 
 ## Known hard parts (be honest with yourself here)
 
@@ -69,16 +70,21 @@ Windows) so the serve/merge `docker exec` works.
   `SYS_ADMIN` + unconfined seccomp/apparmor. This was already a pain point on
   WSL; the container adds a layer. **Verified working with `privileged: true`** —
   the provider logs `Sandbox backend: bwrap` and runs each job's setup inside it.
-- **Serve → Ollama.** The export pipeline runs `ollama create` from a GGUF it
-  just wrote *inside the container*. With Ollama on the host, the host daemon
-  can't read the container's filesystem. Options:
-  - keep `HOST_RUNNER=wsl`/`local` for the *serve* step (TL trains in Docker,
-    serve runs on host against the same `~/.transformerlab`), **or**
-  - run Ollama as a second container (uncomment in compose) and put the GGUF on
-    a **shared volume** both containers mount, **or**
-  - point the in-container `ollama` CLI at the host daemon
-    (`OLLAMA_HOST=host.docker.internal:11434`) AND make the GGUF reachable.
-  Start with the first option; it's the least work.
+- **Serve → Ollama — keep it on the host (the recommended, working setup).**
+  The export pipeline (merge → GGUF → `ollama create`) does NOT need to run in
+  the container, and shouldn't: Ollama's daemon lives in your host WSL distro and
+  is **not reachable from the docker-desktop distro's network** (verified: the
+  container can't hit `host.docker.internal:11434` — different WSL distros).
+  Instead keep **`HOST_RUNNER=wsl` (or `local`) for the serve step**. It runs on
+  the host against the *same* `~/.transformerlab` bind mount, so it sees the
+  adapters this container trained and talks to the host Ollama directly. Nothing
+  extra to configure — this is the default.
+
+  Only reach for a fully in-container serve if you want a self-contained Docker
+  deployment. That means running **Ollama as a second container** (GPU + a models
+  volume) and pointing both the app and the serve step at it — a bigger change
+  that also migrates your existing host-pulled models. Out of scope for this
+  scaffold.
 - **Path coupling.** The conda env's shebangs are absolute, so the host mount
   MUST land at the identical path. Run `docker compose` from WSL so `${HOME}`
   resolves to your WSL home, not `/root` or a Windows path.

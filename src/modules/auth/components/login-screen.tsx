@@ -35,7 +35,7 @@ export function LoginScreen() {
       <div className="w-full max-w-sm rounded-2xl border border-border bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.06)]">
         <div className="flex flex-col items-center text-center">
           <div className="grid size-12 place-items-center overflow-hidden rounded-lg bg-white shadow-[0_2px_6px_rgba(0,0,0,0.12)]">
-            <Image src="/nq-logo.png" alt="NQR" width={40} height={40} className="object-contain p-1" priority />
+            <Image src="/nq-logo.png" alt="NQR" width={40} height={40} className="object-contain p-1" priority unoptimized />
           </div>
           <h1 className="mt-3 text-xl font-semibold text-primary">NQR - LLMOps</h1>
           <p className="mt-1 text-[13px] text-ink-soft">Sign in to continue</p>

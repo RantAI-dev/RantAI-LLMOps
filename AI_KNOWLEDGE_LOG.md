@@ -1174,3 +1174,58 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
   - Docs: .env.example (HF_TOKEN opsional), ROADMAP (fitur Hub).
 - **Files:** +src/lib/{hf-hub,pull-progress}.ts, +src/app/api/hub/{models,model,datasets}/route.ts, +src/app/(app)/hub/page.tsx, +src/modules/hub/** (hooks+components+lib), ubah ollama.ts, models-catalog.ts (−downloadModel), app/api/models/download/route.ts, use-model-catalog.ts, model-picker.tsx, app-shell.tsx.
 - **Result:** tsc 0 error, eslint 0 error, vitest 90/90. Smoke live: /api/hub/models (30 GGUF), /api/hub/model (quants), /api/hub/datasets (alpaca dst), /hub 200. Belum commit.
+
+## 2026-07-01 11:53:26 GMT
+- **Task:** Diagnosa error app (ECONNREFUSED) + restart backend Docker + tes fitur Hub. Tanpa commit.
+- **Action:** Diagnosa: container 'transformerlab' Exited(127) — transient: pas Docker Desktop restart, container auto-restart (restart:unless-stopped) SEBELUM mount ~/.transformerlab siap → conda/run.sh not found. Ollama juga mati. Baris '[nqr] ...fetch failed' = fitur error-logging baru bekerja (outage kelihatan). Fix: docker compose up -d (mount udah siap) + nyalain Ollama. Verifikasi: TL:8339=200, Ollama:11434=200, app tasks/experiments 200 (ECONNREFUSED hilang). Tes fitur Hub e2e: pull hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M via /api/models/download streaming → success → masuk Ollama (807MB) → inference balas "docker hub works." Hardening: tambah 'until mount ready' di command compose biar exit-127 ngga kambuh saat Docker restart.
+- **Files:** docker/docker-compose.yml (wait-for-mount guard).
+- **Result:** Backend Docker + Ollama UP, app nyambung, fitur Hub download-dari-HF + inference TERBUKTI. Belum commit.
+
+## 2026-07-02 02:13:40 GMT
+- **Task:** Jelasin kenapa container ngga auto-run pas buka Docker Desktop + benerin. Tanpa commit.
+- **Action:** Sebab: container PAKAI restart:unless-stopped (jadi nyoba auto-start), tapi crash exit-127 karena dia jalanin kode/conda dari MOUNT WSL (~/.transformerlab) yang belum siap saat Docker daemon nyala (race). Container self-contained biasa ngga kena ini. Fix wait-for-mount awal (until loop) sempat SALAH: YAML folded scalar '>' bikin '&&' di awal baris → bash syntax error exit-2 crash-loop. Diperbaiki: '&&' ditaruh di AKHIR tiap baris (satu indent) supaya folding jadiin spasi. Recreate → TL:8339=200, Up stabil.
+- **Files:** docker/docker-compose.yml (command wait-for-mount, folding-safe).
+- **Result:** Container jalan + wait-for-mount aktif → next buka Docker Desktop harusnya auto-run (nunggu mount dulu, ngga 127). Belum commit.
+
+## 2026-07-02 02:18:42 GMT
+- **Task:** Bersihin Docker — hapus container/image/volume yang ngga dipake, kecuali backend source lokal. Tanpa commit.
+- **Action:** Inventaris dulu. Hapus targeted (bukan prune buta) + safety-check container kita cuma bind-mount: rm container lama transformerlab-api (26GB), rmi transformerlab/api:latest (16GB, image v0.30.3 lama), rmi nvidia/cuda:12.4.1-base (base lama tak terpakai), volume rm nvidia_transformerlab_data (70GB data v0.30.3 lama), builder prune (7.3GB cache).
+- **Disimpan:** container transformerlab (Up), image docker-transformerlab + nvidia/cuda:12.8.0-base (base build kita).
+- **Result:** Backend utuh (TL:8339=200, container Up). Disk: ~154GB → ~1.1GB (≈150GB dibebasin). Volumes kosong. Belum commit.
+
+## 2026-07-02 02:39:00 GMT
+- **Task:** C: kritis (26.7GB free/475). Cari + hapus sampah LLMOps. Tanpa commit.
+- **Action:** Diagnosa: biang = file .vhdx yang ngga auto-shrink — docker_data.vhdx 130.5GB (isi asli ~1GB stlh prune tempo hari) + Ubuntu ext4.vhdx 47.3GB. Bersihin data nganggur WSL: local_provider_runs (venv per-job), nqr_merged (merged models), ~/.cache pip/hf/uv (~10GB freed di WSL). Bukan admin + no Hyper-V → ngga bisa compact langsung. User pilih Option A: hapus+recreate disk Docker. Eksekusi: stop proses Docker Desktop + wsl --shutdown → hapus docker_data.vhdx (fresh recreate) → start Docker Desktop (daemon siap ~6s) → docker compose up -d --build (re-pull nvidia/cuda base + build image tipis) → start Ollama. (Ubuntu set-sparse ditolak WSL "potential data corruption".)
+- **Result:** C: free 26.7GB → **154.6GB (~128GB balik)**. Backend utuh: TL:8339=200, Ollama:11434=200, container Up, docker_data.vhdx fresh 2.4GB. Data ~/.transformerlab aman (bind-mount WSL, tak tersentuh). Belum commit.
+
+## 2026-07-02 03:25:09 GMT
+- **Task:** Kerjakan bertahap 5 item (A-E) lanjutan. Tanpa commit.
+- **Action:**
+  - **C (fix bug):** Model Registry "Import from Hugging Face" → arahkan ke /hub (download HF beneran). Hapus mock ImportHuggingFaceSheet + hook useHuggingFaceModelImport + trim provider (type/state/value). tsc/eslint 0.
+  - **B:** Hub Datasets "Use in fine-tune" → /finetune?dataset=<id>; finetune-form baca param via useEffect + tambah HF id sebagai opsi select (trainer pull HF by-id runtime).
+  - **A:** Tab "Downloaded" di Hub (use-downloaded + hub-downloaded): list model Ollama (servable) + size + total + hapus (konfirmasi inline) via /api/models/delete. +formatSize helper.
+  - **E:** +8 test — hf-hub quantFromFile (×4, sekalian fix bug case-insensitivity regex) + format compact/formatSize (×4). 90→98 test.
+  - **D:** Serve→Ollama saat backend Docker. TEMUAN: container (distro docker-desktop) TAK BISA reach Ollama host (distro Ubuntu) — semua rute IPv4/IPv6 → 000. SOLUSI BERSIH: serve TAK jalan di container; jalan di HOST (HOST_RUNNER=wsl default) baca adapter Docker-trained via shared ~/.transformerlab mount → merge → GGUF → ollama host. Verified: adapter job ceb0c019 (dilatih di Docker) kebaca di host + tooling lengkap. Revert ollama-CLI/OLLAMA_HOST dari Dockerfile/compose (bloat+ngga jalan), dokumentasikan di README.
+  - Bonus: hapus dead makeId di compute-page.
+- **Result:** tsc 0, eslint 0, vitest 98/98, /models & /hub & /finetune render 200, backend Docker+Ollama up. Belum commit.
+
+## 2026-07-02 03:35:28 GMT
+- **Task:** Fix logo NQR broken di header. Tanpa commit.
+- **Action:** Diagnosa: file public/nq-logo.png VALID (PNG 112x112 11KB). Akar masalah = auth gate proxy.ts matcher ngga exclude file gambar publik → /nq-logo.png di-307 ke /login → Image optimizer dapet HTML → "isn't a valid image received null" (login screen pre-auth juga rusak). Fix: (1) matcher proxy.ts exclude .png/.jpg/.jpeg/.gif/.svg/.ico/.webp dari auth gate, (2) tambah unoptimized di <Image> logo (app-shell + login-screen, ikon kecil).
+- **Files:** src/proxy.ts, src/components/layout/app-shell.tsx, src/modules/auth/components/login-screen.tsx.
+- **Result:** /nq-logo.png -> 200 image/png 11055 bytes, nol error 'valid image' di log, tsc/eslint 0. Belum commit.
+
+## 2026-07-02 03:52:58 GMT
+- **Task:** Model Registry dibikin REAL (tampilkan model Ollama asli, bukan mock). Tanpa commit.
+- **Action:** fetchModels sekarang map dari catalog `servable` (model Ollama-resident asli, termasuk fine-tune yang di-serve) via tlToRegistryModel — sebelumnya map `downloaded` (selalu kosong di v0.40.0) → fallback `initialModels` (mock). Buang fallback mock (throw saat error → page ErrorState; return real, kosong = empty state jujur). seedModels() → [] (tak ada flash mock). Hapus data/initial-models.ts (orphan). Detail analytics deployment/usage/evaluation tetap placeholder nol (feature-status "mock", jujur — bukan angka palsu).
+- **Files:** src/modules/model-registry/services/model-registry-service.ts, −data/initial-models.ts.
+- **Result:** /models tampil model Ollama asli (qwen2.5:0.5b, nqr-real-adaptor, hf.co/Llama-3.2-1B), tsc/eslint 0, vitest pass. Sisa: tombol "Register Local Model" masih local-state mock (belum diaudit). Belum commit.
+
+## 2026-07-02 03:58:16 GMT
+- **Task:** Hapus tombol palsu "Register Local Model" di Model Registry. Tanpa commit.
+- **Action:** registerLocalModel cuma nambah model ke state lokal (ilang saat reload) — di v0.40.0 tak ada konsep register-local (model dari Ollama/HF). Hapus: tombol di header + EmptyState, render <RegisterLocalSheet>, fungsi mock registerLocalModel + state isRegisterLocalOpen di provider (type/state/value/deps), file register-local-sheet.tsx. EmptyState disederhanakan (cuma Import→Hub). HardDrive icon dibuang dari import.
+- **Files:** models-page.tsx, model-registry-provider.tsx, −register-local-sheet.tsx.
+- **Result:** tsc 0, eslint 0, vitest pass, /models render 200. Model Registry sekarang full jujur: list model Ollama asli + aksi archive/view real, tanpa tombol palsu. Belum commit.
+
+## 2026-07-02 04:00:10 GMT
+- **Followup:** 2 test services-seam.test.ts gagal (asumsi lama: models seed non-empty + fetch degrade ke mock). Fix jujur: keluarkan 'models' dari kontrak mock-seam (Model Registry udah real-only: seed=[], fetch real throw-on-error). vitest 96/96 hijau, eslint 0.

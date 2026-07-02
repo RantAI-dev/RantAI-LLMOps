@@ -16,15 +16,10 @@ import {
   fetchModels,
   seedModels,
 } from "@/modules/model-registry/services/model-registry-service";
-import { useHuggingFaceModelImport } from "@/modules/model-registry/hooks/use-huggingface-model-import";
 import type {
-  HuggingFaceCatalogEntry,
-  ImportConfig,
-  ImportErrorType,
   ModelFilters,
   RegistryModel,
   ToastMessage,
-  TokenStatus,
 } from "@/modules/model-registry/types";
 
 const defaultFilters: ModelFilters = {
@@ -46,39 +41,9 @@ type ModelRegistryContextValue = {
   selectedModelId: string | null;
   setSelectedModelId: (id: string | null) => void;
   selectedModel: RegistryModel | null;
-  isImportOpen: boolean;
-  setIsImportOpen: (open: boolean) => void;
-  isRegisterLocalOpen: boolean;
-  setIsRegisterLocalOpen: (open: boolean) => void;
   archiveTargetId: string | null;
   setArchiveTargetId: (id: string | null) => void;
-  hfToken: string;
-  setHfToken: (token: string) => void;
-  tokenStatus: TokenStatus;
-  validateToken: () => Promise<TokenStatus>;
-  searchHuggingFace: (query: string) => HuggingFaceCatalogEntry[];
-  importStep: number;
-  setImportStep: (step: number) => void;
-  searchQuery: string;
-  setSearchQuery: (q: string) => void;
-  searchResults: HuggingFaceCatalogEntry[];
-  selectedCatalogEntry: HuggingFaceCatalogEntry | null;
-  setSelectedCatalogEntry: (entry: HuggingFaceCatalogEntry | null) => void;
-  importConfig: ImportConfig;
-  setImportConfig: React.Dispatch<React.SetStateAction<ImportConfig>>;
-  importProgress: number;
-  importCurrentStep: string;
-  importError: ImportErrorType | null;
-  isImporting: boolean;
-  startImport: () => Promise<string | null>;
-  resetImportFlow: () => void;
   archiveModel: (id: string) => void;
-  registerLocalModel: (input: {
-    modelName: string;
-    task: RegistryModel["task"];
-    format: string;
-    owner: string;
-  }) => string;
   showToast: (toast: Omit<ToastMessage, "id">) => void;
   modelsLoading: boolean;
   modelsError: boolean;
@@ -96,7 +61,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
   );
   const [filters, setFilters] = useState<ModelFilters>(defaultFilters);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  const [isRegisterLocalOpen, setIsRegisterLocalOpen] = useState(false);
   const [archiveTargetId, setArchiveTargetId] = useState<string | null>(null);
 
   const showToast = useCallback((message: Omit<ToastMessage, "id">) => {
@@ -106,10 +70,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
     else if (message.variant === "warning") toast.warning(message.title, options);
     else toast.info(message.title, options);
   }, []);
-
-  // The HuggingFace import wizard is a separate concern kept in its own hook;
-  // it adds imported models via `setModels` and surfaces a toast on success.
-  const hf = useHuggingFaceModelImport({ setModels, showToast });
 
   const filteredModels = useMemo(() => filterModels(models, filters), [models, filters]);
   const summaryStats = useMemo(() => computeSummaryStats(models), [models]);
@@ -153,109 +113,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
     [selectedModelId, showToast]
   );
 
-  const registerLocalModel = useCallback(
-    (input: { modelName: string; task: RegistryModel["task"]; format: string; owner: string }) => {
-      const now = new Date().toISOString();
-      const modelId = generateId("model");
-      const newModel: RegistryModel = {
-        id: modelId,
-        modelName: input.modelName,
-        provider: "Local",
-        repoId: null,
-        repoUrl: null,
-        author: "Internal ML Team",
-        task: input.task,
-        libraryName: "transformers",
-        modelFormat: input.format,
-        parameterSize: "7B",
-        contextLength: 8192,
-        license: "Internal",
-        language: ["English"],
-        tags: ["local", "custom"],
-        accessType: "Private",
-        importMode: null,
-        revision: "main",
-        commitSha: null,
-        localPath: `/models/local/${modelId}`,
-        totalModelSize: "420 MB",
-        status: "Draft",
-        owner: input.owner,
-        compatibilityStatus: "Need Review",
-        deploymentReadiness: "Need Review",
-        vllmCompatible: "Need Review",
-        transformersCompatible: "Yes",
-        requiresTrustRemoteCode: false,
-        quantization: null,
-        minVramRequired: "12 GB",
-        recommendedGpu: "NVIDIA A10G",
-        gpuCountRequired: 1,
-        supportsStreaming: true,
-        supportsChatTemplate: true,
-        createdAt: now,
-        updatedAt: now,
-        huggingFaceSource: null,
-        files: [],
-        compatibilityChecklist: {
-          accessValid: true,
-          licenseReviewed: true,
-          configAvailable: false,
-          tokenizerAvailable: false,
-          modelFilesAvailable: false,
-          vllmSupported: false,
-          hardwareChecked: false,
-        },
-        deployment: {
-          environment: "Development",
-          servingEngine: "vLLM",
-          endpointUrl: "",
-          gpuCluster: "",
-          replica: 0,
-          status: "Not Deployed",
-          lastDeployment: null,
-          rollbackVersion: null,
-        },
-        evaluation: {
-          evaluationDataset: "—",
-          accuracy: 0,
-          hallucinationRate: 0,
-          safetyScore: 0,
-          latencyMs: 0,
-          costEstimate: "—",
-          lastEvaluationRun: null,
-        },
-        usage: {
-          totalRequests: 0,
-          successRate: 0,
-          errorRate: 0,
-          averageLatencyMs: 0,
-          tokenUsage: 0,
-          estimatedCost: "$0.00",
-          gpuUtilization: 0,
-          activeEndpoint: null,
-        },
-        auditLogs: [
-          {
-            id: generateId("audit"),
-            modelId,
-            action: "Local model registered",
-            actor: "Admin-NQR",
-            timestamp: now,
-            status: "Success",
-            notes: "Local model registered in Model Registry.",
-          },
-        ],
-      };
-      setModels((prev) => [newModel, ...prev]);
-      showToast({
-        title: "Local model registered",
-        description: `${input.modelName} added to registry.`,
-        variant: "success",
-      });
-      return modelId;
-    },
-    [showToast]
-  );
-
   const value = useMemo<ModelRegistryContextValue>(
     () => ({
       models,
@@ -267,17 +124,13 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       selectedModelId,
       setSelectedModelId,
       selectedModel,
-      isRegisterLocalOpen,
-      setIsRegisterLocalOpen,
       archiveTargetId,
       setArchiveTargetId,
       archiveModel,
-      registerLocalModel,
       showToast,
       modelsLoading,
       modelsError,
       reloadModels,
-      ...hf,
     }),
     [
       models,
@@ -287,15 +140,12 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       summaryStats,
       selectedModelId,
       selectedModel,
-      isRegisterLocalOpen,
       archiveTargetId,
       archiveModel,
-      registerLocalModel,
       showToast,
       modelsLoading,
       modelsError,
       reloadModels,
-      hf,
     ]
   );
 
