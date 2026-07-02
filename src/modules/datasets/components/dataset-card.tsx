@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, Eye, RefreshCw, User } from "lucide-react";
+import { Archive, Eye, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -16,14 +16,12 @@ import { cn } from "@/lib/utils";
 type DatasetCardProps = {
   dataset: Dataset;
   onView: () => void;
-  onValidateAgain: () => void;
   onArchive: () => void;
 };
 
 export function DatasetCard({
   dataset,
   onView,
-  onValidateAgain,
   onArchive,
 }: DatasetCardProps) {
   return (
@@ -89,10 +87,6 @@ export function DatasetCard({
         <Button type="button" size="sm" variant="outline" className="h-8" onClick={onView}>
           <Eye className="size-3.5" />
           View Detail
-        </Button>
-        <Button type="button" size="sm" variant="outline" className="h-8" onClick={onValidateAgain}>
-          <RefreshCw className="size-3.5" />
-          Validate Again
         </Button>
         <Button type="button" size="sm" variant="ghost" className="h-8" onClick={onArchive}>
           <Archive className="size-3.5" />

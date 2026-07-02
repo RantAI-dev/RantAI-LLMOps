@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -23,8 +23,6 @@ export function TasksPage() {
     filters,
     setFilters,
     resetFilters,
-    selectedTask,
-    setSelectedTaskId,
     stopTask,
     deleteTask,
     isLoading,
@@ -32,6 +30,15 @@ export function TasksPage() {
     reload,
   } = useTasks();
   const router = useRouter();
+
+  // The task detail drawer is driven by the URL (`?task=<id>`) so it's
+  // deep-linkable and the browser Back button closes it. The URL is the single
+  // source of truth — no separate selected-id state to keep in sync.
+  const searchParams = useSearchParams();
+  const openTaskId = searchParams.get("task");
+  const selectedTask = openTaskId ? tasks.find((t) => t.id === openTaskId) ?? null : null;
+  const openTask = (id: string) => router.push(`/tasks?task=${encodeURIComponent(id)}`);
+  const closeTask = () => router.push("/tasks");
 
   const showEmpty = tasks.length === 0;
   const showFilteredEmpty = !showEmpty && filteredTasks.length === 0;
@@ -83,7 +90,7 @@ export function TasksPage() {
       ) : (
         <TaskTable
           tasks={filteredTasks}
-          onView={setSelectedTaskId}
+          onView={openTask}
           onStop={stopTask}
           onDelete={deleteTask}
           onCreateClick={() => router.push("/finetune")}
@@ -92,7 +99,7 @@ export function TasksPage() {
 
       <TaskDetailDrawer
         task={selectedTask}
-        onClose={() => setSelectedTaskId(null)}
+        onClose={closeTask}
         onStop={stopTask}
         onDelete={deleteTask}
       />

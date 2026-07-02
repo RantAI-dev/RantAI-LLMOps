@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, Download, GitBranch, Loader2, MoreHorizontal, Play, RefreshCw } from "lucide-react";
+import { Archive, Download, Loader2, MoreHorizontal, Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,8 +15,6 @@ import {
 type DatasetDetailToolbarProps = {
   datasetId: string;
   datasetName: string;
-  onValidateAgain: () => void;
-  onCreateVersion: () => void;
   onUseInExperiment: () => void;
   onArchive: () => void;
 };
@@ -26,8 +24,6 @@ type PreviewResponse = { columns: string[]; rows: Array<Record<string, string>> 
 export function DatasetDetailToolbar({
   datasetId,
   datasetName,
-  onValidateAgain,
-  onCreateVersion,
   onUseInExperiment,
   onArchive,
 }: DatasetDetailToolbarProps) {
@@ -78,26 +74,6 @@ export function DatasetDetailToolbar({
       >
         {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
         Download
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-8 gap-1.5 border-hairline bg-white"
-        onClick={onValidateAgain}
-      >
-        <RefreshCw className="size-3.5" />
-        Validate Again
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="h-8 gap-1.5 border-hairline bg-white"
-        onClick={onCreateVersion}
-      >
-        <GitBranch className="size-3.5" />
-        New Version
       </Button>
       <Button type="button" size="sm" className="h-8 gap-1.5" onClick={onUseInExperiment}>
         <Play className="size-3.5" />

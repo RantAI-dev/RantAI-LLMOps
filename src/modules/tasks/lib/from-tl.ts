@@ -4,6 +4,7 @@ import type {
   OutputStatus,
   RunStatus,
   Task,
+  TaskArtifact,
   TaskType,
 } from "@/modules/tasks/types";
 
@@ -38,7 +39,32 @@ type TlJobRow = {
   loraR: number;
   loraAlpha: number;
   owner: string;
+  models: string[];
+  artifacts: string[];
+  checkpoint: string;
 };
+
+const basename = (p: string): string => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
+
+/** Categorise a TL output path for the artifact card's subtitle. */
+function artifactType(path: string): string {
+  if (/\.json$/i.test(path)) return "Config / summary (JSON)";
+  if (/\.txt$/i.test(path)) return "Summary (text)";
+  if (/checkpoint/i.test(path)) return "Checkpoint";
+  return "Trained model / adapter";
+}
+
+/** Real output files TL recorded for a finished job → artifact cards. */
+function buildArtifacts(row: TlJobRow): TaskArtifact[] {
+  const paths = [...row.models, ...row.artifacts];
+  if (row.checkpoint) paths.push(row.checkpoint);
+  return paths.map((p, i) => ({
+    id: `art-${row.id}-${i}`,
+    name: basename(p),
+    type: artifactType(p),
+    size: "",
+  }));
+}
 
 /** Prefer the real subtype (TRAIN/EVAL/…); top-level type is usually "REMOTE". */
 function mapType(subtype: string, type: string): TaskType {
@@ -124,7 +150,7 @@ export function tlJobToTask(row: TlJobRow, now: string): Task {
     durationMs: durationMs(row.startTime, row.endTime),
     outputStatus: outputFor(status),
     logs: [],
-    artifacts: [],
+    artifacts: buildArtifacts(row),
     resourceUsage: {
       gpu: 0,
       vram: 0,

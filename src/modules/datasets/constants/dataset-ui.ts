@@ -34,18 +34,13 @@ export const HF_IMPORT_VALIDATION_CHECKS = [
   "License accepted",
 ] as const;
 
+// Only tabs backed by REAL data are listed. Schema mapping, version history,
+// split editor, usage/lineage, activity log, and the RAG subsystem were demo-only
+// (no Transformer Lab backend) and have been removed.
 export const DETAIL_TABS = [
   { id: "overview", label: "Overview" },
-  { id: "rag-documents", label: "Documents", ragOnly: true },
-  { id: "rag-index", label: "Search settings", ragOnly: true },
-  { id: "rag-chunks", label: "Passages", ragOnly: true },
   { id: "preview", label: "Preview" },
-  { id: "schema", label: "Schema" },
   { id: "huggingface", label: "Hugging Face Source" },
-  { id: "versions", label: "Versions" },
-  { id: "split", label: "Split" },
-  { id: "usage", label: "Usage / Lineage" },
-  { id: "activity", label: "Activity Log" },
 ] as const;
 
 export const RAG_INDEX_STATUS_STYLES: Record<

@@ -42,8 +42,8 @@ export async function fetchComputeProviders(): Promise<ComputeProvider[]> {
   try {
     const res = await fetch("/api/compute/providers", { cache: "no-store" });
     const data = (await res.json()) as { providers?: ComputeProvider[] };
-    if (Array.isArray(data.providers)) return data.providers;
-    return initialProviders;
+    // Real list even when empty; only a malformed/absent array is untrustworthy.
+    return Array.isArray(data.providers) ? data.providers : [];
   } catch {
     // BFF unreachable (e.g. SSR/tests) — fall back to the seed for a useful page.
     return initialProviders;

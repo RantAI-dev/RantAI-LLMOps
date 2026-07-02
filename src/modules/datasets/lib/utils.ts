@@ -1,6 +1,3 @@
-import {
-  applyRagToNewDataset,
-} from "@/modules/datasets/lib/rag-utils";
 import type {
   CreateDatasetInput,
   Dataset,
@@ -323,7 +320,7 @@ export function datasetFromCreateInput(input: CreateDatasetInput): Dataset {
       promptTesting: "Not Configured",
       agentBenchmark: "Not Configured",
     },
-    rag: applyRagToNewDataset(input),
+    rag: null,
   };
 
   dataset.readiness = buildReadiness(dataset);

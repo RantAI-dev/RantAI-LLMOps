@@ -47,9 +47,11 @@ export function tlToDataset(row: TlDatasetRow, now: string): Dataset {
     validationStatus,
     usageCount: 0,
     lastUpdated: now,
-    owner: "AI Team",
+    // TL's dataset list exposes no owner/ACL. Owner unknown ("—"); a local on-disk
+    // dataset is genuinely Private (not org-shared) rather than a fabricated "Team".
+    owner: "—",
     tags: ["transformer-lab"],
-    accessLevel: "Team",
+    accessLevel: "Private",
     notes: "",
     format: formatSize(row.sizeMb),
     createdAt: now,

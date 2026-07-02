@@ -26,7 +26,9 @@ export async function fetchExperiments(): Promise<Experiment[]> {
     if (!res.ok) throw new Error(`experiments ${res.status}`);
     const data = (await res.json()) as { experiments?: TlExperiment[] };
     const raw = Array.isArray(data.experiments) ? data.experiments : [];
-    return raw.length > 0 ? raw.map(mapExperiment) : initialExperiments;
+    // Return the REAL list even when empty — an empty backend is honest data, not
+    // a reason to show demo experiments. Mock is only for the unreachable-BFF case.
+    return raw.map(mapExperiment);
   } catch {
     // BFF unreachable (or non-browser context): degrade to the mock seed.
     return initialExperiments;
@@ -78,7 +80,9 @@ function mapExperiment(e: TlExperiment): Experiment {
     owner: "—",
     baseModel: "—",
     dataset: "—",
-    successMetric: "Accuracy",
+    // TL experiments don't define a success metric/threshold — show honest "—"
+    // rather than implying an "Accuracy" target was configured.
+    successMetric: "—",
     evaluationThreshold: "—",
     bestScore: 0,
     tags: [],

@@ -39,6 +39,9 @@ type TasksResponse = {
     loraR: number;
     loraAlpha: number;
     owner: string;
+    models: string[];
+    artifacts: string[];
+    checkpoint: string;
   }>;
 };
 

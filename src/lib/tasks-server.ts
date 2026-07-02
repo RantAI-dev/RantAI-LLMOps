@@ -34,6 +34,10 @@ export type TlJobRow = {
   loraR: number;
   loraAlpha: number;
   owner: string;
+  // Real output paths TL records for a finished job.
+  models: string[]; // trained model / adapter dirs
+  artifacts: string[]; // summary/config files
+  checkpoint: string; // latest checkpoint dir
 };
 
 type TlUserInfo = { name?: string; email?: string };
@@ -61,11 +65,20 @@ type TlJob = {
     lora_r?: number;
     lora_alpha?: number;
     user_info?: TlUserInfo;
+    models?: unknown;
+    artifacts?: unknown;
+    latest_checkpoint?: string;
   };
 };
 
 function num(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+/** Coerce a TL path list (may be a string or array) into a clean string[]. */
+function strList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string" && x.length > 0);
+  return typeof v === "string" && v.length > 0 ? [v] : [];
 }
 
 /** Headline accuracy from an eval job's `score` JSON (`[{type,score}]`). */
@@ -103,6 +116,9 @@ function normalize(j: TlJob): TlJobRow {
     loraR: num(d.lora_r),
     loraAlpha: num(d.lora_alpha),
     owner: d.user_info?.name ?? d.user_info?.email ?? "",
+    models: strList(d.models),
+    artifacts: strList(d.artifacts),
+    checkpoint: d.latest_checkpoint ?? "",
   };
 }
 

@@ -1,19 +1,19 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useExperiments } from "@/modules/experiments/hooks/use-experiments";
+import { detailHref } from "@/lib/detail-href";
 import { cn } from "@/lib/utils";
 import type { Experiment } from "@/modules/experiments/types";
-import type { CreateExperimentInput } from "@/modules/experiments/types";
 
 import { DeleteExperimentDialog } from "./delete-experiment-dialog";
 import { ExperimentCard } from "./experiment-card";
-import { ExperimentDetailView } from "./experiment-detail-view";
 import { ExperimentFiltersBar } from "./experiment-filters";
 import { ExperimentFormSheet } from "./experiment-form-sheet";
 import { ExperimentSummaryCards } from "./experiment-summary-cards";
@@ -27,9 +27,6 @@ export function ExperimentsPage() {
     setFilters,
     resetFilters,
     filteredExperiments,
-    selectedExperiment,
-    selectedExperimentId,
-    setSelectedExperimentId,
     isCreateOpen,
     setIsCreateOpen,
     deleteTargetId,
@@ -39,12 +36,13 @@ export function ExperimentsPage() {
     cloneExperiment,
     archiveExperiment,
     deleteExperiment,
-    changeExperimentStatus,
     isLoading,
     isError,
     reload,
   } = useExperiments();
 
+  const router = useRouter();
+  const openExperiment = (id: string) => router.push(detailHref("/experiments", id));
   const [editingExperiment, setEditingExperiment] = useState<Experiment | null>(null);
 
   const deleteExperimentEntity =
@@ -52,44 +50,6 @@ export function ExperimentsPage() {
 
   const showEmpty = experiments.length === 0;
   const showFilteredEmpty = !showEmpty && filteredExperiments.length === 0;
-
-  if (selectedExperiment && selectedExperimentId) {
-    return (
-      <>
-        <ExperimentDetailView
-          experiment={selectedExperiment}
-          tasks={tasks}
-          onBack={() => setSelectedExperimentId(null)}
-          onEdit={() => setEditingExperiment(selectedExperiment)}
-          onClone={() => cloneExperiment(selectedExperiment.id)}
-          onArchive={() => archiveExperiment(selectedExperiment.id)}
-          onDelete={() => setDeleteTargetId(selectedExperiment.id)}
-          onChangeStatus={(status) => changeExperimentStatus(selectedExperiment.id, status)}
-        />
-        <ExperimentFormSheet
-          key={editingExperiment?.id ?? "exp-edit-closed"}
-          open={!!editingExperiment}
-          mode="edit"
-          experiment={editingExperiment}
-          onClose={() => setEditingExperiment(null)}
-          onSubmit={(input: CreateExperimentInput) => {
-            if (editingExperiment) {
-              updateExperiment(editingExperiment.id, input);
-              setEditingExperiment(null);
-            }
-          }}
-        />
-        <DeleteExperimentDialog
-          experiment={deleteExperimentEntity}
-          tasks={tasks}
-          onClose={() => setDeleteTargetId(null)}
-          onConfirm={() => {
-            if (deleteTargetId) deleteExperiment(deleteTargetId);
-          }}
-        />
-      </>
-    );
-  }
 
   return (
     <div className="min-w-0 w-full space-y-4">
@@ -141,7 +101,7 @@ export function ExperimentsPage() {
               key={experiment.id}
               experiment={experiment}
               tasks={tasks}
-              onView={() => setSelectedExperimentId(experiment.id)}
+              onView={() => openExperiment(experiment.id)}
               onEdit={() => setEditingExperiment(experiment)}
               onClone={() => cloneExperiment(experiment.id)}
               onArchive={() => archiveExperiment(experiment.id)}
@@ -158,7 +118,7 @@ export function ExperimentsPage() {
         onClose={() => setIsCreateOpen(false)}
         onSubmit={(input) => {
           const id = createExperiment(input);
-          setSelectedExperimentId(id);
+          openExperiment(id);
         }}
       />
 

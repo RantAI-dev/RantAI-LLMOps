@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ArchiveModelDialog } from "@/modules/model-registry/components/archive-model-dialog";
-import { ModelDetailView } from "@/modules/model-registry/components/model-detail-view";
 import { ModelFiltersBar } from "@/modules/model-registry/components/model-filters";
 import { ModelSummaryCards } from "@/modules/model-registry/components/model-summary-cards";
 import { ModelTable } from "@/modules/model-registry/components/model-table";
 import { modelRegistryUi } from "@/modules/model-registry/constants/model-registry-ui";
 import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-registry";
+import { detailHref } from "@/lib/detail-href";
 import { cn } from "@/lib/utils";
 
 export function ModelsPage() {
@@ -23,9 +23,6 @@ export function ModelsPage() {
     resetFilters,
     filteredModels,
     summaryStats,
-    selectedModel,
-    selectedModelId,
-    setSelectedModelId,
     archiveTargetId,
     setArchiveTargetId,
     archiveModel,
@@ -35,6 +32,7 @@ export function ModelsPage() {
     reloadModels,
   } = useModelRegistry();
   const router = useRouter();
+  const openModel = (id: string) => router.push(detailHref("/models", id));
   // Downloading from Hugging Face lives in the dedicated Hub (real `ollama pull
   // hf.co/…` with quant + progress), so the registry's Import button points there
   // instead of the old preview flow.
@@ -47,36 +45,6 @@ export function ModelsPage() {
   const activeModels = models.filter((m) => m.status !== "Archived");
   const showEmpty = activeModels.length === 0;
   const showFilteredEmpty = !showEmpty && filteredModels.length === 0;
-
-  if (selectedModel && selectedModelId) {
-    return (
-      <>
-        <ModelDetailView
-          model={selectedModel}
-          onBack={() => setSelectedModelId(null)}
-          onTest={() =>
-            showToast({
-              title: "Opening Playground",
-              description: "Test this model in Playground before deploying to production.",
-              variant: "info",
-            })
-          }
-          onFineTune={() =>
-            showToast({ title: "Fine-tune workflow", description: "Fine-tune setup will open here.", variant: "info" })
-          }
-          onCompare={() =>
-            showToast({ title: "Compare models", description: "Model comparison view will open here.", variant: "info" })
-          }
-          onArchive={() => setArchiveTargetId(selectedModel.id)}
-        />
-        <ArchiveModelDialog
-          model={archiveTarget}
-          onClose={() => setArchiveTargetId(null)}
-          onConfirm={() => archiveTargetId && archiveModel(archiveTargetId)}
-        />
-      </>
-    );
-  }
 
   return (
     <div className="min-w-0 w-full space-y-4">
@@ -116,7 +84,7 @@ export function ModelsPage() {
       ) : (
         <ModelTable
           models={filteredModels}
-          onView={setSelectedModelId}
+          onView={openModel}
           onTest={() =>
             showToast({
               title: "Opening Playground",

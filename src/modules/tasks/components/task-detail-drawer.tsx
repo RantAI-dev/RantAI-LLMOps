@@ -171,18 +171,13 @@ export function TaskDetailDrawer({
                 {run.artifacts.map((artifact) => (
                   <Card key={artifact.id} className="shadow-sm">
                     <CardHeader className="pb-1">
-                      <CardTitle className="text-sm font-medium text-primary">
+                      <CardTitle className="truncate text-sm font-medium text-primary" title={artifact.name}>
                         {artifact.name}
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="flex items-center justify-between pt-0">
-                      <div className="text-xs text-ink-soft">
-                        <p>{artifact.type}</p>
-                        <p>{artifact.size}</p>
-                      </div>
-                      <Button type="button" variant="outline" size="xs">
-                        <Download className="size-3" />
-                      </Button>
+                    <CardContent className="pt-0">
+                      <p className="text-xs text-ink-soft">{artifact.type}</p>
+                      {artifact.size ? <p className="text-xs text-ink-soft">{artifact.size}</p> : null}
                     </CardContent>
                   </Card>
                 ))}
