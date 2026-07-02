@@ -2,14 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  getActiveId,
-  loadDeployments,
-  makeDeployment,
-  saveDeployments,
-  setActiveId,
-  type Deployment,
-} from "@/modules/serve/lib/deployment-storage";
+import { makeDeployment, type Deployment } from "@/modules/serve/lib/deployment";
 
 export type ServeModel = { id: string; name: string; isGguf: boolean };
 export type ServeInfo = {
@@ -25,11 +18,14 @@ export type { Deployment };
 
 const EMPTY: ServeInfo = { baseUrl: "", teamId: "", hasKey: false, loaded: null, models: [] };
 
+type StoreState = { deployments: Deployment[]; activeId: string | null };
+
 /**
- * Drives the Deployments page: saved deployment configs (localStorage), the
- * lifecycle (deploy = load into VRAM, stop = unload), connection details for the
- * active deployment, and a live test. On one local GPU only one deployment is
- * active at a time.
+ * Drives the Deployments page. Saved deployment configs live SERVER-SIDE
+ * (`/api/serve/deployments`) so the list is shared across every browser/device/
+ * user on this app instance. The lifecycle is real: deploy = load into VRAM,
+ * stop = unload; on one local GPU only one deployment is active at a time, and a
+ * deployment is only "active" if Transformer Lab still has that model loaded.
  */
 export function useServe() {
   const [info, setInfo] = useState<ServeInfo>(EMPTY);
@@ -41,46 +37,51 @@ export function useServe() {
   const [testReply, setTestReply] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
 
+  /** Persist the full deployment store server-side, then reflect it locally. */
+  const persist = useCallback(async (next: StoreState) => {
+    setDeployments(next.deployments);
+    setActiveIdState(next.activeId);
+    try {
+      await fetch("/api/serve/deployments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+    } catch {
+      /* best-effort; local state already updated */
+    }
+  }, []);
+
   const loadInfo = useCallback(async () => {
     try {
       const res = await fetch("/api/serve/info", { cache: "no-store" });
       const data = (await res.json()) as ServeInfo;
       setInfo(data ?? EMPTY);
-      // If nothing is loaded server-side, no deployment is truly active.
-      if (!data?.loaded) {
-        setActiveId(null);
-        setActiveIdState(null);
-      }
     } catch {
       /* keep last */
     }
   }, []);
 
   useEffect(() => {
-    // Read localStorage synchronously (not setState), then apply all state
-    // inside the async callbacks — never synchronously in the effect body.
-    const savedDeployments = loadDeployments();
-    const savedActive = getActiveId();
-    fetch("/api/serve/info", { cache: "no-store" })
-      .then((r) => r.json() as Promise<ServeInfo>)
-      .then((data) => {
-        setDeployments(savedDeployments);
-        setInfo(data ?? EMPTY);
-        // A deployment is only truly active if TL still has a model loaded.
-        setActiveIdState(data?.loaded ? savedActive : null);
-        if (!data?.loaded) setActiveId(null);
-        setLoading(false);
-      })
-      .catch(() => {
-        setDeployments(savedDeployments);
-        setActiveIdState(savedActive);
-        setLoading(false);
-      });
-  }, []);
-
-  const persist = useCallback((next: Deployment[]) => {
-    setDeployments(next);
-    saveDeployments(next);
+    let cancelled = false;
+    Promise.all([
+      fetch("/api/serve/deployments", { cache: "no-store" })
+        .then((r) => r.json() as Promise<StoreState>)
+        .catch(() => ({ deployments: [], activeId: null }) as StoreState),
+      fetch("/api/serve/info", { cache: "no-store" })
+        .then((r) => r.json() as Promise<ServeInfo>)
+        .catch(() => EMPTY),
+    ]).then(([store, serveInfo]) => {
+      if (cancelled) return;
+      setDeployments(store.deployments ?? []);
+      setInfo(serveInfo ?? EMPTY);
+      // A deployment is only truly active if TL still has a model loaded.
+      setActiveIdState(serveInfo?.loaded ? (store.activeId ?? null) : null);
+      setLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const addDeployment = useCallback(
@@ -93,18 +94,17 @@ export function useServe() {
         modelLabel: m.name,
         isGguf: m.isGguf,
       });
-      persist([dep, ...deployments]);
+      void persist({ deployments: [dep, ...deployments], activeId });
     },
-    [deployments, info.models, persist]
+    [deployments, activeId, info.models, persist]
   );
 
   const removeDeployment = useCallback(
     (id: string) => {
-      persist(deployments.filter((d) => d.id !== id));
-      if (activeId === id) {
-        setActiveId(null);
-        setActiveIdState(null);
-      }
+      void persist({
+        deployments: deployments.filter((d) => d.id !== id),
+        activeId: activeId === id ? null : activeId,
+      });
     },
     [activeId, deployments, persist]
   );
@@ -123,8 +123,7 @@ export function useServe() {
         });
         const data = (await res.json()) as { loaded?: string; error?: string };
         if (!res.ok || !data.loaded) throw new Error(data.error || "Gagal deploy");
-        setActiveId(dep.id);
-        setActiveIdState(dep.id);
+        await persist({ deployments, activeId: dep.id });
         await loadInfo();
         return true;
       } catch (err) {
@@ -134,7 +133,7 @@ export function useServe() {
         setBusy(null);
       }
     },
-    [loadInfo]
+    [deployments, loadInfo, persist]
   );
 
   /** Stop the active deployment — unload from VRAM. */
@@ -146,9 +145,8 @@ export function useServe() {
       const res = await fetch("/api/serve/stop", { method: "POST" });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error || "Gagal stop");
-      setActiveId(null);
-      setActiveIdState(null);
       setTestReply(null);
+      await persist({ deployments, activeId: null });
       await loadInfo();
       return true;
     } catch (err) {
@@ -157,7 +155,7 @@ export function useServe() {
     } finally {
       setBusy(null);
     }
-  }, [activeId, loadInfo]);
+  }, [activeId, deployments, loadInfo, persist]);
 
   const test = useCallback(async (prompt: string) => {
     setError(null);

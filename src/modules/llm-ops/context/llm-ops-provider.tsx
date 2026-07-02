@@ -70,13 +70,8 @@ type LlmOpsContextValue = {
   setExperimentFilters: React.Dispatch<React.SetStateAction<ExperimentFilters>>;
   resetExperimentFilters: () => void;
   filteredExperiments: Experiment[];
-  selectedExperimentId: string | null;
-  setSelectedExperimentId: (id: string | null) => void;
-  selectedExperiment: Experiment | null;
   isCreateExperimentOpen: boolean;
   setIsCreateExperimentOpen: (open: boolean) => void;
-  isEditExperimentOpen: boolean;
-  setIsEditExperimentOpen: (open: boolean) => void;
   deleteExperimentTargetId: string | null;
   setDeleteExperimentTargetId: (id: string | null) => void;
   createExperiment: (input: CreateExperimentInput) => string;
@@ -114,9 +109,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const [experimentFilters, setExperimentFilters] =
     useState<ExperimentFilters>(defaultExperimentFilters);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [selectedExperimentId, setSelectedExperimentId] = useState<string | null>(null);
   const [isCreateExperimentOpen, setIsCreateExperimentOpen] = useState(false);
-  const [isEditExperimentOpen, setIsEditExperimentOpen] = useState(false);
   const [deleteExperimentTargetId, setDeleteExperimentTargetId] = useState<string | null>(
     null
   );
@@ -240,11 +233,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const selectedTask = useMemo(
     () => tasks.find((t) => t.id === selectedTaskId) ?? null,
     [tasks, selectedTaskId]
-  );
-
-  const selectedExperiment = useMemo(
-    () => experiments.find((e) => e.id === selectedExperimentId) ?? null,
-    [experiments, selectedExperimentId]
   );
 
   /** Replace the latest (active) run of a task via an updater. */
@@ -383,7 +371,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
             : exp
         )
       );
-      setIsEditExperimentOpen(false);
     },
     []
   );
@@ -491,7 +478,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
             )
           );
           setDeleteExperimentTargetId(null);
-          if (selectedExperimentId === id) setSelectedExperimentId(null);
         },
         request: () => fetch(`/api/experiments/${encodeURIComponent(id)}`, { method: "DELETE" }),
         rollback: () => {
@@ -501,7 +487,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
         errorMessage: "Gagal menghapus experiment di server",
       });
     },
-    [selectedExperimentId, reloadExperiments, reloadTasks]
+    [reloadExperiments, reloadTasks]
   );
 
   // Live progress comes from the real Transformer Lab job state, not a fake
@@ -546,13 +532,8 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       setExperimentFilters,
       resetExperimentFilters,
       filteredExperiments,
-      selectedExperimentId,
-      setSelectedExperimentId,
-      selectedExperiment,
       isCreateExperimentOpen,
       setIsCreateExperimentOpen,
-      isEditExperimentOpen,
-      setIsEditExperimentOpen,
       deleteExperimentTargetId,
       setDeleteExperimentTargetId,
       createExperiment,
@@ -584,10 +565,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       experimentFilters,
       resetExperimentFilters,
       filteredExperiments,
-      selectedExperimentId,
-      selectedExperiment,
       isCreateExperimentOpen,
-      isEditExperimentOpen,
       deleteExperimentTargetId,
       createExperiment,
       updateExperiment,
