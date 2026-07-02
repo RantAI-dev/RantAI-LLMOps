@@ -1229,3 +1229,33 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 
 ## 2026-07-02 04:00:10 GMT
 - **Followup:** 2 test services-seam.test.ts gagal (asumsi lama: models seed non-empty + fetch degrade ke mock). Fix jujur: keluarkan 'models' dari kontrak mock-seam (Model Registry udah real-only: seed=[], fetch real throw-on-error). vitest 96/96 hijau, eslint 0.
+
+## 2026-07-02 04:17:24 GMT
+- **Task:** Prototype GRPO (Unsloth RL/reasoning) sebagai metode fine-tune kedua. Tanpa commit.
+- **Action:** Investigasi trainer unsloth-grpo-train (task.yaml + train.py) dari GitHub → dapet kontrak param (model_name, dataset, dataset_input/output_field, lora, learning_rate, beta, num_iterations, reasoning tags, dll; default dataset gsm8k, reward = jawaban benar + format <reasoning>/<answer>). BFF (finetune.ts): +GRPO_GITHUB_DIR/SETUP/RUN, +SubmitFinetuneParams{method,datasetInputField,datasetOutputField,beta}, branch submitFinetune method=grpo → launchProviderTask ke unsloth-grpo-train dgn param GRPO (subtype TRAIN, jadi isTrainJob tetap kenali). UI (finetune-form): selector "Training method" SFT/GRPO (MethodButton) + panel GRPO (note reasoning + input/output field, default question/answer) + teruskan method di handleSubmit.
+- **Files:** src/lib/finetune.ts, src/modules/finetune/components/finetune-form.tsx.
+- **Result:** tsc 0, eslint 0, vitest pass. LIVE e2e: submit method=grpo → jobId, job tersimpan run="python unsloth-grpo-train/train.py" subtype=TRAIN (trainer GRPO beneran kelaunch), lalu di-stop. Backend TL/Unsloth udah support GRPO — integrasi app terbukti. Belum commit.
+
+## 2026-07-02 04:31 WIB
+**Task:** Jalanin GRPO sampai COMPLETE buat mastiin fungsi bener-bener jalan (bukan cuma "launch benar").
+**Action:** Submit job GRPO via BFF (`method=grpo`, base `unsloth/SmolLM2-135M`, dataset `openai/gsm8k`, maxSteps=2). Pantau build venv (torch 2.10.0+cu128 + unsloth + trl, ~7.7G) → training → selesai. Baca stdout.log job + cek adapter di disk.
+**Files:** (verifikasi runtime, tanpa perubahan kode) — bukti di `~/.transformerlab/.../jobs/6130b18b.../stdout.log` + adapter di `.../models/..._unsloth_grpo_trained_model`.
+**Result:** COMPLETE (progress 100). Bukti asli: `UnslothGRPOTrainer`/`UnslothRewardTrainer` patched, "🚀 Starting Unsloth GRPO training", loop 2/2 step (~86s), reward functions kehitung (xmlcount/correctness/int/strict_format/soft_format), `status: success`, `trainer_type: 'Unsloth GRPO'`. Adapter kesimpen: `adapter_model.safetensors` 19.6MB + `adapter_config.json` (base SmolLM2-135M, LoRA r=16 alpha=32, peft_type=LORA). Catatan jujur: semua reward=0.0 (wajar — model 135M cuma 2 step, belum sempet belajar format reasoning); tujuannya buktiin mesin GRPO jalan end-to-end, dan itu terbukti. Jalur GRPO sekarang sekelas SFT: launch → train → adapter, tersambung dari UI.
+
+## 2026-07-02 04:39 WIB
+**Task:** Wiring trainer TTS (text-to-speech) sebagai metode fine-tune ketiga + jalanin GRPO "beneran" (step banyak) buat model reasoning nyata.
+**Action:** Investigasi `unsloth-text-to-speech-train` (task.yaml + train.py) via GitHub raw. Tambah konstanta + branch `method==="tts"` di `submitFinetune` (map ke config: model_name, model_architecture, dataset, audio_column_name, text_column_name, sampling_rate, LoRA, dst). Tambah opsi UI method ketiga "TTS" + panel (kolom audio/teks) + peringatan jujur soal kebutuhan GPU besar. Inject Orpheus-3B sebagai base model saat mode TTS. Paralel: submit GRPO Qwen2.5-0.5B-Instruct + gsm8k, 100 step.
+**Files:** `src/lib/finetune.ts` (TTS constants/params/branch), `src/modules/finetune/components/finetune-form.tsx` (method TTS + panel + modelOptions + chooseMethod).
+**Result:** tsc 0, eslint 0, vitest 96 pass. GRPO reasoning run (job 44c2e034) jalan: GPU 93%, Qwen0.5B 1GB VRAM, LoRA 8.8M param, 100 step (monitoring). TTS: wiring benar & bisa dipilih, tapi jujur — default model Orpheus 3B minta RTX3090, kemungkinan OOM di GPU 6GB (didokumentasikan di UI + komentar kode). Belum commit (langkah manual user).
+
+## 2026-07-02 05:22 WIB
+**Task:** Selesaikan GRPO run panjang (100 step) buat model reasoning "beneran".
+**Action:** Job 44c2e034 (Qwen2.5-0.5B-Instruct + gsm8k, 100 step) dibiarkan jalan sampai habis, dipantau tren reward per step.
+**Files:** (verifikasi runtime, tanpa perubahan kode).
+**Result:** COMPLETE — status success, durasi 43 mnt, 100/100 step, adapter tersimpan (`adapter_model.safetensors` 35 MB, base qwen2.5-0.5b, LoRA r=16 α=32). Training STABIL sepanjang run (loss/grad_norm/kl wajar, ngga error/OOM). TEMUAN JUJUR: reward tetap 0.0 sepanjang run — sebabnya `completions/clipped_ratio=1.0` (semua jawaban model 0.5B kepotong di 512 token, ngga pernah nutup format `<answer>`), jadi reward function ngga pernah dapat poin. Ini bukan bug integrasi (pipeline terbukti: train stabil + adapter tersimpan), tapi keterbatasan model kecil di GPU 6GB — referensi Unsloth gsm8k butuh model 3B + ratusan step. Kesimpulan: mesin GRPO 100% jalan end-to-end; buat model reasoning yang beneran naik reward, perlu GPU/model lebih besar. Belum commit (langkah manual user).
+
+## 2026-07-02 05:33 WIB
+**Task:** Modal detail Task masih ada data palsu + timestamp bukan WIB — bikin real + konversi ke Jakarta.
+**Action:** Audit modal: yang REAL cuma nama/status/progress/base model/timing/durasi/compute. Yang PALSU (hardcoded): Owner "AI Team", Priority "Medium", Dataset "—", semua Hyperparameter (0), engine "Custom PyTorch". Ternyata data asli ADA di job_data TL (slim=true tetap bawa). Petakan: `normalize()` (tasks-server.ts) tambah dataset/epochs/batch/lr/max_steps/lora_r/lora_alpha/subtype/owner; `from-tl.ts` pakai field asli + deteksi engine dari subtype/run (TRAIN→Unsloth); `utils.ts` formatDateTime — tag naive TL time sbagai UTC lalu render timeZone Asia/Jakarta. Drawer: buang Priority palsu + ganti Temperature/Checkpoint/Eval palsu jadi param training asli (Max steps + LoRA r/α). Type Task tambah loraR/loraAlpha opsional; TasksResponse diselaraskan.
+**Files:** `src/lib/tasks-server.ts`, `src/modules/tasks/lib/from-tl.ts`, `src/modules/tasks/lib/utils.ts`, `src/modules/tasks/components/task-detail-drawer.tsx`, `src/modules/tasks/types.ts`, `src/modules/tasks/services/tasks-service.ts`.
+**Result:** tsc 0, vitest 96 pass. Verifikasi live: /api/tasks/list job 44c2e034 → dataset "openai/gsm8k", epochs 1, batch 1, lr 5e-5, max_steps 100, lora r16/α32, owner "admin@example.com", engine Unsloth (bukan lagi "—"/0/Custom PyTorch). Timestamp: start 04:34→11:34 AM WIB, finish→12:19 PM WIB (cocok fs container). Owner sekarang email user asli. Priority dihapus (TL ngga punya konsep itu). Yang masih default jujur: resource telemetry (GPU/VRAM/cost) — TL ngga expose per job. Belum commit (manual user).

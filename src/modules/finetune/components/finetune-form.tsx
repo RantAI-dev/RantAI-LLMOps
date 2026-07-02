@@ -6,6 +6,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FinetuneOptions } from "@/lib/finetune";
+import { cn } from "@/lib/utils";
+
+type Method = "sft" | "grpo" | "tts";
+
+// Mirror of the TTS trainer's defaults (kept local so this client component never
+// pulls the server-only finetune.ts module into the browser bundle). The backend
+// applies these same defaults regardless.
+const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
+const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -29,12 +38,17 @@ export function FinetuneForm({
   onSubmit: (body: Record<string, unknown>) => Promise<boolean>;
   onDeleteDataset: (id: string) => Promise<void>;
 }) {
+  const [method, setMethod] = useState<Method>("sft");
   const [baseModel, setBaseModel] = useState("");
   const [dataset, setDataset] = useState("");
   const [adaptorName, setAdaptorName] = useState("");
   const [epochs, setEpochs] = useState(1);
   const [loraR, setLoraR] = useState(8);
   const [learningRate, setLearningRate] = useState(0.0002);
+  const [inputField, setInputField] = useState("question");
+  const [outputField, setOutputField] = useState("answer");
+  const [audioColumn, setAudioColumn] = useState("audio");
+  const [textColumn, setTextColumn] = useState("text_to_synthesize");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [touchedName, setTouchedName] = useState(false);
   const [deletingDataset, setDeletingDataset] = useState(false);
@@ -58,7 +72,33 @@ export function FinetuneForm({
     return list;
   }, [options.datasets, dataset]);
 
-  const selectedModel = options.models.find((m) => m.id === baseModel);
+  // TTS trains an Orpheus/CSM audio model — not in the normal trainable-LLM list —
+  // so inject it as a base option when TTS is the method.
+  const modelOptions = useMemo(() => {
+    if (method !== "tts") return options.models;
+    const list = [...options.models];
+    if (!list.some((m) => m.id === TTS_DEFAULT_MODEL)) {
+      list.unshift({
+        id: TTS_DEFAULT_MODEL,
+        name: "Orpheus 3B (TTS)",
+        architecture: TTS_DEFAULT_ARCHITECTURE,
+        sizeMb: 6000,
+        isGguf: false,
+        downloaded: false,
+      });
+    }
+    return list;
+  }, [options.models, method]);
+
+  // Switching method also snaps the base model to a sensible default for it, so
+  // e.g. a Qwen picked for SFT doesn't linger (wrong arch) after switching to TTS.
+  function chooseMethod(next: Method) {
+    setMethod(next);
+    if (next === "tts") setBaseModel(TTS_DEFAULT_MODEL);
+    else if (baseModel === TTS_DEFAULT_MODEL) setBaseModel("");
+  }
+
+  const selectedModel = modelOptions.find((m) => m.id === baseModel);
   const selectedDataset = datasetOptions.find((d) => d.id === dataset);
 
   // Suggest an adaptor name from the chosen model + dataset until the user edits it.
@@ -72,6 +112,7 @@ export function FinetuneForm({
 
   async function handleSubmit() {
     const ok = await onSubmit({
+      method,
       baseModel,
       baseModelArchitecture: selectedModel?.architecture,
       dataset,
@@ -79,6 +120,10 @@ export function FinetuneForm({
       epochs,
       loraR,
       learningRate,
+      ...(method === "grpo"
+        ? { datasetInputField: inputField, datasetOutputField: outputField }
+        : {}),
+      ...(method === "tts" ? { audioColumn, textColumn } : {}),
     });
     if (ok && !touchedName) setAdaptorName("");
   }
@@ -90,7 +135,74 @@ export function FinetuneForm({
         <h2 className="text-sm font-semibold text-primary">New fine-tune (LoRA)</h2>
       </div>
 
-      {options.models.length === 0 && !loading ? (
+      <div className="mb-3">
+        <span className="mb-1.5 block text-[13px] font-medium text-ink">Training method</span>
+        <div className="grid grid-cols-3 gap-2">
+          <MethodButton
+            active={method === "sft"}
+            onClick={() => chooseMethod("sft")}
+            title="SFT"
+            desc="Instruction tuning (prompt → completion)"
+          />
+          <MethodButton
+            active={method === "grpo"}
+            onClick={() => chooseMethod("grpo")}
+            title="GRPO · RL"
+            desc="Reasoning — di-reward jawaban benar (Unsloth)"
+          />
+          <MethodButton
+            active={method === "tts"}
+            onClick={() => chooseMethod("tts")}
+            title="TTS"
+            desc="Text-to-speech (Orpheus, butuh GPU besar)"
+          />
+        </div>
+        {method === "grpo" ? (
+          <div className="mt-2 rounded-md border border-primary-soft bg-primary-tint-2 p-2.5 text-[12px]">
+            <p className="text-ink">
+              Model belajar <strong>reasoning</strong>: output{" "}
+              <code>&lt;reasoning&gt;…&lt;/reasoning&gt;&lt;answer&gt;…&lt;/answer&gt;</code>, di-reward
+              kalau jawabannya cocok. Butuh dataset dengan kolom pertanyaan + jawaban (mis.{" "}
+              <code>openai/gsm8k</code>).
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] text-ink-soft">Kolom pertanyaan</span>
+                <Input value={inputField} onChange={(e) => setInputField(e.target.value)} placeholder="question" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] text-ink-soft">Kolom jawaban</span>
+                <Input value={outputField} onChange={(e) => setOutputField(e.target.value)} placeholder="answer" />
+              </label>
+            </div>
+          </div>
+        ) : null}
+        {method === "tts" ? (
+          <div className="mt-2 rounded-md border border-primary-soft bg-primary-tint-2 p-2.5 text-[12px]">
+            <p className="text-ink">
+              Melatih model <strong>text-to-speech</strong> (Orpheus) supaya niru suara dari dataset{" "}
+              <code>(audio, teks)</code>. Butuh dataset dengan kolom audio + teks (mis.{" "}
+              <code>bosonai/EmergentTTS-Eval</code>).
+            </p>
+            <p className="mt-1.5 rounded bg-warning-soft px-2 py-1 text-[11px] text-warning">
+              ⚠️ Base model 3B — trainer resminya minta GPU besar (RTX 3090). Di GPU ~6 GB
+              kemungkinan gagal (kehabisan VRAM). Wiring-nya benar, tinggal jalanin di GPU memadai.
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="mb-1 block text-[11px] text-ink-soft">Kolom audio</span>
+                <Input value={audioColumn} onChange={(e) => setAudioColumn(e.target.value)} placeholder="audio" />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-[11px] text-ink-soft">Kolom teks</span>
+                <Input value={textColumn} onChange={(e) => setTextColumn(e.target.value)} placeholder="text_to_synthesize" />
+              </label>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {modelOptions.length === 0 && !loading ? (
         <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
           Belum ada base model yang bisa di-train. Download model <strong>non-GGUF</strong>{" "}
           (mis. Qwen2.5-0.5B / Llama-3.2-1B) lewat picker di Interact dulu.
@@ -106,7 +218,7 @@ export function FinetuneForm({
             onChange={(e) => setBaseModel(e.target.value)}
           >
             <option value="">Select a model…</option>
-            {options.models.map((m) => (
+            {modelOptions.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name} ({m.architecture})
               </option>
@@ -227,5 +339,34 @@ export function FinetuneForm({
         </p>
       </div>
     </div>
+  );
+}
+
+function MethodButton({
+  active,
+  onClick,
+  title,
+  desc,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "rounded-lg border px-3 py-2 text-left transition-colors",
+        active ? "border-primary bg-primary-soft" : "border-input bg-background hover:bg-surface-2"
+      )}
+    >
+      <span className={cn("block text-[13px] font-medium", active ? "text-primary" : "text-ink")}>
+        {title}
+      </span>
+      <span className="mt-0.5 block text-[11px] leading-4 text-ink-soft">{desc}</span>
+    </button>
   );
 }

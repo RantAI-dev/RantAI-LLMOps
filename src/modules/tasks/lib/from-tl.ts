@@ -11,10 +11,11 @@ import type {
  * Map a real Transformer Lab job (from `/api/tasks/list`) into our `Task` shape
  * (a Task template with one execution Run).
  *
- * REAL fields from TL: id, type, status, progress, model, timing, eval score.
- * Resource usage (GPU/VRAM/cost) and hyperparameters aren't exposed per-job, so
- * those stay zeroed defaults — the monitor reports real status/progress, not
- * fabricated telemetry. Logs are loaded lazily in the drawer (`/api/tasks/{id}/output`).
+ * REAL fields from TL job_data: id, type/subtype, status, progress, model,
+ * dataset, hyperparameters (epochs/batch/lr/max_steps/lora), timing, eval score,
+ * owner. Resource usage (GPU/VRAM/cost) isn't exposed per-job so it stays zeroed
+ * (the monitor reports real status/progress, not fabricated telemetry). Logs are
+ * loaded lazily in the drawer (`/api/tasks/{id}/output`).
  */
 
 type TlJobRow = {
@@ -27,10 +28,21 @@ type TlJobRow = {
   startTime: string;
   endTime: string;
   score: number | null;
+  subtype: string;
+  run: string;
+  dataset: string;
+  epochs: number;
+  batchSize: number;
+  learningRate: number;
+  maxSteps: number;
+  loraR: number;
+  loraAlpha: number;
+  owner: string;
 };
 
-function mapType(t: string): TaskType {
-  switch (t.toUpperCase()) {
+/** Prefer the real subtype (TRAIN/EVAL/…); top-level type is usually "REMOTE". */
+function mapType(subtype: string, type: string): TaskType {
+  switch ((subtype || type).toUpperCase()) {
     case "TRAIN":
       return "Fine-tuning";
     case "EVAL":
@@ -44,8 +56,10 @@ function mapType(t: string): TaskType {
   }
 }
 
-function mapEngine(t: string): EnginePlugin {
-  switch (t.toUpperCase()) {
+/** Real engine: detect Unsloth from the trainer command, else fall back by kind. */
+function mapEngine(subtype: string, type: string, run: string): EnginePlugin {
+  if (/unsloth/i.test(run)) return "Unsloth";
+  switch ((subtype || type).toUpperCase()) {
     case "EVAL":
       return "Evaluation Runner";
     case "EXPORT":
@@ -94,7 +108,8 @@ function durationMs(start: string, end: string): number {
 const EXPERIMENT_ID = "nqr-ft";
 
 export function tlJobToTask(row: TlJobRow, now: string): Task {
-  const type = mapType(row.type);
+  const type = mapType(row.subtype, row.type);
+  const engine = mapEngine(row.subtype, row.type, row.run);
   const status = mapStatus(row.status);
   const created = row.startTime || now;
   const run = {
@@ -151,27 +166,33 @@ export function tlJobToTask(row: TlJobRow, now: string): Task {
     experimentId: EXPERIMENT_ID,
     experimentName: EXPERIMENT_ID,
     computeTarget,
-    engine: mapEngine(row.type),
+    engine,
     createdAt: created,
     description:
       row.score != null
         ? `${type} · accuracy ${(row.score * 100).toFixed(1)}%`
         : `${type} job on ${row.model}`,
-    owner: "AI Team",
+    owner: row.owner || "—",
+    // TL has no per-job "priority"; kept as a valid default but not shown as real.
     priority: "Medium",
     baseModel: row.model,
-    dataset: "—",
+    dataset: row.dataset || "—",
     gpuRequired: 1,
-    runtime: mapEngine(row.type),
+    runtime: engine,
     hyperparameters: {
-      epochs: 0,
-      batchSize: 0,
-      learningRate: 0,
-      maxToken: 0,
+      epochs: row.epochs,
+      batchSize: row.batchSize,
+      learningRate: row.learningRate,
+      // Training jobs cap by steps, not token budget — surface the real max_steps.
+      maxToken: row.maxSteps,
+      // TL doesn't expose these per-job for our trainers; keep honest zeros/off.
       temperature: 0,
       enableCheckpoint: false,
       enableEvaluationAfterRun: false,
     },
+    // Real LoRA config, shown as its own line in the drawer.
+    loraR: row.loraR,
+    loraAlpha: row.loraAlpha,
     runs: [run],
   };
 }

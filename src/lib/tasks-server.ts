@@ -22,8 +22,21 @@ export type TlJobRow = {
   startTime: string;
   endTime: string;
   score: number | null; // eval headline accuracy, when present
+  // Real launch config (present on our fine-tune jobs), surfaced so the Tasks
+  // drawer shows genuine values instead of placeholder zeros.
+  subtype: string; // TRAIN | EVAL | EXPORT (job_data.subtype)
+  run: string; // the trainer command, e.g. "python unsloth-grpo-train/train.py"
+  dataset: string;
+  epochs: number;
+  batchSize: number;
+  learningRate: number;
+  maxSteps: number;
+  loraR: number;
+  loraAlpha: number;
+  owner: string;
 };
 
+type TlUserInfo = { name?: string; email?: string };
 type TlJob = {
   id?: number | string;
   type?: string;
@@ -38,8 +51,22 @@ type TlJob = {
     start_time?: string;
     end_time?: string;
     score?: string;
+    subtype?: string;
+    run?: string;
+    dataset?: string;
+    num_train_epochs?: number;
+    batch_size?: number;
+    learning_rate?: number;
+    max_steps?: number;
+    lora_r?: number;
+    lora_alpha?: number;
+    user_info?: TlUserInfo;
   };
 };
+
+function num(v: unknown): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
 
 /** Headline accuracy from an eval job's `score` JSON (`[{type,score}]`). */
 function headlineScore(raw?: string): number | null {
@@ -66,6 +93,16 @@ function normalize(j: TlJob): TlJobRow {
     startTime: d.start_time ?? "",
     endTime: d.end_time ?? "",
     score: headlineScore(d.score),
+    subtype: d.subtype ?? "",
+    run: d.run ?? "",
+    dataset: d.dataset ?? "",
+    epochs: num(d.num_train_epochs),
+    batchSize: num(d.batch_size),
+    learningRate: num(d.learning_rate),
+    maxSteps: num(d.max_steps),
+    loraR: num(d.lora_r),
+    loraAlpha: num(d.lora_alpha),
+    owner: d.user_info?.name ?? d.user_info?.email ?? "",
   };
 }
 

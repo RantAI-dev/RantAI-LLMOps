@@ -48,6 +48,32 @@ const TRAINER_SETUP =
   "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb";
 const TRAINER_RUN = "python unsloth-llm-train/train.py";
 
+/**
+ * Unsloth GRPO (RL) trainer — reasoning fine-tune. It teaches the model to emit
+ * `<reasoning>…</reasoning><answer>…</answer>`, rewarded by whether the extracted
+ * answer matches the dataset's answer field (+ format correctness). Same launch
+ * mechanism as SFT — just a different gallery trainer + `parameters` shape.
+ */
+const GRPO_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-grpo-train";
+const GRPO_SETUP =
+  "uv pip install trl==0.24.0 bitsandbytes==0.49.2 unsloth==2026.3.3 unsloth-zoo==2026.3.1 datasets==4.3.0 torch==2.10.0";
+const GRPO_RUN = "python unsloth-grpo-train/train.py";
+
+/**
+ * Unsloth text-to-speech trainer — LoRA-tunes an Orpheus/CSM audio model on a
+ * dataset of (audio, text) pairs. Same launch mechanism as SFT/GRPO. NOTE: the
+ * default `unsloth/orpheus-3b-0.1-ft` is a 3B audio model — the trainer's own
+ * task.yaml asks for an RTX 3090; it will OOM on ~6 GB GPUs. Wired so it's
+ * selectable + correct; running it to completion needs a bigger GPU.
+ */
+const TTS_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-text-to-speech-train";
+const TTS_SETUP =
+  "uv pip install unsloth snac librosa soundfile transformers==4.52.3 datasets==3.6.0 torch==2.10.0";
+const TTS_RUN = "python unsloth-text-to-speech-train/train.py";
+/** Orpheus TTS base model — the trainer's default; shown as a base option in TTS mode. */
+export const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
+export const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
+
 export type FinetuneDataset = {
   id: string;
   name: string;
@@ -328,6 +354,16 @@ export type SubmitFinetuneParams = {
   maxSteps?: number;
   /** Optional HF token for gated models/datasets. */
   hfToken?: string;
+  /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech. */
+  method?: "sft" | "grpo" | "tts";
+  /** GRPO only: the dataset's input/output column names + KL beta. */
+  datasetInputField?: string;
+  datasetOutputField?: string;
+  beta?: number;
+  /** TTS only: the dataset's audio + text column names + audio sampling rate. */
+  audioColumn?: string;
+  textColumn?: string;
+  samplingRate?: number;
 };
 
 /**
@@ -346,6 +382,76 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
 
   const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
   if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;
+
+  if (p.method === "grpo") {
+    // GRPO (RL/reasoning) — maps onto the unsloth-grpo-train `lab.get_config()`
+    // keys. The reasoning tags / system prompt / templates use the trainer's own
+    // sensible defaults, so we only pass the essentials.
+    return launchProviderTask({
+      experimentId: FINETUNE_EXPERIMENT,
+      taskName: adaptorName,
+      run: GRPO_RUN,
+      setup: GRPO_SETUP,
+      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoDir: GRPO_GITHUB_DIR,
+      accelerators: "NVIDIA:1",
+      parameters: {
+        model_name: p.baseModel,
+        dataset: p.dataset,
+        dataset_input_field: p.datasetInputField ?? "question",
+        dataset_output_field: p.datasetOutputField ?? "answer",
+        learning_rate: p.learningRate ?? 0.00005,
+        num_train_epochs: p.epochs ?? 1,
+        batch_size: p.batchSize ?? 1,
+        max_steps: p.maxSteps ?? 50,
+        lora_r: p.loraR ?? 16,
+        lora_alpha: p.loraAlpha ?? 32,
+        lora_dropout: 0.05,
+        maximum_sequence_length: 1024,
+        maximum_completion_length: 512,
+        beta: p.beta ?? 0.04,
+        num_iterations: 2,
+      },
+      envVars: env_vars,
+      description: `GRPO reasoning fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
+      subtype: "TRAIN",
+    });
+  }
+
+  if (p.method === "tts") {
+    // Text-to-speech — maps onto the unsloth-text-to-speech-train config keys.
+    // The base model is an Orpheus/CSM audio model, and the dataset needs an
+    // audio column + a text column (defaults match bosonai/EmergentTTS-Eval).
+    return launchProviderTask({
+      experimentId: FINETUNE_EXPERIMENT,
+      taskName: adaptorName,
+      run: TTS_RUN,
+      setup: TTS_SETUP,
+      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoDir: TTS_GITHUB_DIR,
+      accelerators: "NVIDIA:1",
+      parameters: {
+        model_name: p.baseModel,
+        model_architecture: p.baseModelArchitecture ?? TTS_DEFAULT_ARCHITECTURE,
+        dataset: p.dataset,
+        audio_column_name: p.audioColumn ?? "audio",
+        text_column_name: p.textColumn ?? "text_to_synthesize",
+        learning_rate: p.learningRate ?? 0.00005,
+        num_train_epochs: p.epochs ?? 1,
+        batch_size: p.batchSize ?? 1,
+        max_steps: p.maxSteps ?? 60,
+        lora_r: p.loraR ?? 16,
+        lora_alpha: p.loraAlpha ?? 32,
+        lora_dropout: 0.0,
+        maximum_sequence_length: 1024,
+        max_grad_norm: 0.3,
+        sampling_rate: p.samplingRate ?? 24000,
+      },
+      envVars: env_vars,
+      description: `TTS fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
+      subtype: "TRAIN",
+    });
+  }
 
   return launchProviderTask({
     experimentId: FINETUNE_EXPERIMENT,

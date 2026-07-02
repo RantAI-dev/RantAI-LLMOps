@@ -162,6 +162,9 @@ export type Task = {
   gpuRequired: number;
   runtime: string;
   hyperparameters: TaskHyperparameters;
+  /** Real LoRA config for TL-derived fine-tune tasks (undefined for mock tasks). */
+  loraR?: number;
+  loraAlpha?: number;
   /** Execution history, newest first. Empty = template never run (Draft). */
   runs: TaskRun[];
 };

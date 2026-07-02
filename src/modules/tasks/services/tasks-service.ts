@@ -8,8 +8,9 @@ import type { Task } from "@/modules/tasks/types";
  * `seedTasks()` gives the rich mock for instant first paint. `fetchTasks()`
  * pulls REAL jobs (train / eval / export) from Transformer Lab via our
  * `/api/tasks/list` BFF (server-side permanent key, independent of the app's
- * mock login). Each job becomes a Task with one execution run. Per-job resource
- * telemetry and hyperparameters stay defaults (TL doesn't expose them per job).
+ * mock login). Each job becomes a Task with one execution run — real dataset +
+ * hyperparameters included. Only per-job resource telemetry (GPU/VRAM/cost) stays
+ * defaulted (TL doesn't expose that per job).
  */
 
 /** Sync seed for instant initial render. */
@@ -28,6 +29,16 @@ type TasksResponse = {
     startTime: string;
     endTime: string;
     score: number | null;
+    subtype: string;
+    run: string;
+    dataset: string;
+    epochs: number;
+    batchSize: number;
+    learningRate: number;
+    maxSteps: number;
+    loraR: number;
+    loraAlpha: number;
+    owner: string;
   }>;
 };
 

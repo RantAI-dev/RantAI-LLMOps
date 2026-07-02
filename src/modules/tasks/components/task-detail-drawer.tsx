@@ -84,7 +84,6 @@ export function TaskDetailDrawer({
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
               <Meta label="Experiment" value={task.experimentName} full />
               <Meta label="Owner" value={task.owner} />
-              <Meta label="Priority" value={task.priority} />
               <Meta label="Created" value={formatDateTime(task.createdAt)} />
               <Meta label="Started" value={formatDateTime(run?.startedAt)} />
               <Meta label="Finished" value={formatDateTime(run?.finishedAt)} />
@@ -115,13 +114,10 @@ export function TaskDetailDrawer({
               <div className="grid grid-cols-2 gap-2 text-ink-soft">
                 <span>Epochs: {hp.epochs}</span>
                 <span>Batch: {hp.batchSize}</span>
-                <span>LR: {hp.learningRate}</span>
-                <span>Max tokens: {hp.maxToken}</span>
-                <span>Temperature: {hp.temperature}</span>
-                <span>Checkpoint: {hp.enableCheckpoint ? "On" : "Off"}</span>
-                <span className="col-span-2">
-                  Eval after run: {hp.enableEvaluationAfterRun ? "Enabled" : "Disabled"}
-                </span>
+                <span>Learning rate: {hp.learningRate}</span>
+                <span>Max steps: {hp.maxToken}</span>
+                {task.loraR != null ? <span>LoRA rank (r): {task.loraR}</span> : null}
+                {task.loraAlpha != null ? <span>LoRA alpha: {task.loraAlpha}</span> : null}
               </div>
             </div>
           </Section>
