@@ -4,16 +4,17 @@
  * WSL — the app runs on Windows while the TL backend + CUDA tooling live in a
  * WSL distro — reached via `wsl.exe`.
  *
- * SECURITY: the script command is a FIXED template that references `"$@"`; the
- * user-influenced values (job id, base model, tag) are passed as positional
- * argv elements that become `$1 $2 $3`. They never appear in the command string,
- * so they can't break out into a second shell command regardless of their
- * contents. The validation in the callers is then just defense-in-depth, not the
- * sole boundary.
+ * SECURITY: user-influenced values (job id, base model, tag) are substituted into
+ * the command as SINGLE-QUOTED strings, with any embedded quote escaped
+ * (`'` -> `'\''`). Combined with the callers' `assert*` validation (which rejects
+ * shell metacharacters up front), a value can't break out of its quotes into a
+ * second command. We interpolate rather than pass positional argv because
+ * `wsl.exe … bash -lc '<cmd>' name a b c` and `docker exec … bash -lc '<cmd>' name
+ * a b c` DROP the trailing positional args in this environment (verified: `$#`
+ * comes back 0), so `"$@"` would always be empty.
  *
- * DOCKER-READY: when the backend moves to a container, only `hostArgv()` changes
- * (`wsl.exe` → `docker exec <container> …`). Set `HOST_RUNNER=docker` and
- * `DOCKER_CONTAINER=…`; every call site stays the same.
+ * DOCKER-READY: only `hostArgv()` changes (`wsl.exe` → `docker exec <container>`).
+ * Set `HOST_RUNNER=docker` and `DOCKER_CONTAINER=…`; every call site stays the same.
  */
 import { execFile } from "node:child_process";
 
@@ -24,12 +25,14 @@ const HOST_RUNNER = process.env.HOST_RUNNER ?? "wsl";
 const WSL_DISTRO = process.env.WSL_DISTRO ?? "Ubuntu";
 const DOCKER_CONTAINER = process.env.DOCKER_CONTAINER ?? "transformerlab";
 
-/**
- * Build argv that runs `<scriptCmd>` (a fixed template using `"$@"`) with the
- * given args bound to `$1..$N` inside the backend env. `$0` is a fixed label.
- */
-function hostArgv(scriptCmd: string, args: string[]): { file: string; argv: string[] } {
-  const shell = ["bash", "-lc", scriptCmd, "nqr", ...args];
+/** Single-quote a value for safe shell interpolation (escapes embedded quotes). */
+function shQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Wrap a fully-built command string to run inside the backend env. */
+function hostArgv(fullCmd: string): { file: string; argv: string[] } {
+  const shell = ["bash", "-lc", fullCmd];
   switch (HOST_RUNNER) {
     case "docker":
       return { file: "docker", argv: ["exec", DOCKER_CONTAINER, ...shell] };
@@ -44,16 +47,21 @@ function hostArgv(scriptCmd: string, args: string[]): { file: string; argv: stri
 export type HostRunResult = { stdout: string; stderr: string };
 
 /**
- * Execute a host script with argv-isolated args. Resolves with stdout/stderr on
- * success; rejects with the trailing output on non-zero exit. Any `redact`
- * values are scrubbed from the error text before it propagates.
+ * Execute a host script. `scriptCmd` is a fixed template; its `"$@"` placeholder
+ * (or, if absent, a trailing append) is replaced by the `args`, each single-quoted
+ * and escaped. Resolves with stdout/stderr on success; rejects with the trailing
+ * output on non-zero exit. Any `redact` values are scrubbed from the error text.
  */
 export function runHostScript(
   scriptCmd: string,
   args: string[],
   opts: { timeoutMs?: number; redact?: string[] } = {}
 ): Promise<HostRunResult> {
-  const { file, argv } = hostArgv(scriptCmd, args);
+  const quoted = args.map(shQuote).join(" ");
+  const fullCmd = scriptCmd.includes('"$@"')
+    ? scriptCmd.replace('"$@"', quoted)
+    : `${scriptCmd} ${quoted}`.trimEnd();
+  const { file, argv } = hostArgv(fullCmd);
   return new Promise((resolve, reject) => {
     execFile(
       file,

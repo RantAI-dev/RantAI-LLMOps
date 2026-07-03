@@ -1336,3 +1336,56 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Action (Part 2 review + fix):** 3 agent review (server / React / types). Fix yang dikerjakan: [HIGH] chat-area abort stream saat unmount (cegah token nyasar antar sesi chat). [MED] reset cancelledRef=false saat mount di use-evals + use-sweep (StrictMode dev bug). [MED] deployment-store atomic write (temp+rename) + bedakan ENOENT vs korupsi. [MED] from-tl pakai konstanta FINETUNE_EXPERIMENT (bukan hardcode). [MED] konsolidasi date: helper bersama src/lib/tl-datetime.ts (normalizeToUtc + APP_TIME_ZONE + parseTlDate); experiments/model-registry/datasets jadi UTC-safe + WIB (dulu parse naive-UTC sbg local). [LOW] login global rate-limit backstop (anti spoof XFF), hf-hub encode repo path, chat/generate fetch timeout (AbortSignal), formatRelativeTime guard hari negatif. Hapus dead code: catalogEntryToCreateInput + datasetFromCreateInput + generateDatasetId + buildSchemaMappingFromFeatures + HF_COLUMN_TO_STANDARD + import nganggur.
 **Files:** chat-area.tsx, use-evals.ts, use-sweep.ts, deployment-store.ts, tasks/lib/from-tl.ts, tl-datetime.ts (baru), tasks/experiments/model-registry/datasets utils.ts, login/route.ts, hf-hub.ts, chat/route.ts, generate.ts.
 **Result:** tsc 0, eslint 0 (seluruh src), vitest 94 pass, next build 20/20. Smoke: deployments atomic write OK. Verdict reviewer: kualitas kode server & client bagus/disiplin (boundary host-script argv-isolated benar, fetch-cancellation + polling pattern konsisten); temuan nyata udah difix. Sisa low/kosmetik didokumentasikan. Belum commit (manual user).
+
+## 2026-07-03 03:54 WIB
+**Task:** Compute ternyata masih MOCK (RunPod/AWS/RTX4090 palsu + titik merah). Bikin real.
+**Action:** Koreksi jujur: audit sebelumnya salah tandain Compute "real" — BFF/service-nya real tapi HALAMAN mematikan fetch (useResourceFetch tanpa {always:true} → di-gate USE_REAL_API=off → nyangkut di seed mock initialProviders). Fix: (1) compute-server enrich provider Local dengan GPU asli via nvidia-smi (runHostScript → docker exec; TL cuma report "NVIDIA" tanpa model/VRAM). (2) compute-service seed→[] , buang initialProviders + addComputeProvider (mock RunPod/AWS). (3) compute-page pakai {always:true} (fetch real), hapus tombol "Add provider" + AddProviderSheet (nambah cloud di luar scope lokal), subheading diperbaiki. (4) feature-status: Compute keluar dari NAV_FEATURE → titik merah hilang. Hapus file: add-provider-sheet.tsx, data/initial-compute.ts. Update seam test + feature-status test.
+**Files:** compute-server.ts, compute-service.ts, compute-page.tsx, feature-status.ts, services-seam.test.ts, feature-status.test.ts; hapus 2 file.
+**Result:** tsc 0, eslint 0, vitest 92 pass, build 20/20. Verifikasi live: /api/compute/providers → 1 provider "Local" Connected + GPU asli "NVIDIA GeForce RTX 3060 Laptop GPU 1× 6GB" (mock dulu bilang RTX 4090 24GB). Ngga ada lagi RunPod/AWS/cluster/tombol Add palsu, titik merah sidebar hilang. Belum commit (manual user).
+
+## 2026-07-03 03:59 WIB
+**Task:** Bug Interact — klik model downloaded ngga ke-select.
+**Action:** Diagnosa: /api/models/load SUKSES (balikin {loaded: id}), tapi hook use-model-catalog.load NGABAIKAN response itu — malah refresh dari /api/models/catalog → loadedOllamaModel (/api/ps). Ollama cuma load ke VRAM pas chat pertama, jadi /api/ps KOSONG langsung habis load → next.loaded=null → onChange ngga kepanggil → seleksi ngga nyangkut. Fix: pakai data.loaded dari response POST buat onChange (fallback ke model.id), baru refresh. Plus: model-picker active check pakai `m.id === value` juga (centang muncul pas dipilih, ngga nunggu hot di VRAM).
+**Files:** src/modules/playground/hooks/use-model-catalog.ts, src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0. Klik downloaded model sekarang langsung ke-select (label + centang). Belum commit (manual user).
+
+## 2026-07-03 04:37 WIB
+**Task:** Bug Export fine-tune ("GGUF export/import failed: usage: nqr_serve_finetune.sh...").
+**Action:** Diagnosa (via node execFile persis kayak app): pola argv-form runHostScript `bash -lc '<tpl "$@">' nqr <args>` TERNYATA ngga ngoper positional args lewat wsl.exe MAUPUN docker exec di env ini ($0=/bin/bash, $#=0). Jadi script SELALU dapat 0 arg → cetak "usage" → semua export gagal. Fix host-runner.ts: interpolasi args (single-quoted + escape `'`→`'\''`) langsung ke command string, ganti `"$@"`. Aman: caller udah validasi (assertJobId/ModelId/Tag) + single-quote = defense-in-depth. Update komentar SECURITY.
+**Files:** src/lib/host-runner.ts.
+**Result:** tsc 0, eslint 0. Verifikasi: (a) args nyampe (script cetak ADAPTER_NOT_FOUND bukan usage), (b) EXPORT PENUH SUKSES end-to-end — /api/finetune/export job 44c2e034 → {ok:true, tag:nqr-grpo-reasoning-...} → model masuk Ollama. Bug ini kena SEMUA fitur pakai runHostScript (export fine-tune + merge-for-eval). Belum commit (manual user).
+
+## 2026-07-03 04:56 WIB
+**Task:** Bug — klik "Use" model fine-tune (nqr-wf-test) malah export lagi.
+**Action:** Diagnosa: fetchFineTuned (finetune.ts) set loadModelId = tag TANPA ":latest" (servable Set-nya di-strip), tapi catalog.servable punya id DENGAN ":latest". Di model-picker, `catalog.servable.find(m => m.id === ft.loadModelId)` gagal → ggufModel undefined → label "Use" (ft.ready) tapi onClick jatuh ke cabang export. Fix: (1) lookup ggufModel toleran ":latest" (strip saat banding). (2) label + onClick + active semua pakai satu sumber `ggufModel` (bukan campur ft.ready), jadi konsisten.
+**Files:** src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0. Klik "Use" sekarang beneran load model (bukan export lagi). Belum commit (manual user).
+
+## 2026-07-03 05:01 WIB
+**Task:** Bug — klik "Use" model fine-tune → {"error":"pull model manifest: file does not exist"}.
+**Action:** Diagnosa: loadModel (models-catalog.ts) SELALU `pullOllamaModel(modelId)`. Buat model hasil `ollama create` (export fine-tune) yg ngga ada di registry Ollama, pull gagal "manifest: file does not exist". Fix: cek dulu model udah ada di /api/tags (banding tanpa ":latest"); pull HANYA kalau belum ada.
+**Files:** src/lib/models-catalog.ts (loadModel).
+**Result:** tsc 0, eslint 0. Verifikasi live: /api/models/load model fine-tune lokal → {loaded: ...} (sukses), lalu /api/chat ke model itu → streaming jawaban + [DONE]. Model fine-tune sekarang bisa di-"Use" + chat. Belum commit (manual user).
+
+## 2026-07-03 05:10 WIB
+**Task:** Fix #1 chat template hilang di export fine-tune + Fix #2 model fine-tune dobel di 2 tab.
+**Action:** #1: Modelfile export cuma "FROM <gguf>" + tokenizer disimpen dari ADAPTER yg kadang ngga punya chat_template → GGUF tanpa tokenizer.chat_template → Ollama WARN + jawaban ngawur. Fix nqr_export_gguf.sh: kalau tok adapter ngga punya chat_template, ambil dari base model (AutoTokenizer base.chat_template) sebelum save. Sync copy ke ~/ (script di ~/ itu COPY, bukan symlink). #2: model-picker downloaded list exclude servable yg id-nya = fineTuned.loadModelId (banding tanpa :latest) → fine-tune cuma muncul di tab Fine-tuned.
+**Files:** scripts/serve/nqr_export_gguf.sh (+ synced ~/nqr_export_gguf.sh), src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0. Verifikasi: export ulang docker-smoke-2 → `ollama show --template` nunjukin ChatML Qwen ASLI (model lama nqr-wf-test cuma "{{ .Prompt }}"). Chat ke model baru → koheren + on-topic (vs lama ngawur). CATATAN: model yg udah di-export SEBELUM fix (nqr-wf-test, nqr-grpo-reasoning) perlu di-export ulang (hapus dulu) buat dapet template. Belum commit (manual user).
+
+## 2026-07-03 05:50 WIB
+**Task:** Re-export model lama (nqr-wf-test, grpo-reasoning) biar dapet chat template baru.
+**Action:** POST /api/finetune/export ulang untuk kedua jobId (ollama create overwrite tag lama). 
+**Result:** Dua-duanya {ok:true}. Verifikasi `ollama show --template` → keduanya sekarang ChatML Qwen asli (sebelumnya "{{ .Prompt }}"). Semua model fine-tune sekarang konsisten punya template bener. Belum commit (manual user).
+
+## 2026-07-03 06:00 WIB
+**Task:** Interact model picker terlalu simpel — gabungin dengan Hub (usul user: dropdown cuma Downloaded + Fine-tuned + tombol ke Hub).
+**Action:** model-picker.tsx: hapus section "Recommended" (list hardcoded) + logic downloadAndLoad + recommended useMemo. Tab "Hub models" → rename "Downloaded" (isinya model Ollama lokal, minus fine-tune). Tambah footer button "Get more models from Hugging Face →" (Compass icon) yang router.push('/hub') + tutup dropdown. Empty-state diperjelas. Hapus komponen Empty yg nganggur.
+**Files:** src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0, build 20/20. Picker sekarang fokus: Downloaded + Fine-tuned, download/pilih-quant didelegasikan ke Hub (search HF asli + progress). Belum commit (manual user).
+
+## 2026-07-03 06:06 WIB
+**Task:** Interact — model Fine-tuned yang dipilih ngga ada centangnya (Downloaded ada).
+**Action:** Tab Downloaded active-check pakai `m.id === value` (kufix sebelumnya), tapi tab Fine-tuned cuma pakai matchesLoaded(catalog.loaded) yg sering kosong (Ollama lazy-load). Fix: Fine-tuned active juga cek `ggufModel.id === value` (strip :latest) selain matchesLoaded.
+**Files:** src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0. Model fine-tune yang dipilih sekarang kecentang. Belum commit (manual user).

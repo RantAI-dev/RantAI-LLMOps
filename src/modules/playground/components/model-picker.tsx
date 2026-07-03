@@ -1,6 +1,7 @@
 "use client";
 
-import { Check, ChevronDown, Download, Loader2, Search, Sparkles, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Compass, Download, Loader2, Search, Sparkles, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { CatalogModel } from "@/lib/models-catalog";
@@ -19,8 +20,9 @@ export function ModelPicker({
   value: string;
   onChange: (servedModel: string) => void;
 }) {
-  const { catalog, loading, busy, error, load, downloadAndLoad, exportModel, deleteFineTuned } =
+  const { catalog, loading, busy, error, load, exportModel, deleteFineTuned } =
     useModelCatalog(onChange);
+  const router = useRouter();
   // Downloads/exports are long and have no pollable % from TL — show elapsed
   // time so a slow op clearly reads as "working", not frozen.
   const elapsed = useElapsed(busy ? `${busy.id}:${busy.action}` : null);
@@ -48,17 +50,26 @@ export function ModelPicker({
 
   const q = query.trim().toLowerCase();
   // Chat is served by Ollama, so the picker lists Ollama models (the `servable`
-  // namespace), NOT the TL registry (`downloaded`, used for training).
-  const downloaded = useMemo(
-    () => catalog.servable.filter((m) => match(m, q)),
-    [catalog.servable, q]
-  );
-  const recommended = useMemo(
-    () => catalog.ollamaRecommended.filter((m) => !m.downloaded && match(m, q)),
-    [catalog.ollamaRecommended, q]
-  );
+  // namespace), NOT the TL registry (`downloaded`, used for training). Exported
+  // fine-tunes are also servable, but they belong in the Fine-tuned tab — exclude
+  // them here so they don't show (and get checked) in both tabs.
+  const downloaded = useMemo(() => {
+    const fineTunedIds = new Set(
+      catalog.fineTuned
+        .map((ft) => ft.loadModelId?.replace(/:latest$/, ""))
+        .filter((id): id is string => Boolean(id))
+    );
+    return catalog.servable.filter(
+      (m) => match(m, q) && !fineTunedIds.has(m.id.replace(/:latest$/, ""))
+    );
+  }, [catalog.servable, catalog.fineTuned, q]);
 
   const label = value || catalog.loaded || "Select model";
+
+  const goToHub = () => {
+    setOpen(false);
+    router.push("/hub");
+  };
 
   return (
     <div ref={rootRef} className="relative">
@@ -76,7 +87,7 @@ export function ModelPicker({
           {/* Tabs */}
           <div className="flex gap-1 border-b border-border p-1.5">
             <TabButton active={tab === "hub"} onClick={() => setTab("hub")}>
-              Hub models
+              Downloaded
             </TabButton>
             <TabButton active={tab === "finetuned"} onClick={() => setTab("finetuned")}>
               Fine-tuned
@@ -96,12 +107,24 @@ export function ModelPicker({
                 <Section title="Your models">
                   {catalog.fineTuned.map((ft) => {
                     const busyHere = busy?.id === ft.fusedModelId ? busy.action : null;
+                    // `loadModelId` is the bare Ollama tag; servable ids carry a
+                    // ":latest" suffix — compare with it stripped so the match holds.
                     const ggufModel = ft.loadModelId
-                      ? catalog.servable.find((m) => m.id === ft.loadModelId)
+                      ? catalog.servable.find(
+                          (m) => m.id.replace(/:latest$/, "") === ft.loadModelId
+                        )
                       : undefined;
-                    const active = ggufModel && matchesLoaded(ggufModel, catalog.loaded);
+                    // Checked when it's the selected model (value) — matching the
+                    // Downloaded tab — or currently hot in VRAM. Compare with the
+                    // ":latest" suffix stripped so the match is robust.
+                    const active =
+                      !!ggufModel &&
+                      (ggufModel.id.replace(/:latest$/, "") === value.replace(/:latest$/, "") ||
+                        matchesLoaded(ggufModel, catalog.loaded));
+                    // Single source of truth: if the served GGUF exists, "Use" it;
+                    // otherwise it still needs exporting.
                     const onClick = () => {
-                      if (ft.ready && ggufModel) {
+                      if (ggufModel) {
                         load(ggufModel).then(() => setOpen(false));
                       } else {
                         exportModel(ft.fusedModelId);
@@ -138,9 +161,11 @@ export function ModelPicker({
                               ? `Exporting… ${elapsed}s`
                               : busyHere === "load"
                                 ? "Loading…"
-                                : ft.ready
-                                  ? "Use"
-                                  : "Export to use"}
+                                : active
+                                  ? "In use"
+                                  : ggufModel
+                                    ? "Use"
+                                    : "Export to use"}
                           </span>
                         </button>
                         <button
@@ -182,53 +207,44 @@ export function ModelPicker({
                 </div>
               ) : null}
 
-              <div className="max-h-[340px] overflow-y-auto py-1.5">
+              <div className="max-h-[320px] overflow-y-auto py-1.5">
                 {loading ? (
                   <div className="flex items-center justify-center gap-2 py-6 text-[13px] text-ink-soft">
                     <Loader2 className="size-4 animate-spin" aria-hidden /> Loading…
                   </div>
+                ) : downloaded.length === 0 ? (
+                  <div className="px-4 py-6 text-center text-[13px] text-ink-soft">
+                    {q ? "Ngga ada model lokal yang cocok." : "Belum ada model. Ambil satu dari Hugging Face di bawah."}
+                  </div>
                 ) : (
-                  <>
-                    <Section title="Downloaded">
-                      {downloaded.length === 0 ? (
-                        <Empty>Belum ada model lokal.</Empty>
-                      ) : (
-                        downloaded.map((m) => (
-                          <ModelRow
-                            key={m.id}
-                            model={m}
-                            active={matchesLoaded(m, catalog.loaded)}
-                            busy={busy?.id === m.id ? busy.action : null}
-                            onClick={() => {
-                              load(m).then(() => setOpen(false));
-                            }}
-                          />
-                        ))
-                      )}
-                    </Section>
-
-                    <Section title="Recommended" hint="muat di GPU ≤ 8 GB">
-                      {recommended.length === 0 ? (
-                        <Empty>Semua rekomendasi sudah ke-download.</Empty>
-                      ) : (
-                        recommended.map((m) => (
-                          <ModelRow
-                            key={m.id}
-                            model={m}
-                            busy={busy?.id === m.id ? busy.action : null}
-                            elapsed={elapsed}
-                            percent={busy?.id === m.id ? (busy.percent ?? null) : null}
-                            downloadable
-                            onClick={() => {
-                              downloadAndLoad(m).then(() => setOpen(false));
-                            }}
-                          />
-                        ))
-                      )}
-                    </Section>
-                  </>
+                  <div className="px-1.5">
+                    {downloaded.map((m) => (
+                      <ModelRow
+                        key={m.id}
+                        model={m}
+                        active={m.id === value || matchesLoaded(m, catalog.loaded)}
+                        busy={busy?.id === m.id ? busy.action : null}
+                        onClick={() => {
+                          load(m).then(() => setOpen(false));
+                        }}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
+
+              {/* Downloading + picking a quant is the Hub's job (real HF search +
+                  progress); the picker just links there so it stays focused on
+                  models you already have. */}
+              <button
+                type="button"
+                onClick={goToHub}
+                className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-[13px] font-medium text-primary hover:bg-surface-2"
+              >
+                <Compass className="size-4 shrink-0" aria-hidden />
+                Get more models from Hugging Face
+                <span className="ml-auto text-ink-soft" aria-hidden>→</span>
+              </button>
             </>
           )}
         </div>
@@ -280,10 +296,6 @@ function Section({
       {children}
     </div>
   );
-}
-
-function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="px-3 py-1.5 text-[12px] text-ink-soft">{children}</div>;
 }
 
 function ModelRow({

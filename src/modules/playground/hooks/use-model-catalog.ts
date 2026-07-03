@@ -78,10 +78,13 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ modelId: model.id, adaptor }),
         });
-        const data = (await res.json()) as { error?: string };
+        const data = (await res.json()) as { loaded?: string; error?: string };
         if (!res.ok) throw new Error(data.error || "Failed to load model");
-        const next = await refresh();
-        if (next.loaded) onLoadedRef.current?.(next.loaded);
+        // Select from the load RESPONSE — Ollama only loads into VRAM on the first
+        // chat request, so `/api/ps` (catalog.loaded) is empty right now and can't
+        // confirm the selection. Fall back to the clicked id if the API omits it.
+        onLoadedRef.current?.(data.loaded ?? model.id);
+        await refresh();
       } catch (err) {
         setError((err as Error).message);
       } finally {

@@ -272,7 +272,13 @@ export async function loadModel(modelId: string): Promise<string> {
   // Ollama then auto-loads it into VRAM on the first chat request. `modelId` is
   // an Ollama tag (e.g. "qwen2.5:0.5b"). LoRA adaptors aren't applied here —
   // fine-tunes are served by exporting to GGUF and importing as an Ollama model.
-  await pullOllamaModel(modelId);
+  // Skip the pull when Ollama already has this tag — a locally-created fine-tune
+  // export (`ollama create`) or an already-pulled model isn't in any registry, so
+  // pulling it fails with "manifest: file does not exist". Only pull if missing.
+  const have = new Set((await listOllamaModels()).map((m) => m.id.replace(/:latest$/, "")));
+  if (!have.has(modelId.replace(/:latest$/, ""))) {
+    await pullOllamaModel(modelId);
+  }
   return modelId;
 }
 

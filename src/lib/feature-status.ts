@@ -64,9 +64,8 @@ export function isMock(key: FeatureKey): boolean {
  * that are still mock. Labels must match `mainNav` / `workspaceNav` in the shell.
  */
 export const NAV_FEATURE: Partial<Record<string, FeatureKey>> = {
-  // Compute is kept as an honest placeholder for a possible future cloud build;
-  // mark it mock (no realtime GPU metrics today) so the sidebar flags it.
-  Compute: "task.resourceMonitor",
+  // No menus are mock-gated in the sidebar right now — Compute reads the real
+  // Transformer Lab provider list. (Add an entry here to flag a future mock menu.)
 };
 
 export function isNavMock(label: string): boolean {

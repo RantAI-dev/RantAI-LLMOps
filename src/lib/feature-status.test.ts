@@ -9,10 +9,10 @@ describe("feature-status", () => {
     expect(isMock("rag.evals")).toBe(true);
   });
 
-  it("flags mock nav labels and ignores live/unknown ones", () => {
-    expect(isNavMock("Compute")).toBe(true); // kept as an honest placeholder (no realtime GPU metrics)
+  it("does not flag real nav labels (no mock-gated menus right now)", () => {
+    expect(isNavMock("Compute")).toBe(false); // now reads the real TL provider list
     expect(isNavMock("Dashboard")).toBe(false);
-    expect(isNavMock("Interact")).toBe(false); // now a real chat playground (chat.playground = live)
+    expect(isNavMock("Interact")).toBe(false); // real chat playground (chat.playground = live)
     expect(isNavMock("Not a real menu")).toBe(false);
   });
 });

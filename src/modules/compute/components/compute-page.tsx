@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, Cpu, Plus, Server, Star, Trash2 } from "lucide-react";
+import { Boxes, Cpu, Server, Star, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -11,19 +11,16 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useResourceFetch } from "@/lib/use-resource-fetch";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import {
-  addComputeProvider,
   fetchComputeProviders,
   removeComputeProvider,
   seedComputeProviders,
 } from "@/modules/compute/services/compute-service";
 import type {
-  AddProviderInput,
   Cluster,
   ClusterState,
   ComputeProvider,
   ProviderStatus,
 } from "@/modules/compute/types";
-import { AddProviderSheet } from "./add-provider-sheet";
 import { cn } from "@/lib/utils";
 
 const providerStatusStyles: Record<ProviderStatus, string> = {
@@ -44,8 +41,9 @@ const clusterStateStyles: Record<ClusterState, string> = {
 
 export function ComputePage() {
   const [providers, setProviders] = useState<ComputeProvider[]>(seedComputeProviders);
-  const providersFetch = useResourceFetch(setProviders, fetchComputeProviders);
-  const [isAddOpen, setIsAddOpen] = useState(false);
+  // `always: true` — the BFF reads the real provider list with a server-side key,
+  // independent of the app-auth mock flag.
+  const providersFetch = useResourceFetch(setProviders, fetchComputeProviders, { always: true });
 
   const summary = useMemo(() => {
     const localGpus = providers
@@ -57,12 +55,6 @@ export function ComputePage() {
     const defaultProvider = providers.find((p) => p.isDefault);
     return { localGpus, activeClusters, defaultProvider };
   }, [providers]);
-
-  const addProvider = (input: AddProviderInput) => {
-    void addComputeProvider({ name: input.name, type: input.type }).then(() =>
-      providersFetch.reload()
-    );
-  };
 
   // is_default is a TL PATCH we don't expose yet; keep it local-only (visual).
   const setDefault = (id: string) =>
@@ -86,14 +78,10 @@ export function ComputePage() {
         <div>
           <h1 className={cn("text-primary", taskUi.title)}>Compute</h1>
           <p className={cn("mt-1 max-w-2xl", taskUi.subheading)}>
-            Where Transformer Lab runs training & inference jobs — local machine or remote
-            providers (RunPod, AWS, SkyPilot, …).
+            Where Transformer Lab runs training & inference jobs. On this self-host that&apos;s your
+            local machine + its GPU.
           </p>
         </div>
-        <Button type="button" className="shrink-0" onClick={() => setIsAddOpen(true)}>
-          <Plus className="size-4" />
-          Add provider
-        </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -122,12 +110,7 @@ export function ComputePage() {
         <EmptyState
           icon={Server}
           title="No compute providers"
-          description="Add a provider to start running training & inference jobs."
-          action={
-            <Button type="button" size="sm" onClick={() => setIsAddOpen(true)}>
-              <Plus className="size-4" /> Add provider
-            </Button>
-          }
+          description="Transformer Lab reports no providers. On a self-host you'd normally see a built-in 'Local' provider — check that the backend is running."
         />
       ) : (
         <div className="space-y-3">
@@ -141,8 +124,6 @@ export function ComputePage() {
           ))}
         </div>
       )}
-
-      <AddProviderSheet open={isAddOpen} onClose={() => setIsAddOpen(false)} onAdd={addProvider} />
     </div>
   );
 }

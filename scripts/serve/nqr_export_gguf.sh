@@ -23,8 +23,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 adapter, base_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
 base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16)
 PeftModel.from_pretrained(base, adapter).merge_and_unload().save_pretrained(out, safe_serialization=True)
-AutoTokenizer.from_pretrained(adapter).save_pretrained(out)
-print("merged ->", out)
+tok = AutoTokenizer.from_pretrained(adapter)
+# The adapter's tokenizer sometimes lacks the chat template. Without it the GGUF
+# carries no `tokenizer.chat_template`, so Ollama can't format chat prompts and
+# replies come out garbled. Fall back to the base model's chat template.
+if not getattr(tok, "chat_template", None):
+    tok.chat_template = AutoTokenizer.from_pretrained(base_id).chat_template
+tok.save_pretrained(out)
+print("merged ->", out, "| chat_template:", "yes" if tok.chat_template else "NO")
 PYEOF
 
 echo "[2/4] ensure llama.cpp + gguf"
