@@ -9,9 +9,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 600;
 
 /**
- * Serves a fine-tune by exporting it to GGUF and importing it into Ollama.
- * Called from the Fine-tuned tab's "Export to use" action. `fusedModelId` is the
- * TRAIN job id. Returns the new Ollama tag.
+ * Serves a fine-tune by exporting it to GGUF and importing it into Ollama, and
+ * STREAMS live stage progress back as SSE so the "Export to use" action can show
+ * what it's doing (merge → convert → import) instead of an opaque spinner.
+ * `fusedModelId` is the TRAIN job id. Emits `data: {stage, percent?}` lines, then
+ * a final `data: {done, tag}` or `data: {error}`.
  */
 export async function POST(req: NextRequest) {
   let body: { fusedModelId?: string };
@@ -23,11 +25,31 @@ export async function POST(req: NextRequest) {
   if (!body.fusedModelId) {
     return Response.json({ error: "`fusedModelId` is required" }, { status: 400 });
   }
-  try {
-    const tag = await exportFineTunedToGguf(body.fusedModelId);
-    return Response.json({ ok: true, tag });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Export failed";
-    return Response.json({ error: message }, { status: 502 });
-  }
+  const fusedModelId = body.fusedModelId;
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      try {
+        const tag = await exportFineTunedToGguf(fusedModelId, (stage) =>
+          send({ stage: stage.message, percent: stage.percent })
+        );
+        send({ done: true, tag });
+      } catch (err) {
+        send({ error: err instanceof Error ? err.message : "Export failed" });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+    },
+  });
 }

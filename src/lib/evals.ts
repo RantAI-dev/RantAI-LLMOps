@@ -64,6 +64,9 @@ export type EvalJob = {
   status: string;
   progress: number;
   scores: EvalScore[];
+  /** TL timestamps (UTC, zone-less) — when the run started / finished. */
+  startedAt?: string;
+  finishedAt?: string;
 };
 
 /** Evaluable models = our fine-tunes + downloaded safetensors + recommended HF bases. */
@@ -229,6 +232,8 @@ type TlEvalJob = {
     launch_progress?: { percent?: number };
     subtype?: string;
     run?: string;
+    start_time?: string;
+    end_time?: string;
   };
 };
 
@@ -260,6 +265,8 @@ function normalize(j: TlEvalJob): EvalJob {
     // v0.40.0 eval scores live in `evals` artifacts / /evals/compare_evals, not
     // job_data.score. Kept as a fallback for any legacy plugin jobs.
     scores: parseScores(d.score),
+    startedAt: d.start_time,
+    finishedAt: d.end_time,
   };
 }
 

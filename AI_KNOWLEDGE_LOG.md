@@ -1389,3 +1389,69 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Action:** Tab Downloaded active-check pakai `m.id === value` (kufix sebelumnya), tapi tab Fine-tuned cuma pakai matchesLoaded(catalog.loaded) yg sering kosong (Ollama lazy-load). Fix: Fine-tuned active juga cek `ggufModel.id === value` (strip :latest) selain matchesLoaded.
 **Files:** src/modules/playground/components/model-picker.tsx.
 **Result:** tsc 0, eslint 0. Model fine-tune yang dipilih sekarang kecentang. Belum commit (manual user).
+
+## 2026-07-03 06:20 WIB
+**Task:** Fine-tune base model cuma 4 opsi hardcoded — tambah opsi ketik HF base id sendiri.
+**Action:** finetune-form.tsx: tambah state customBase; select base model dapat opsi "✎ Other — paste a Hugging Face model id…"; pas dipilih → munculin text Input buat ketik HF id + hint (harus trainable/non-GGUF). chooseMethod reset customBase pas ke TTS. baseModel = id yang diketik; assertModelId di backend validasi; architecture undefined utk custom (SFT/GRPO ngga butuh).
+**Files:** src/modules/finetune/components/finetune-form.tsx.
+**Result:** tsc 0, eslint 0. Sekarang bisa fine-tune base HF apapun (mis. unsloth/Qwen2.5-Coder-3B-Instruct), bukan cuma 4 preset. Belum commit (manual user).
+
+## 2026-07-03 06:33 WIB
+**Task:** Ganti "paste HF id" di Fine-tune jadi SEARCH langsung (lebih praktis).
+**Action:** (1) hf-hub.ts: searchHfTrainableModels — cari model trainable (library=transformers, pipeline_tag=text-generation, exclude gguf/awq/gptq) beda dari searchHfModels yg GGUF. (2) route baru /api/hub/base-models?q=. (3) finetune-form: opsi "🔍 Cari model lain di Hugging Face…" → munculin komponen HfBaseSearch (search debounced 300ms, hasil live dari HF, klik = pilih; ada opsi "Pakai persis: owner/name" kalau ngetik id lengkap). Rombak effect biar setState di dalam callback (bukan sinkron di effect body) + open derived.
+**Files:** hf-hub.ts, app/api/hub/base-models/route.ts (baru), finetune-form.tsx.
+**Result:** tsc 0, eslint 0, build 20/20. Verifikasi live: /api/hub/base-models?q=qwen coder → return Qwen Coder trainable asli (14B/7B/32B, non-GGUF). Sekarang di Fine-tune bisa SEARCH base model, ngga cuma paste/preset. Belum commit (manual user).
+
+## 2026-07-03 06:38 WIB
+**Task:** Klik "Start fine-tune" ngga ada respons.
+**Action:** Reproduksi /api/finetune/submit persis payload user → HTTP 200 + jobId (backend JALAN). Masalah: use-finetune.submit on-success cuma loadJobs() tanpa toast/redirect → user ngira gagal, klik 2× → 3 job Qwen3-1.7B duplikat (2 user + 1 tes-ku). Fix: tambah toast.success ("Fine-tune dimulai! Pantau di Tasks") on success + toast.error on failure. Cleanup: stop 2 duplikat (6712cf86 tes-ku + bf122f19), keep 4850d37b lanjut.
+**Files:** src/modules/finetune/hooks/use-finetune.ts.
+**Result:** tsc 0, eslint 0. Sekarang Start fine-tune kasih toast jelas. Catatan: base Qwen3-1.7B di GPU 6GB berisiko OOM (Unsloth 4bit+LoRA mungkin muat) — job 4850d37b dibiarin jalan buat lihat hasilnya. Belum commit (manual user).
+
+## 2026-07-03 06:50 WIB
+**Task:** User: nama task di Tasks awalnya "REMOTE {uuid}" trus berubah jadi "unsloth-demo" — kenapa?
+**Action:** Root cause: listAllJobs pakai `?slim=true` yang nge-strip `job_data.task_name` (nama adaptor unik yg di-set saat submit). Akibatnya nama jatuh ke `template_name` (generik "unsloth-demo", sama utk semua run) atau fallback jelek `REMOTE {uuid}` sebelum ter-load. Fix di src/lib/tasks-server.ts: (1) buang `slim=true` di listAllJobs (sama kayak fetchTrainingJobs yg emang hindari slim), (2) prioritas nama: `task_name ?? template_name ?? output_model_name ?? "Job {shortId}"` (fallback pakai short id, bukan raw uuid REMOTE), (3) tambah task_name ke tipe TlJob.job_data.
+**Files:** src/lib/tasks-server.ts.
+**Result:** tsc 0, eslint 0. Nama task sekarang distinctive: nqr-real-adaptor, nqr-eval-smollm-arc, eval-qwen2-5-0-5b-instruct-arc_easy, docker-smoke, dll. Ngga ada lagi "unsloth-demo" generik / flicker "REMOTE {uuid}". Belum commit (manual user).
+
+## 2026-07-03 07:07 WIB
+**Task:** "Export to use" fine-tune Qwen2.5-1.5B di Interact gagal: "GGUF export/import failed: {%- endif %}".
+**Action:** Diagnosa: `{%- endif %}` cuma chat_template Qwen yg ke-echo convert_hf_to_gguf ke stdout (BUKAN error). Error asli (ke-tail terpotong): `Error: invalid model name` dari `ollama create`. Root cause: fineTuneTag = `nqr-{nama}-{FULL-uuid}` = 89 char; Ollama nolak nama model >~85 char. Verifikasi empiris via ollama create (80 char OK, 89 INVALID). Fix src/lib/finetune.ts fineTuneTag: pakai 8 hex pertama job id (bukan full uuid) + cap nama 48 char → tag ≤ ~60 char. Migrasi 5 model lama yg tag-nya berubah via `ollama cp old new && ollama rm old` (docker-smoke-2, grpo-verify, grpo-reasoning, wf-test, real-adaptor) biar tetap dikenali UI tanpa re-export.
+**Files:** src/lib/finetune.ts.
+**Result:** tsc 0, eslint 0. Export endpoint qwen2.5 -> HTTP 200 tag `nqr-qwen2-5-1-5b-instruct-claude-fable-5-claude-code-ee35fe46` (61 char). Chat test: "Hello!" (bersih). Belum commit (manual user).
+
+## 2026-07-03 07:18 WIB
+**Task:** "Export to use" di Interact bikin loading informatif (progress kelihatan) + error jelas.
+**Action:** Ubah export dari blocking (spinner+elapsed doang, error mentah `{%- endif %}`) jadi SSE streaming tahapan ASLI. (1) host-runner.ts: tambah runHostScriptStream (spawn, split CR+LF biar progress bar `\r` ke-surface) + extractError (ambil baris `Error:`/`Traceback`, buang fragmen Jinja) + buildCommand; runHostScript lama ikut pakai extractError. (2) finetune.ts: exportFineTunedToGguf(jobId, onStage?) map baris script `[1/4]..[4/4]` + `Writing: NN%` jadi stage Indonesia, dedupe. (3) api/finetune/export: jadi SSE (data:{stage,percent} lalu {done,tag}/{error}). (4) lib/export-progress.ts (baru): consumer SSE client. (5) use-model-catalog: CatalogBusy.stage, exportModel konsumsi stream + toast success/error (banner error dulu cuma muncul di tab Downloaded, export di tab Fine-tuned ga keliatan). (6) model-picker: tampilkan stage di subtitle + persen/elapsed di kanan.
+**Files:** src/lib/host-runner.ts, src/lib/finetune.ts, src/lib/export-progress.ts (new), src/app/api/finetune/export/route.ts, src/modules/playground/hooks/use-model-catalog.ts, src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0. Tes SSE: stream persen konversi GGUF 55->100% + "Mengimpor ke Ollama…" + done+tag. Error path: job ngawur -> `Training job "..." not found (404)` (bersih). Belum commit (manual user). CATATAN: scripts ~/nqr_*.sh di WSL ga berubah (murni sisi app).
+
+## 2026-07-03 07:26 WIB
+**Task:** Ganti model ke qwen3-1.7b, tapi di picker DUA model tampil "In use" sekaligus.
+**Action:** Root cause di model-picker: `active = (id===value) || matchesLoaded(catalog.loaded)`. Model lama (qwen2.5) masih panas di VRAM (habis dipakai chat) jadi matchesLoaded true, sementara qwen3 baru match `value` -> dua-duanya "In use". Fix: gate matchesLoaded di belakang `!value` -> kalau sudah ada yg dipilih, active ikut `value` saja (satu-satunya sumber kebenaran model chat); matchesLoaded cuma fallback saat belum ada pilihan. Terapkan di 2 tempat: baris active tab Fine-tuned + prop `active` ModelRow tab Downloaded.
+**Files:** src/modules/playground/components/model-picker.tsx.
+**Result:** tsc 0, eslint 0. Sekarang cuma 1 model "In use" (yg dipilih); model lama yg masih warm di VRAM tampil "Use" biasa. Belum commit (manual user).
+
+## 2026-07-03 07:42 WIB
+**Task:** Evals: periksa real + tambah timestamp kapan eval dijalankan (history di list bawah).
+**Action:** Verifikasi eval real (LM-Eval-Harness arc_easy, skor konsisten). Tambah timestamp: (1) tl-datetime.ts: helper formatAppDateTime (WIB, "Mon D, HH:MM AM"). (2) evals.ts: EvalJob + startedAt/finishedAt, TlEvalJob.job_data + start_time/end_time, normalize isi dari d.start_time/d.end_time. (3) eval-job-list.tsx: baris "Selesai/Mulai {waktu} WIB" + ikon Clock (finish time kalau selesai, start time kalau masih jalan).
+**Files:** src/lib/tl-datetime.ts, src/lib/evals.ts, src/modules/evals/components/eval-job-list.tsx.
+**Result:** tsc 0, eslint 0. API /api/evals/jobs kirim finishedAt/startedAt terisi (mis. 2026-07-03 07:34:01 UTC -> 02:34 PM WIB). List Results (paling bawah) = history semua run, newest first. Belum commit (manual user).
+
+## 2026-07-03 07:54 WIB
+**Task:** Test endpoint Deployments sering kepotong (Qwen3 reasoning "mikir" habisin token) — naikin limit.
+**Action:** src/app/api/serve/test/route.ts: maxTokens 128 -> 384 biar model reasoning selesai jawab, tetap cukup ringkas buat smoke test. (Deployment sendiri sudah terbukti jalan — endpoint OpenAI-compatible balas; output aneh sebelumnya murni sifat model Qwen3 + limit token kecil.)
+**Files:** src/app/api/serve/test/route.ts.
+**Result:** tsc 0, eslint 0. /api/serve/test balas bersih "Berikut adalah resep rendang singkat...". Belum commit (manual user).
+
+## 2026-07-03 08:03 WIB
+**Task:** Generations: (1) warning duplicate key React, (2) dropdown Base model kosong total.
+**Action:** (1) Duplicate key: 3 fine-tune Qwen3 bernama sama -> ganti key+value+lookup dari f.name ke f.fusedModelId (unik = job id), tambah short-id suffix di label saat nama kembar. (2) Base kosong: base dibaca dari catalog.downloaded = registry TL (safetensors) yg KOSONG karena model di-pull ke Ollama (GGUF) lewat Hub. Base runnable ada di catalog.servable. Fix: baseModels dari catalog.servable filter !id.startsWith("nqr-") (buang fine-tune export). Update tipe Catalog lokal downloaded->servable + fallback catch.
+**Files:** src/modules/generations/components/generations-page.tsx.
+**Result:** tsc 0, eslint 0. Base dropdown kini isi 3 model (Qwen2.5-Coder-3B, Llama-3.2-1B, qwen2.5:0.5b). Warning key hilang. Belum commit (manual user).
+
+## 2026-07-03 08:23 WIB
+**Task:** Interpretasi hasil Output comparison + base ngulang-ngulang parah.
+**Action:** Analisis: fine-tune (qwen2.5-1.5b-instruct-claude-fable) jawab ringkas/koheren; base (Qwen2.5-CODER-1.5B) loop ("Assistant adalah...x3", "Azerbaijani...xN") + off-topic. Sebab loop: /api/generations/complete lewat completeOnLoadedModel TIDAK kirim repetition penalty (beda dari route chat yg pakai frequency_penalty 0.4). Fix: tambah frequency_penalty 0.4 + presence_penalty 0.3 di generate.ts (dipakai compare + serve/test). Catatan: base = Coder (bukan Instruct base yg dilatih) -> perbandingan bukan efek-fine-tune murni; Coder emang jelek buat chat (dgn penalty malah halusinasi HTML).
+**Files:** src/lib/generate.ts.
+**Result:** tsc 0, eslint 0. Base tak lagi loop tapi keluar HTML (sifat model Coder). Rekomendasi user: pakai base Qwen2.5-1.5B-Instruct-GGUF (base asli) buat baca efek fine-tune yg jujur. Belum commit (manual user).

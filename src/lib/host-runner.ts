@@ -16,7 +16,7 @@
  * DOCKER-READY: only `hostArgv()` changes (`wsl.exe` → `docker exec <container>`).
  * Set `HOST_RUNNER=docker` and `DOCKER_CONTAINER=…`; every call site stays the same.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 
 import { redactSecrets } from "@/lib/redact";
 
@@ -47,6 +47,34 @@ function hostArgv(fullCmd: string): { file: string; argv: string[] } {
 export type HostRunResult = { stdout: string; stderr: string };
 
 /**
+ * Pull a human-meaningful error out of a failed script's combined output.
+ * Scripts print a lot of noise (progress bars, echoed chat templates) — the real
+ * cause is usually an explicit `Error:`/`Traceback` line, not the last line. Fall
+ * back to the last few non-noise lines so we never surface a stray `{%- endif %}`.
+ */
+function extractError(output: string): string {
+  const lines = output
+    .split(/[\r\n]+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const errLine = [...lines]
+    .reverse()
+    .find((l) => /^(error\b|error:|traceback|fatal|exception\b)/i.test(l));
+  if (errLine) return errLine;
+  // Drop Jinja/template fragments the GGUF converter echoes to stdout.
+  const meaningful = lines.filter((l) => !/^\{[%{]/.test(l) && !/^\{\{-|^\{%-/.test(l));
+  return meaningful.slice(-4).join("\n") || lines.slice(-1)[0] || "Host script failed";
+}
+
+/** Build the final command string with args safely interpolated. */
+function buildCommand(scriptCmd: string, args: string[]): string {
+  const quoted = args.map(shQuote).join(" ");
+  return scriptCmd.includes('"$@"')
+    ? scriptCmd.replace('"$@"', quoted)
+    : `${scriptCmd} ${quoted}`.trimEnd();
+}
+
+/**
  * Execute a host script. `scriptCmd` is a fixed template; its `"$@"` placeholder
  * (or, if absent, a trailing append) is replaced by the `args`, each single-quoted
  * and escaped. Resolves with stdout/stderr on success; rejects with the trailing
@@ -57,11 +85,7 @@ export function runHostScript(
   args: string[],
   opts: { timeoutMs?: number; redact?: string[] } = {}
 ): Promise<HostRunResult> {
-  const quoted = args.map(shQuote).join(" ");
-  const fullCmd = scriptCmd.includes('"$@"')
-    ? scriptCmd.replace('"$@"', quoted)
-    : `${scriptCmd} ${quoted}`.trimEnd();
-  const { file, argv } = hostArgv(fullCmd);
+  const { file, argv } = hostArgv(buildCommand(scriptCmd, args));
   return new Promise((resolve, reject) => {
     execFile(
       file,
@@ -69,12 +93,64 @@ export function runHostScript(
       { timeout: opts.timeoutMs ?? 9 * 60_000, maxBuffer: 16 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
-          const tail = `${stdout}\n${stderr}`.trim().split("\n").slice(-8).join("\n");
-          reject(new Error(redactSecrets(tail || err.message, opts.redact ?? [])));
+          const detail = extractError(`${stdout}\n${stderr}`) || err.message;
+          reject(new Error(redactSecrets(detail, opts.redact ?? [])));
         } else {
           resolve({ stdout, stderr });
         }
       }
     );
+  });
+}
+
+/**
+ * Like {@link runHostScript} but streams output line-by-line via `onLine` as the
+ * script runs (for long jobs whose scripts print stage markers, e.g. `[3/4] …`).
+ * Splits on CR *and* LF so `\r`-updated progress bars surface each tick. Resolves
+ * with the full stdout/stderr on success; rejects with a cleaned error on failure.
+ */
+export function runHostScriptStream(
+  scriptCmd: string,
+  args: string[],
+  onLine: (line: string) => void,
+  opts: { timeoutMs?: number; redact?: string[] } = {}
+): Promise<HostRunResult> {
+  const { file, argv } = hostArgv(buildCommand(scriptCmd, args));
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, argv, { windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    let buf = "";
+    const pump = (chunk: string, isErr: boolean) => {
+      if (isErr) stderr += chunk;
+      else stdout += chunk;
+      buf += chunk;
+      let nl: number;
+      while ((nl = buf.search(/[\r\n]/)) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (line) onLine(line);
+      }
+    };
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (d: string) => pump(d, false));
+    child.stderr.on("data", (d: string) => pump(d, true));
+
+    const timer = setTimeout(() => child.kill("SIGKILL"), opts.timeoutMs ?? 9 * 60_000);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(new Error(redactSecrets(err.message, opts.redact ?? [])));
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (buf.trim()) onLine(buf.trim());
+      if (code === 0) {
+        resolve({ stdout, stderr });
+      } else {
+        const detail = extractError(`${stdout}\n${stderr}`) || `exited with code ${code}`;
+        reject(new Error(redactSecrets(detail, opts.redact ?? [])));
+      }
+    });
   });
 }

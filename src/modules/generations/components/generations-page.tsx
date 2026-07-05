@@ -13,7 +13,10 @@ const selectClass =
 
 type CatalogModel = { id: string; name: string; isGguf: boolean };
 type FineTuned = { name: string; fusedModelId: string; ready: boolean; loadModelId: string | null };
-type Catalog = { downloaded?: CatalogModel[]; fineTuned?: FineTuned[] };
+// `servable` = the Ollama models we can actually run (base + our fine-tune
+// exports). `downloaded` is TL's safetensors registry, which stays empty when
+// models are pulled into Ollama via Hub — so base models come from `servable`.
+type Catalog = { servable?: CatalogModel[]; fineTuned?: FineTuned[] };
 
 const DEFAULT_PROMPTS = ["Jelaskan secara singkat tentang dirimu.", "Apa yang kamu pelajari?"].join(
   "\n"
@@ -31,7 +34,9 @@ export function GenerationsPage() {
   const { running, progress, rows, error, runCompare } = useGenerations();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [baseId, setBaseId] = useState("");
-  const [ftName, setFtName] = useState("");
+  // Select by fusedModelId (train job id) — names aren't unique (repeated
+  // fine-tune runs share a name), so keying/selecting by name is ambiguous.
+  const [ftId, setFtId] = useState("");
   const [promptText, setPromptText] = useState(DEFAULT_PROMPTS);
 
   useEffect(() => {
@@ -42,20 +47,24 @@ export function GenerationsPage() {
         if (!cancelled) setCatalog(c);
       })
       .catch(() => {
-        if (!cancelled) setCatalog({ downloaded: [], fineTuned: [] });
+        if (!cancelled) setCatalog({ servable: [], fineTuned: [] });
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Base = downloaded models that aren't our own fused outputs.
+  // Base = servable Ollama models that aren't our own fine-tune exports (nqr-*).
   const baseModels = useMemo(
-    () => (catalog?.downloaded ?? []).filter((m) => !m.id.startsWith("TransformerLab/")),
+    () => (catalog?.servable ?? []).filter((m) => !m.id.startsWith("nqr-")),
     [catalog]
   );
   const fineTuned = catalog?.fineTuned ?? [];
-  const selectedFt = fineTuned.find((f) => f.name === ftName);
+  const selectedFt = fineTuned.find((f) => f.fusedModelId === ftId);
+  // Names repeat across runs — disambiguate those options with a short id.
+  const dupeNames = new Set(
+    fineTuned.filter((f, i, a) => a.findIndex((x) => x.name === f.name) !== i).map((f) => f.name)
+  );
 
   const prompts = promptText.split("\n").map((s) => s.trim()).filter(Boolean);
   const canRun = baseId && selectedFt && prompts.length > 0 && !running;
@@ -114,11 +123,12 @@ export function GenerationsPage() {
               </label>
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Fine-tuned model</span>
-                <select className={selectClass} value={ftName} onChange={(e) => setFtName(e.target.value)}>
+                <select className={selectClass} value={ftId} onChange={(e) => setFtId(e.target.value)}>
                   <option value="">Pilih fine-tuned…</option>
                   {fineTuned.map((f) => (
-                    <option key={f.name} value={f.name}>
+                    <option key={f.fusedModelId} value={f.fusedModelId}>
                       {f.name}
+                      {dupeNames.has(f.name) ? ` · ${f.fusedModelId.slice(0, 8)}` : ""}
                       {f.ready ? " (GGUF)" : " (safetensors)"}
                     </option>
                   ))}

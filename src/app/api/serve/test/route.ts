@@ -20,7 +20,10 @@ export async function POST(req: NextRequest) {
   const prompt = body.prompt?.trim() || "Say hello in one short sentence.";
 
   try {
-    const result = await completeOnLoadedModel(prompt, { temperature: 0.7, maxTokens: 128 });
+    // 384 (not 128) so a reasoning model (e.g. Qwen3) that "thinks" before
+    // answering still has budget to finish the actual reply instead of getting
+    // cut off mid-thought. Still small enough to keep the smoke-test snappy.
+    const result = await completeOnLoadedModel(prompt, { temperature: 0.7, maxTokens: 384 });
     return Response.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Gagal memanggil model";

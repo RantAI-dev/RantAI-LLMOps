@@ -63,6 +63,39 @@ export async function searchHfModels(opts: HubSearch): Promise<HubModel[]> {
     .filter((m) => m.id);
 }
 
+/**
+ * Search HF models that can be FINE-TUNED — full `transformers` text-generation
+ * models (safetensors), NOT the GGUF/quantized repos `searchHfModels` returns.
+ * GGUF/AWQ/GPTQ repos are inference-only and can't be trained, so they're excluded.
+ */
+export async function searchHfTrainableModels(opts: HubSearch): Promise<HubModel[]> {
+  const params = new URLSearchParams({
+    direction: "-1",
+    library: "transformers",
+    pipeline_tag: "text-generation",
+  });
+  if (opts.search) params.set("search", opts.search);
+  params.set("sort", SORT_FIELD[opts.sort ?? "downloads"] ?? "downloads");
+  params.set("limit", String(Math.min(Math.max(opts.limit ?? 20, 1), 40)));
+
+  const res = await fetch(`${HF_API}/models?${params.toString()}`, {
+    headers: hfHeaders(),
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`HF models ${res.status}`);
+  const rows = (await res.json()) as Array<Record<string, unknown>>;
+  return (Array.isArray(rows) ? rows : [])
+    .map((m) => ({
+      id: String(m.id ?? m.modelId ?? ""),
+      downloads: Number(m.downloads ?? 0),
+      likes: Number(m.likes ?? 0),
+      task: (m.pipeline_tag as string | undefined) ?? null,
+      updatedAt: (m.lastModified as string | undefined) ?? null,
+      gated: Boolean(m.gated),
+    }))
+    .filter((m) => m.id && !/gguf|awq|gptq/i.test(m.id));
+}
+
 export type HubDataset = {
   id: string;
   downloads: number;

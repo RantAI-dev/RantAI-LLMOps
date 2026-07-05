@@ -1,9 +1,10 @@
 "use client";
 
-import { CheckCircle2, CircleAlert, Loader2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, Clock, Loader2 } from "lucide-react";
 
 import { Progress } from "@/components/ui/progress";
 import type { EvalJob } from "@/lib/evals";
+import { formatAppDateTime } from "@/lib/tl-datetime";
 import { isEvalActive } from "@/modules/evals/hooks/use-evals";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +25,9 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
       {jobs.map((job) => {
         const active = isEvalActive(job.status);
         const failed = job.status.toUpperCase() === "FAILED";
+        // Prefer the finish time (history); fall back to start while still running.
+        const finished = !active && !!job.finishedAt;
+        const when = finished ? job.finishedAt : job.startedAt;
         return (
           <div key={job.id} className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
@@ -69,6 +73,12 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
                   {Math.round(job.progress)}%
                 </span>
               </div>
+            ) : null}
+            {when ? (
+              <p className="mt-2 flex items-center gap-1 text-[11px] text-ink-soft">
+                <Clock className="size-3 shrink-0" aria-hidden />
+                {finished ? "Selesai" : "Mulai"} {formatAppDateTime(when)} WIB
+              </p>
             ) : null}
           </div>
         );

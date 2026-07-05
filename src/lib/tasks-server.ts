@@ -47,6 +47,7 @@ type TlJob = {
   status?: string;
   progress?: number;
   job_data?: {
+    task_name?: string;
     template_name?: string;
     output_model_name?: string;
     output_model_id?: string;
@@ -102,7 +103,15 @@ function normalize(j: TlJob): TlJobRow {
     status: j.status ?? "UNKNOWN",
     progress: typeof j.progress === "number" ? j.progress : 0,
     model: d.model_name ?? d.input_model_id ?? d.output_model_id ?? "—",
-    template: d.template_name ?? d.output_model_name ?? `${j.type ?? "Job"} ${j.id}`,
+    // The user-chosen adaptor name (`task_name`) is the distinctive per-job label
+    // — prefer it. `template_name` is the shared trainer template ("unsloth-demo",
+    // same for every run) and only a fallback. Last resort: short id, never a
+    // raw "REMOTE {uuid}".
+    template:
+      d.task_name ??
+      d.template_name ??
+      d.output_model_name ??
+      `Job ${String(j.id ?? "").slice(0, 8)}`,
     startTime: d.start_time ?? "",
     endTime: d.end_time ?? "",
     score: headlineScore(d.score),
@@ -122,9 +131,13 @@ function normalize(j: TlJob): TlJobRow {
   };
 }
 
-/** All jobs in the working experiment, newest first. (v0.40.0: experiment-scoped.) */
+/**
+ * All jobs in the working experiment, newest first. (v0.40.0: experiment-scoped.)
+ * No `slim` — it strips `job_data` (including `task_name`), which we need for the
+ * distinctive task label.
+ */
 export async function listAllJobs(): Promise<TlJobRow[]> {
-  const res = await tlFetch(`/experiment/${EXPERIMENT}/jobs/list?slim=true`);
+  const res = await tlFetch(`/experiment/${EXPERIMENT}/jobs/list`);
   if (!res.ok) throw new Error(`jobs ${res.status}`);
   const rows = unwrapList<TlJob>(await res.json().catch(() => []));
   return rows.map(normalize).reverse();

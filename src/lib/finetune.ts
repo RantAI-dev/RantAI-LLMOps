@@ -17,7 +17,7 @@
  *  - The trainer saves a fused model via `lab.save_model(...)` into the job's
  *    artifacts; progress/log stream to the job via the `lab` SDK.
  */
-import { runHostScript } from "@/lib/host-runner";
+import { runHostScript, runHostScriptStream } from "@/lib/host-runner";
 import {
   fetchDownloaded,
   TL_ROOT,
@@ -497,17 +497,45 @@ function isTrainJob(j: TlJob): boolean {
 }
 
 /**
- * Ollama tag for a fine-tune. Includes the train job id so two runs whose names
- * slugify to the same value don't collide — without it, the second export would
- * overwrite the first and both would report "ready" pointing at one shared tag.
- * Must match between listing (to detect "ready") and export (to create the tag).
+ * Ollama tag for a fine-tune. Includes a short job-id suffix so two runs whose
+ * names slugify to the same value don't collide — without it, the second export
+ * would overwrite the first and both would report "ready" pointing at one shared
+ * tag. Must match between listing (to detect "ready") and export (to create it).
+ *
+ * Ollama rejects long model names (~85+ chars → "invalid model name"), so we use
+ * only the first 8 hex chars of the (uu)id and cap the name — plenty unique, and
+ * the result stays comfortably short (≤ ~60 chars).
  */
 export function fineTuneTag(name: string, jobId: string): string {
   const slug = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/(^-|-$)/g, "");
-  const nameSlug = (slug(name || "model") || "model").replace(/^nqr-/, "");
-  const jobSlug = slug(jobId) || "0";
-  return `nqr-${nameSlug}-${jobSlug}`;
+  const nameSlug = (slug(name || "model") || "model").replace(/^nqr-/, "").slice(0, 48);
+  const shortId = (slug(jobId).replace(/-/g, "") || "0").slice(0, 8);
+  return `nqr-${nameSlug.replace(/-+$/, "")}-${shortId}`;
+}
+
+/** A live progress update from the export pipeline. */
+export type ExportStage = { message: string; percent?: number };
+
+/**
+ * Map a raw line from `nqr_export_gguf.sh` to a friendly stage, or null to ignore.
+ * The script prints `[n/4] …` markers per phase; the GGUF converter prints
+ * `Writing: NN%` (via `\r`) during the longest phase — surface that as real %.
+ */
+function exportStageFromLine(line: string): ExportStage | null {
+  const step = line.match(/^\[(\d)\/4\]/);
+  if (step) {
+    const messages: Record<string, string> = {
+      "1": "Menggabungkan adapter ke base model…",
+      "2": "Menyiapkan konverter (llama.cpp)…",
+      "3": "Konversi ke format GGUF…",
+      "4": "Mengimpor ke Ollama…",
+    };
+    return { message: messages[step[1]!] ?? "Memproses…" };
+  }
+  const writing = line.match(/Writing:\s*(\d+)%/);
+  if (writing) return { message: "Konversi ke format GGUF…", percent: Number(writing[1]) };
+  return null;
 }
 
 /**
@@ -518,8 +546,14 @@ export function fineTuneTag(name: string, jobId: string): string {
  * merge it into the fp16 base, convert to GGUF (llama.cpp), and `ollama create`.
  * The heavy ML tooling and Ollama both live on the host, so the BFF drives a
  * host-side WSL script rather than doing it in-process. Long-running (minutes).
+ *
+ * Pass `onStage` to receive live progress (drives the picker's export status);
+ * without it the call still runs, just opaquely.
  */
-export async function exportFineTunedToGguf(jobId: string): Promise<string> {
+export async function exportFineTunedToGguf(
+  jobId: string,
+  onStage?: (stage: ExportStage) => void
+): Promise<string> {
   // Resolve the base model + adaptor name from the train job.
   const jobRes = await fetch(
     `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
@@ -541,10 +575,25 @@ export async function exportFineTunedToGguf(jobId: string): Promise<string> {
   assertTag(tag);
 
   // Fixed command template; values bind to $1/$2/$3 via "$@" — never interpolated.
+  const cmd = 'bash ~/nqr_serve_finetune.sh "$@"';
+  const cmdArgs = [jobId, base, tag];
   try {
-    await runHostScript('bash ~/nqr_serve_finetune.sh "$@"', [jobId, base, tag]);
+    if (onStage) {
+      let last = "";
+      await runHostScriptStream(cmd, cmdArgs, (line) => {
+        const stage = exportStageFromLine(line);
+        if (!stage) return;
+        // Dedupe: only forward when the message or the % actually changes.
+        const key = `${stage.message}:${stage.percent ?? ""}`;
+        if (key === last) return;
+        last = key;
+        onStage(stage);
+      });
+    } else {
+      await runHostScript(cmd, cmdArgs);
+    }
   } catch (err) {
-    throw new Error(`GGUF export/import failed: ${err instanceof Error ? err.message : err}`);
+    throw new Error(err instanceof Error ? err.message : String(err));
   }
   return tag;
 }

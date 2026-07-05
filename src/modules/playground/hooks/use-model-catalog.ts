@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
+import { exportModelWithProgress } from "@/lib/export-progress";
 import type { CatalogModel, ModelCatalog } from "@/lib/models-catalog";
 import { pullModelWithProgress } from "@/lib/pull-progress";
 
@@ -19,6 +21,8 @@ export type CatalogBusy = {
   action: "load" | "download" | "export" | "delete";
   /** Download progress 0–100 (null until Ollama reports a total). */
   percent?: number | null;
+  /** Live stage label for a running export (merge → convert → import). */
+  stage?: string | null;
 } | null;
 
 async function getCatalog(): Promise<ModelCatalog> {
@@ -112,22 +116,27 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
     [refresh, load]
   );
 
-  /** Export a fused fine-tuned model to GGUF so it becomes loadable. */
+  /**
+   * Export a fused fine-tuned model to GGUF so it becomes loadable, streaming
+   * live stage progress into `busy.stage`/`busy.percent`. On failure the cleaned
+   * error is surfaced both as a toast and in `error`.
+   */
   const exportModel = useCallback(
     async (fusedModelId: string) => {
       setError(null);
-      setBusy({ id: fusedModelId, action: "export" });
+      setBusy({ id: fusedModelId, action: "export", stage: "Memulai…", percent: null });
       try {
-        const res = await fetch("/api/finetune/export", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fusedModelId }),
-        });
-        const data = (await res.json()) as { error?: string };
-        if (!res.ok) throw new Error(data.error || "Export failed");
+        await exportModelWithProgress(fusedModelId, (stage, percent) =>
+          setBusy((b) =>
+            b && b.id === fusedModelId ? { ...b, stage, percent } : b
+          )
+        );
         await refresh();
+        toast.success("Model siap dipakai. Klik lagi untuk memuatnya.");
       } catch (err) {
-        setError((err as Error).message);
+        const message = (err as Error).message || "Export gagal";
+        setError(message);
+        toast.error(`Export gagal: ${message}`);
       } finally {
         setBusy(null);
       }

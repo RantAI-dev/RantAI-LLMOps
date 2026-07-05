@@ -32,6 +32,11 @@ export async function completeOnLoadedModel(
       stream: false,
       max_tokens: opts.maxTokens ?? 256,
       temperature: opts.temperature ?? 0.3,
+      // Small repetition penalties stop small/quantized models (especially a raw
+      // base) from degenerating into "…Assistant adalah…Assistant adalah…" loops.
+      // Matches the chat route so output-compare is a fair, loop-free read.
+      frequency_penalty: 0.4,
+      presence_penalty: 0.3,
     }),
     // Bound the wait so a hung engine can't pin the request worker.
     signal: AbortSignal.timeout(2 * 60_000),

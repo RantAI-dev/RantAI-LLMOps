@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Sparkles, Trash2 } from "lucide-react";
+import { Loader2, Search, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,8 @@ export function FinetuneForm({
 }) {
   const [method, setMethod] = useState<Method>("sft");
   const [baseModel, setBaseModel] = useState("");
+  // When true, the user types an arbitrary HF base id instead of picking a preset.
+  const [customBase, setCustomBase] = useState(false);
   const [dataset, setDataset] = useState("");
   const [adaptorName, setAdaptorName] = useState("");
   const [epochs, setEpochs] = useState(1);
@@ -94,8 +96,12 @@ export function FinetuneForm({
   // e.g. a Qwen picked for SFT doesn't linger (wrong arch) after switching to TTS.
   function chooseMethod(next: Method) {
     setMethod(next);
-    if (next === "tts") setBaseModel(TTS_DEFAULT_MODEL);
-    else if (baseModel === TTS_DEFAULT_MODEL) setBaseModel("");
+    if (next === "tts") {
+      setCustomBase(false);
+      setBaseModel(TTS_DEFAULT_MODEL);
+    } else if (baseModel === TTS_DEFAULT_MODEL) {
+      setBaseModel("");
+    }
   }
 
   const selectedModel = modelOptions.find((m) => m.id === baseModel);
@@ -214,8 +220,17 @@ export function FinetuneForm({
           <span className="mb-1 block text-[13px] font-medium text-ink">Base model</span>
           <select
             className={selectClass}
-            value={baseModel}
-            onChange={(e) => setBaseModel(e.target.value)}
+            value={customBase ? "__custom__" : baseModel}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__custom__") {
+                setCustomBase(true);
+                setBaseModel("");
+              } else {
+                setCustomBase(false);
+                setBaseModel(v);
+              }
+            }}
           >
             <option value="">Select a model…</option>
             {modelOptions.map((m) => (
@@ -223,7 +238,9 @@ export function FinetuneForm({
                 {m.name} ({m.architecture})
               </option>
             ))}
+            <option value="__custom__">🔍 Cari model lain di Hugging Face…</option>
           </select>
+          {customBase ? <HfBaseSearch selected={baseModel} onPick={setBaseModel} /> : null}
         </label>
 
         <label className="block">
@@ -369,4 +386,104 @@ function MethodButton({
       <span className="mt-0.5 block text-[11px] leading-4 text-ink-soft">{desc}</span>
     </button>
   );
+}
+
+type HfHit = { id: string; downloads: number };
+
+/** Live Hugging Face search for a trainable base model (debounced). */
+function HfBaseSearch({ selected, onPick }: { selected: string; onPick: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<HfHit[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // Debounced search. All state updates happen inside the timeout callback (never
+  // synchronously in the effect body) so React doesn't flag cascading renders.
+  useEffect(() => {
+    const query = q.trim();
+    const t = setTimeout(() => {
+      if (query.length < 2) {
+        setResults([]);
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      fetch(`/api/hub/base-models?q=${encodeURIComponent(query)}`, { cache: "no-store" })
+        .then((r) => r.json() as Promise<{ models?: HfHit[] }>)
+        .then((d) => setResults(Array.isArray(d.models) ? d.models : []))
+        .catch(() => setResults([]))
+        .finally(() => setLoading(false));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  // Let the user use an exact "owner/name" they typed even if search didn't surface it.
+  const typed = q.trim();
+  const exact = typed.includes("/") && !results.some((m) => m.id === typed) ? typed : null;
+  const open = typed.length >= 2 && (loading || results.length > 0 || !!exact);
+  const pick = (id: string) => {
+    onPick(id);
+    setQ("");
+  };
+
+  return (
+    <div className="relative mt-1.5">
+      <div className="relative">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-soft" aria-hidden />
+        <Input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Cari di Hugging Face… (mis. qwen, llama, mistral)"
+          className="pl-8"
+          autoFocus
+        />
+      </div>
+      {selected ? (
+        <span className="mt-1 block truncate text-[11px] font-medium text-primary">✓ {selected}</span>
+      ) : (
+        <span className="mt-1 block text-[11px] text-ink-soft">
+          Model <strong>trainable</strong> (non-GGUF), ditarik otomatis saat training.
+        </span>
+      )}
+      {open ? (
+        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-input bg-background shadow-lg">
+          {loading ? (
+            <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-soft">
+              <Loader2 className="size-3.5 animate-spin" aria-hidden /> Mencari…
+            </div>
+          ) : results.length === 0 && !exact ? (
+            <div className="px-3 py-2 text-[12px] text-ink-soft">Ngga ada hasil.</div>
+          ) : (
+            <>
+              {exact ? (
+                <button
+                  type="button"
+                  onClick={() => pick(exact)}
+                  className="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-[13px] text-primary hover:bg-surface-2"
+                >
+                  <span className="truncate">Pakai persis: {exact}</span>
+                </button>
+              ) : null}
+              {results.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => pick(m.id)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-surface-2"
+                >
+                  <span className="truncate text-ink">{m.id}</span>
+                  <span className="shrink-0 text-[11px] tabular-nums text-ink-soft">{fmtDownloads(m.downloads)}</span>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function fmtDownloads(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ↓`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k ↓`;
+  return `${n} ↓`;
 }

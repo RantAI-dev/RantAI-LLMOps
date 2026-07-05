@@ -145,9 +145,11 @@ export function useFinetune() {
         const data = (await res.json()) as { jobId?: string; error?: string };
         if (!res.ok || !data.jobId) throw new Error(data.error || "Failed to start fine-tune");
         await loadJobs();
+        toast.success("Fine-tune dimulai! Pantau progresnya di menu Tasks.");
         return true;
       } catch (err) {
         setError((err as Error).message);
+        toast.error((err as Error).message || "Gagal memulai fine-tune");
         return false;
       } finally {
         setSubmitting(false);

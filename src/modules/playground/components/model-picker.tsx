@@ -117,10 +117,16 @@ export function ModelPicker({
                     // Checked when it's the selected model (value) — matching the
                     // Downloaded tab — or currently hot in VRAM. Compare with the
                     // ":latest" suffix stripped so the match is robust.
+                    // "In use" tracks the SELECTED model (`value`) — the single
+                    // source of truth for what the chat will use. Fall back to
+                    // whatever's warm in VRAM only when nothing is selected yet;
+                    // otherwise a previously-loaded model (still hot) shows a
+                    // second "In use" next to the freshly-picked one.
                     const active =
                       !!ggufModel &&
-                      (ggufModel.id.replace(/:latest$/, "") === value.replace(/:latest$/, "") ||
-                        matchesLoaded(ggufModel, catalog.loaded));
+                      (value
+                        ? ggufModel.id.replace(/:latest$/, "") === value.replace(/:latest$/, "")
+                        : matchesLoaded(ggufModel, catalog.loaded));
                     // Single source of truth: if the served GGUF exists, "Use" it;
                     // otherwise it still needs exporting.
                     const onClick = () => {
@@ -152,13 +158,21 @@ export function ModelPicker({
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm text-ink">{ft.name}</div>
-                            <div className="truncate text-[11px] text-ink-soft">
-                              on {ft.baseModelName}
+                            <div
+                              className={`truncate text-[11px] ${
+                                busyHere === "export" ? "text-primary" : "text-ink-soft"
+                              }`}
+                            >
+                              {busyHere === "export" && busy?.stage
+                                ? busy.stage
+                                : `on ${ft.baseModelName}`}
                             </div>
                           </div>
                           <span className="shrink-0 text-[11px] tabular-nums text-ink-soft">
                             {busyHere === "export"
-                              ? `Exporting… ${elapsed}s`
+                              ? busy?.percent != null
+                                ? `${busy.percent}%`
+                                : `${elapsed}s`
                               : busyHere === "load"
                                 ? "Loading…"
                                 : active
@@ -222,7 +236,7 @@ export function ModelPicker({
                       <ModelRow
                         key={m.id}
                         model={m}
-                        active={m.id === value || matchesLoaded(m, catalog.loaded)}
+                        active={value ? m.id === value : matchesLoaded(m, catalog.loaded)}
                         busy={busy?.id === m.id ? busy.action : null}
                         onClick={() => {
                           load(m).then(() => setOpen(false));

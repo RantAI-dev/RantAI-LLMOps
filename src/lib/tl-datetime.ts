@@ -23,3 +23,16 @@ export function parseTlDate(iso: string | null | undefined): Date | null {
   const d = new Date(normalizeToUtc(iso));
   return Number.isNaN(d.getTime()) ? null : d;
 }
+
+/** Format a TL/ISO timestamp as a short WIB wall-clock (e.g. "Jul 3, 01:34 PM"). */
+export function formatAppDateTime(iso: string | null | undefined): string {
+  const d = parseTlDate(iso);
+  if (!d) return "—";
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: APP_TIME_ZONE,
+  });
+}
