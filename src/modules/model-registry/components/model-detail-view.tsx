@@ -38,7 +38,7 @@ type ModelDetailViewProps = {
   onTest: () => void;
   onFineTune: () => void;
   onCompare: () => void;
-  onArchive: () => void;
+  onDelete: () => void;
 };
 
 export function ModelDetailView({
@@ -47,7 +47,7 @@ export function ModelDetailView({
   onTest,
   onFineTune,
   onCompare,
-  onArchive,
+  onDelete,
 }: ModelDetailViewProps) {
   const [activeTab, setActiveTab] = useState("overview");
 
@@ -72,7 +72,7 @@ export function ModelDetailView({
             onTest={onTest}
             onFineTune={onFineTune}
             onCompare={onCompare}
-            onArchive={onArchive}
+            onDelete={onDelete}
           />
         </div>
       </header>

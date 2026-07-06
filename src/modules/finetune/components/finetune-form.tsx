@@ -42,6 +42,8 @@ export function FinetuneForm({
   const [baseModel, setBaseModel] = useState("");
   // When true, the user types an arbitrary HF base id instead of picking a preset.
   const [customBase, setCustomBase] = useState(false);
+  // Prefilled HF search query when arriving from Model Registry's "Fine-tune".
+  const [baseQuery, setBaseQuery] = useState("");
   const [dataset, setDataset] = useState("");
   const [adaptorName, setAdaptorName] = useState("");
   const [epochs, setEpochs] = useState(1);
@@ -62,6 +64,20 @@ export function FinetuneForm({
     const ds = new URLSearchParams(window.location.search).get("dataset");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync from the URL on mount
     if (ds) setDataset(ds);
+  }, []);
+
+  // Prefill the HF base search from `?base=` (Model Registry → "Fine-tune"). The
+  // registry model is a GGUF (not a valid training base), so we open the search
+  // seeded with its name instead of fake-selecting it. Deferred to dodge the
+  // cascading-render lint.
+  useEffect(() => {
+    const b = new URLSearchParams(window.location.search).get("base");
+    if (!b) return;
+    const t = setTimeout(() => {
+      setCustomBase(true);
+      setBaseQuery(b);
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   // Show the chosen dataset in the select even if it's a HF id not in the local
@@ -226,6 +242,8 @@ export function FinetuneForm({
               if (v === "__custom__") {
                 setCustomBase(true);
                 setBaseModel("");
+                // Manual open = a fresh search; don't re-seed a stale ?base= query.
+                setBaseQuery("");
               } else {
                 setCustomBase(false);
                 setBaseModel(v);
@@ -240,7 +258,9 @@ export function FinetuneForm({
             ))}
             <option value="__custom__">🔍 Cari model lain di Hugging Face…</option>
           </select>
-          {customBase ? <HfBaseSearch selected={baseModel} onPick={setBaseModel} /> : null}
+          {customBase ? (
+            <HfBaseSearch selected={baseModel} onPick={setBaseModel} initialQuery={baseQuery} />
+          ) : null}
         </label>
 
         <label className="block">
@@ -391,8 +411,16 @@ function MethodButton({
 type HfHit = { id: string; downloads: number };
 
 /** Live Hugging Face search for a trainable base model (debounced). */
-function HfBaseSearch({ selected, onPick }: { selected: string; onPick: (id: string) => void }) {
-  const [q, setQ] = useState("");
+function HfBaseSearch({
+  selected,
+  onPick,
+  initialQuery = "",
+}: {
+  selected: string;
+  onPick: (id: string) => void;
+  initialQuery?: string;
+}) {
+  const [q, setQ] = useState(initialQuery);
   const [results, setResults] = useState<HfHit[]>([]);
   const [loading, setLoading] = useState(false);
 

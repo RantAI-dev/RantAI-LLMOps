@@ -6,11 +6,12 @@ import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
-import { ArchiveModelDialog } from "@/modules/model-registry/components/archive-model-dialog";
+import { DeleteModelDialog } from "@/modules/model-registry/components/delete-model-dialog";
 import { ModelFiltersBar } from "@/modules/model-registry/components/model-filters";
 import { ModelSummaryCards } from "@/modules/model-registry/components/model-summary-cards";
 import { ModelTable } from "@/modules/model-registry/components/model-table";
 import { modelRegistryUi } from "@/modules/model-registry/constants/model-registry-ui";
+import { baseSearchQuery } from "@/modules/model-registry/lib/utils";
 import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-registry";
 import { detailHref } from "@/lib/detail-href";
 import { cn } from "@/lib/utils";
@@ -23,27 +24,38 @@ export function ModelsPage() {
     resetFilters,
     filteredModels,
     summaryStats,
-    archiveTargetId,
-    setArchiveTargetId,
-    archiveModel,
-    showToast,
+    deleteTargetId,
+    setDeleteTargetId,
+    deleteModel,
     modelsLoading,
     modelsError,
     reloadModels,
   } = useModelRegistry();
   const router = useRouter();
   const openModel = (id: string) => router.push(detailHref("/models", id));
+  // Real destinations, each carrying the model so the target page preselects it
+  // (no placeholder toasts). Test -> chat playground; Compare -> Generations
+  // (base or fine-tuned slot); Fine-tune -> opens the HF base search prefilled
+  // (a GGUF can't be a training base itself, so we jump-start the search).
+  const testModel = (id: string) => router.push(`/interact?model=${encodeURIComponent(id)}`);
+  const compareModel = (id: string) =>
+    router.push(
+      id.startsWith("nqr-")
+        ? `/generations?ft=${encodeURIComponent(id)}`
+        : `/generations?base=${encodeURIComponent(id)}`
+    );
+  const fineTuneModel = (id: string) =>
+    router.push(`/finetune?base=${encodeURIComponent(baseSearchQuery(id))}`);
   // Downloading from Hugging Face lives in the dedicated Hub (real `ollama pull
   // hf.co/…` with quant + progress), so the registry's Import button points there
   // instead of the old preview flow.
   const goToHub = () => router.push("/hub");
 
-  const archiveTarget = archiveTargetId
-    ? models.find((m) => m.id === archiveTargetId) ?? null
+  const deleteTarget = deleteTargetId
+    ? models.find((m) => m.id === deleteTargetId) ?? null
     : null;
 
-  const activeModels = models.filter((m) => m.status !== "Archived");
-  const showEmpty = activeModels.length === 0;
+  const showEmpty = models.length === 0;
   const showFilteredEmpty = !showEmpty && filteredModels.length === 0;
 
   return (
@@ -85,27 +97,17 @@ export function ModelsPage() {
         <ModelTable
           models={filteredModels}
           onView={openModel}
-          onTest={() =>
-            showToast({
-              title: "Opening Playground",
-              description: "Test this model in Playground before deploying to production.",
-              variant: "info",
-            })
-          }
-          onFineTune={() =>
-            showToast({ title: "Fine-tune workflow", description: "Fine-tune setup will open here.", variant: "info" })
-          }
-          onCompare={() =>
-            showToast({ title: "Compare models", description: "Model comparison view will open here.", variant: "info" })
-          }
-          onArchive={setArchiveTargetId}
+          onTest={testModel}
+          onFineTune={fineTuneModel}
+          onCompare={compareModel}
+          onDelete={setDeleteTargetId}
         />
       )}
 
-      <ArchiveModelDialog
-        model={archiveTarget}
-        onClose={() => setArchiveTargetId(null)}
-        onConfirm={() => archiveTargetId && archiveModel(archiveTargetId)}
+      <DeleteModelDialog
+        model={deleteTarget}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={() => deleteTargetId && deleteModel(deleteTargetId)}
       />
     </div>
   );

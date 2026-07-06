@@ -1,6 +1,6 @@
 "use client";
 
-import { Archive, GitCompare, MoreHorizontal, Play, Sparkles } from "lucide-react";
+import { GitCompare, MoreHorizontal, Play, Sparkles, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,14 +16,14 @@ type ModelDetailToolbarProps = {
   onTest: () => void;
   onFineTune: () => void;
   onCompare: () => void;
-  onArchive: () => void;
+  onDelete: () => void;
 };
 
 export function ModelDetailToolbar({
   onTest,
   onFineTune,
   onCompare,
-  onArchive,
+  onDelete,
 }: ModelDetailToolbarProps) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -47,8 +47,8 @@ export function ModelDetailToolbar({
           <DropdownMenuItem onClick={onCompare}>
             <GitCompare className="size-3.5" /> Compare
           </DropdownMenuItem>
-          <DropdownMenuItem className="text-destructive" onClick={onArchive}>
-            <Archive className="size-3.5" /> Archive
+          <DropdownMenuItem className="text-destructive" onClick={onDelete}>
+            <Trash2 className="size-3.5" /> Delete
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

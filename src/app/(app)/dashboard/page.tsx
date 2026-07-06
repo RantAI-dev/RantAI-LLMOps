@@ -6,19 +6,30 @@ import { Boxes, Database, FlaskConical, ListTodo, Loader2, Sparkles } from "luci
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-type CatalogModel = { isGguf: boolean; id: string };
+type CatalogModel = { id: string };
 type Catalog = {
   loaded: string | null;
-  downloaded?: CatalogModel[];
+  // `servable` = the Ollama-resident models (what the registry counts); `downloaded`
+  // is TL's safetensors registry, which stays empty when models are pulled via Ollama.
+  servable?: CatalogModel[];
   fineTuned?: Array<{ ready: boolean }>;
 };
 type DatasetsResp = { datasets?: unknown[] };
-type Job = { type: string; status: string; score: number | null; template: string; model: string };
+type Job = {
+  type: string;
+  subtype: string;
+  status: string;
+  score: number | null;
+  template: string;
+  model: string;
+};
 type TasksResp = { jobs?: Job[] };
+type EvalScore = { type: string; score: number };
+type EvalJob = { model?: string; benchmark?: string; scores?: EvalScore[]; finishedAt?: string };
+type EvalsResp = { jobs?: EvalJob[] };
 
 type Summary = {
   models: number;
-  gguf: number;
   fineTuned: number;
   loaded: string | null;
   datasets: number;
@@ -38,23 +49,35 @@ const ui = {
 } as const;
 
 async function loadSummary(): Promise<Summary> {
-  const [cat, ds, tk] = await Promise.all([
+  const [cat, ds, tk, ev] = await Promise.all([
     fetch("/api/models/catalog", { cache: "no-store" }).then((r) => r.json() as Promise<Catalog>),
     fetch("/api/datasets/list", { cache: "no-store" }).then((r) => r.json() as Promise<DatasetsResp>),
     fetch("/api/tasks/list", { cache: "no-store" }).then((r) => r.json() as Promise<TasksResp>),
+    // Real eval accuracy lives in the evals API (derived from eval artifacts), not
+    // in tasks/list, whose `score` is always null for v0.40.0 provider jobs.
+    fetch("/api/evals/jobs", { cache: "no-store" })
+      .then((r) => r.json() as Promise<EvalsResp>)
+      .catch(() => ({ jobs: [] as EvalJob[] })),
   ]);
-  const downloaded = cat.downloaded ?? [];
+  const servable = cat.servable ?? [];
   const jobs = tk.jobs ?? [];
-  const evalsWithScore = jobs.filter((j) => j.type === "EVAL" && j.score != null);
-  const lastEval = evalsWithScore[0]
-    ? {
-        score: evalsWithScore[0].score as number,
-        label: evalsWithScore[0].model.split("/").pop() ?? evalsWithScore[0].model,
-      }
-    : null;
+  // The evals API order isn't reliably newest-first, so pick the scored eval with
+  // the latest finish time. Timestamps are "YYYY-MM-DD HH:MM:SS" — lexically sortable.
+  const scored = (ev.jobs ?? [])
+    .filter((j) => (j.scores?.length ?? 0) > 0)
+    .sort((a, b) => (b.finishedAt ?? "").localeCompare(a.finishedAt ?? ""))[0];
+  const headline = scored?.scores?.find((s) => s.type?.toLowerCase() === "acc") ?? scored?.scores?.[0];
+  const lastEval =
+    scored && headline
+      ? {
+          score: headline.score,
+          label: [scored.model?.split("/").pop() ?? scored.model, scored.benchmark]
+            .filter(Boolean)
+            .join(" · "),
+        }
+      : null;
   return {
-    models: downloaded.length,
-    gguf: downloaded.filter((m) => m.isGguf).length,
+    models: servable.length,
     fineTuned: (cat.fineTuned ?? []).length,
     loaded: cat.loaded,
     datasets: (ds.datasets ?? []).length,
@@ -144,7 +167,7 @@ export default function Page() {
               iconBg="bg-warning-soft"
               iconColor="text-warning-gold"
               value={data.models}
-              sub={`${data.gguf} GGUF · ${data.models - data.gguf} safetensors`}
+              sub="Tersedia di Ollama (GGUF)"
             />
             <MetricCard
               title="Fine-tuned"
@@ -220,7 +243,9 @@ export default function Page() {
                         <div className="min-w-0">
                           <p className="truncate font-medium text-ink">{j.template}</p>
                           <p className="truncate text-[12px] text-ink-soft">
-                            {j.type} · {j.model.split("/").pop()}
+                            {[j.subtype, j.model && j.model !== "—" ? j.model.split("/").pop() : null]
+                              .filter(Boolean)
+                              .join(" · ") || j.type}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">

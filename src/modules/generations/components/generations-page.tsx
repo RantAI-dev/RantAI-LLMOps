@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Columns2, Loader2, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,34 @@ export function GenerationsPage() {
   );
   const fineTuned = catalog?.fineTuned ?? [];
   const selectedFt = fineTuned.find((f) => f.fusedModelId === ftId);
+
+  // Preselect from Model Registry's "Compare" action once the catalog is loaded:
+  // `?base=<ollama-id>` fills the base slot; `?ft=<ollama-tag>` maps to the
+  // matching fine-tune's fusedModelId. Applied once, then the params are stripped.
+  const preselectDone = useRef(false);
+  useEffect(() => {
+    if (preselectDone.current || !catalog) return;
+    preselectDone.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const baseParam = params.get("base");
+    const ftParam = params.get("ft");
+    if (!baseParam && !ftParam) return;
+    const strip = (s: string) => s.replace(/:latest$/, "");
+    const t = setTimeout(() => {
+      if (baseParam) setBaseId(baseParam);
+      if (ftParam) {
+        const match = (catalog.fineTuned ?? []).find(
+          (f) => f.loadModelId && strip(f.loadModelId) === strip(ftParam)
+        );
+        if (match) setFtId(match.fusedModelId);
+      }
+      params.delete("base");
+      params.delete("ft");
+      const qs = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + (qs ? `?${qs}` : ""));
+    }, 0);
+    return () => clearTimeout(t);
+  }, [catalog]);
   // Names repeat across runs — disambiguate those options with a short id.
   const dupeNames = new Set(
     fineTuned.filter((f, i, a) => a.findIndex((x) => x.name === f.name) !== i).map((f) => f.name)

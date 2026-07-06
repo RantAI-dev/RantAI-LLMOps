@@ -21,6 +21,9 @@ function initialState(): State {
 export function useChatSessions() {
   const [state, setState] = useState<State>(initialState);
   const loadedRef = useRef(false);
+  // Exposed so callers can wait for the saved-conversation load before acting —
+  // e.g. preselecting a model in a fresh chat, which a mid-load remount would drop.
+  const [loaded, setLoaded] = useState(false);
 
   // Load saved conversations on mount.
   useEffect(() => {
@@ -29,8 +32,10 @@ export function useChatSessions() {
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { conversations?: ChatSession[] } | null) => {
         loadedRef.current = true;
+        if (cancelled) return;
+        setLoaded(true);
         const saved = data?.conversations ?? [];
-        if (cancelled || saved.length === 0) return;
+        if (saved.length === 0) return;
         setState((st) => {
           // Keep the current empty session only if the user already typed.
           const active = st.sessions.find((s) => s.id === st.activeId);
@@ -41,6 +46,7 @@ export function useChatSessions() {
       })
       .catch(() => {
         loadedRef.current = true;
+        if (!cancelled) setLoaded(true);
       });
     return () => {
       cancelled = true;
@@ -156,6 +162,7 @@ export function useChatSessions() {
     sessions: state.sessions,
     activeId: state.activeId,
     activeSession,
+    loaded,
     newChat,
     selectChat,
     deleteChat,

@@ -1455,3 +1455,69 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Action:** Analisis: fine-tune (qwen2.5-1.5b-instruct-claude-fable) jawab ringkas/koheren; base (Qwen2.5-CODER-1.5B) loop ("Assistant adalah...x3", "Azerbaijani...xN") + off-topic. Sebab loop: /api/generations/complete lewat completeOnLoadedModel TIDAK kirim repetition penalty (beda dari route chat yg pakai frequency_penalty 0.4). Fix: tambah frequency_penalty 0.4 + presence_penalty 0.3 di generate.ts (dipakai compare + serve/test). Catatan: base = Coder (bukan Instruct base yg dilatih) -> perbandingan bukan efek-fine-tune murni; Coder emang jelek buat chat (dgn penalty malah halusinasi HTML).
 **Files:** src/lib/generate.ts.
 **Result:** tsc 0, eslint 0. Base tak lagi loop tapi keluar HTML (sifat model Coder). Rekomendasi user: pakai base Qwen2.5-1.5B-Instruct-GGUF (base asli) buat baca efek fine-tune yg jujur. Belum commit (manual user).
+
+## 2026-07-05 06:38 WIB
+**Task:** Abis restart PC, Hub/Downloaded (dan semua list model) kosong — user kira model ilang.
+**Action:** Diagnosa: Ollama :11434 MATI (curl HTTP 000, pgrep kosong) karena WSL restart & Ollama tak auto-start. Model AMAN (11 manifest di ~/.ollama/models). Katalog baca list Ollama live -> Ollama mati = list kosong. `nohup ollama serve &` via wsl.exe -lc sekali-jalan MATI begitu sesi nutup (WSL matiin distro tanpa sesi nempel). Solusi: jalanin `ollama serve` sebagai background job yang nempel -> UP, 11 model balik semua. Update memory nqrust-startup-procedure.md tambah langkah start Ollama + gejala + verifikasi.
+**Files:** (ops only) memory/nqrust-startup-procedure.md. Tidak ada perubahan kode repo.
+**Result:** Ollama UP, 11 model balik (termasuk Qwen2.5-Coder-1.5B baru). Refresh Hub -> Downloaded terisi lagi. Rekurens tiap reboot; belum dibikin auto-start permanen (nunggu izin user).
+
+## 2026-07-06 03:11 WIB
+**Task:** Model Registry: detail "Model not found" + periksa data real + action button berfungsi/ngga.
+**Action:** (1) Detail not-found: route [...id] baca params.id.join("/") tanpa decode -> ":latest" yg ke-encode "%3A" tak dikembalikan -> id mismatch (kena semua model). Fix model-detail-page.tsx: decodeURIComponent per segmen + match toleran (strip :latest). (2) Size ngawur (7B utk 1.7B, 6130B dari hex job-id): paramSizeFromName di from-tl.ts baca angka dari nama slug/hex. Fix: buang suffix ":latest"+"-{8hex}", gate rekonstruksi dash-desimal ("qwen3-1-7b"->1.7B) HANYA utk nama nqr- (biar "Llama-3.2-1B" ga jadi "2.1B"). Verifikasi 11 model: semua bener. AUDIT action: REAL=list data, Import from HF (->/hub), View detail (fixed). FAKE=Test/Fine-tune/Compare (cuma toast "will open here"), Archive (local-only, refresh balik lagi, ga delete Ollama beneran). Analytics detail (deployment/usage/eval)=zeroed jujur (no backend).
+**Files:** src/modules/model-registry/components/model-detail-page.tsx, src/modules/model-registry/lib/from-tl.ts.
+**Result:** tsc 0, eslint 0. Detail bisa dibuka, size akurat. Tombol Test/FT/Compare/Archive masih placeholder — nunggu keputusan user (wire real / hapus). Belum commit (manual user).
+
+## 2026-07-06 03:25 WIB
+**Task:** Wire tombol fake Model Registry (Test/Fine-tune/Compare/Archive) ke fungsi asli (pilihan user).
+**Action:** Test -> /interact?model=<id> (chat-area preselect model dari param, defer setState + strip param). Fine-tune -> /finetune. Compare -> /generations. Archive (local-only fake) -> Delete BENERAN via /api/models/delete (hapus dari Ollama + reload list). Rename archive->delete lintas modul: provider (archiveModel->deleteModel real API, archiveTargetId->deleteTargetId, buang generateId), model-table (onDelete + Trash2 "Delete"), model-detail-toolbar/view (onDelete + Trash2), models-page + model-detail-page (wire router.push + DeleteModelDialog). Ganti archive-model-dialog.tsx -> delete-model-dialog.tsx (copy Indonesia, konfirmasi hapus permanen).
+**Files:** provider, model-table, model-detail-toolbar, model-detail-view, models-page, model-detail-page, delete-model-dialog(new), chat-area; hapus archive-model-dialog.
+**Result:** tsc 0, eslint 0, vitest 4/4. /models/<id> & /interact?model= HTTP 200. Semua action Model Registry sekarang REAL. Delete beneran hapus dari Ollama (hati-hati). Belum commit (manual user; ada file baru delete-model-dialog.tsx -> git add -A).
+
+## 2026-07-06 03:35 WIB
+**Task:** Konfirmasi fix Model Registry (screenshot) + minta action button PRESELECT model di halaman tujuan, bukan cuma route.
+**Action:** Konfirmasi: size akurat, detail kebuka (Overview/Files/Compatibility), data real. Preselect: (1) Test->Interact sudah preselect (kemarin). (2) Compare->Generations: registry kirim ?ft=<ollama-tag> (kalau nqr-) atau ?base=<id>; generations-page effect (gated catalog, once, deferred, strip param) isi baseId langsung / map loadModelId->fusedModelId utk ftId. (3) Fine-tune: GGUF TAK BISA jadi base training (butuh HF safetensors) -> tak fake-select; malah buka HF base-search prefilled: registry kirim ?base=baseSearchQuery(id) (buang owner/:quant/GGUF), finetune-form baca ?base -> setCustomBase(true)+baseQuery, HfBaseSearch terima initialQuery. Helper baseSearchQuery di model-registry/lib/utils.
+**Files:** models-page, model-detail-page, model-registry/lib/utils, generations-page, finetune-form.
+**Result:** tsc 0, eslint 0, vitest 4/4. /generations?base|ft & /finetune?base HTTP 200. Test+Compare preselect beneran; Fine-tune buka search terisi (jujur soal limitasi GGUF). Belum commit (manual user).
+
+## 2026-07-06 03:40 WIB
+**Task:** Test dari Model Registry -> Interact, model ngga ke-select.
+**Action:** Root cause: effect ?model= ada di ChatArea yg di-key per sesi (key={activeSession.id}); saat sesi tersimpan ke-load, ChatArea remount -> timeout ke-cancel / param keburu di-strip sesi transien -> preselect nyangkut di sesi salah lalu hilang. Fix: pindah handling ?model= ke ChatPlayground (hidup lintas remount): baca param (deferred) -> presetModel state + strip URL, teruskan ke ChatArea sbg prop presetModel + onPresetApplied (useCallback stabil); ChatArea apply sekali lalu panggil onPresetApplied -> parent clear presetModel (biar ganti sesi berikutnya ga re-apply).
+**Files:** src/modules/playground/components/chat-playground.tsx, chat-area.tsx.
+**Result:** tsc 0, eslint 0, /interact?model= HTTP 200. Preselect kini robust thd remount sesi. Belum commit (manual user).
+
+## 2026-07-06 03:45 WIB
+**Task:** Preselect Interact masih gagal (kena discard sesi kosong pas load) + usul user: mending buka NEW chat.
+**Action:** Root cause detail: useChatSessions mulai 1 sesi kosong (sync), lalu load percakapan tersimpan async -> setState buang sesi kosong (empty session tidak di-keep) -> ChatArea remount. Preset ke-apply ke sesi transien lalu hilang. Fix (sesuai usul user): buka NEW chat SETELAH load selesai. useChatSessions expose state `loaded` (true stlh fetch conversations selesai/err). ChatPlayground effect gated di `loaded` (run once via ref): newChat() + setPresetModel(m) + strip param. Sesi baru dibuat pasca-load jadi tak ke-discard; ChatArea sesi baru apply presetModel sekali -> onPresetApplied clear.
+**Files:** use-chat-sessions.ts, chat-playground.tsx (chat-area.tsx sudah dari sebelumnya).
+**Result:** tsc 0, eslint 0, /interact?model= HTTP 200. Test dari Model Registry kini buka chat baru dgn model kepilih. Belum commit (manual user).
+
+## 2026-07-06 04:02 WIB
+**Task:** Senior code review sebelum push (3 reviewer paralel) + perbaiki temuan.
+**Action:** 3 agent review (playground / model-registry / finetune+generations). Temuan valid + fix: [HIGH] from-tl paramSizeFromName cabang nqr- dash->desimal SALAH utk pola umum (nqr-llama-3-8b->3.8B, harusnya 8B; plain juga salah utk qwen3-1-7b->7B) -> slug fine-tune ambigu, ubah jadi "—" utk semua nqr- (jujur, no wrong guess) + export utk test. [MEDIUM] deleteModel: dialog tetap kebuka saat async -> double-submit -> pindah setDeleteTargetId(null) ke AWAL (tutup dialog langsung). [LOW] tipe deleteModel void->Promise<void> + detail-page await sebelum back(). [LOW] align isFineTuned dari "TransformerLab/" (dead) ke "nqr-". [LOW] baseSearchQuery buang nqr-/hex/gguf-global. [LOW] hapus filter activeModels vestigial (status selalu Available). [NIT] chat-playground reuse URLSearchParams. [LOW] finetune-form: clear baseQuery saat buka custom manual + reorder setState. Verified non-issue: preselect load flow (Ollama lazy-load, model registry selalu ter-pull), id-decode match, prop rename bersih. Tambah test: from-tl.test.ts (paramSizeFromName 3 test) + baseSearchQuery (2 test).
+**Files:** from-tl.ts(+test), utils.ts(+test), model-registry-provider, model-detail-page, models-page, chat-playground, finetune-form.
+**Result:** tsc 0, eslint 0, vitest 97/97 (21 file). Siap push. Belum commit (manual user; file baru: delete-model-dialog.tsx, from-tl.test.ts -> git add -A).
+
+## 2026-07-06 05:13 WIB
+**Task:** Periksa Dashboard — Models 0 & "Belum ada eval" padahal ada.
+**Action:** 2 bug di app/(app)/dashboard/page.tsx: (1) Models baca cat.downloaded (registry TL, kosong) -> ganti ke cat.servable (Ollama) -> 11. (2) Skor eval: filter j.type==="EVAL" tapi type semua "REMOTE" (subtype-nya EVAL), DAN score selalu null di /api/tasks/list (skor v0.40.0 di artifact). Fix: fetch /api/evals/jobs (skor real), filter scored, sort by finishedAt desc (API order oldest-first, bukan newest) -> ambil eval terbaru. Bonus: Job terbaru tampilkan subtype (EVAL/TRAIN) bukan "REMOTE"; tambah field subtype ke tipe Job. Datasets:0 dibiarkan (jujur — "di disk TL", user pakai HF by-id).
+**Files:** src/app/(app)/dashboard/page.tsx.
+**Result:** tsc 0, eslint 0. Dashboard: Models 11 (11 GGUF), Fine-tuned 8, Skor eval terakhir 73.9% qwen2.5-1.5b arc_easy (Jul 3). Belum commit (manual user).
+
+## 2026-07-06 05:16 WIB
+**Task:** Poles label Job terbaru dashboard (sebagian "REMOTE").
+**Action:** dashboard/page.tsx: label = [subtype, model(≠"—")].filter.join(" · ") || type. Subtype kosong + ada model -> tampil model saja (bukan jargon "REMOTE"); serve job tanpa subtype+model tetap "REMOTE" (jujur).
+**Files:** src/app/(app)/dashboard/page.tsx.
+**Result:** tsc 0, eslint 0. Belum commit (manual user).
+
+## 2026-07-06 05:27 WIB
+**Task:** Card Dataset dashboard selalu 0 (dataset via HF streaming) — user mau bisa UPLOAD dataset sendiri.
+**Action:** Bangun fitur Upload Dataset (JSONL + CSV) end-to-end. Backend: uploadDatasetFile() di finetune.ts (parser CSV RFC4180-ish -> JSONL, validasi JSONL per-baris) -> TL /data/new + /data/fileupload. Route baru /api/datasets/upload (multipart name+file, cap 25MB, validasi ekstensi .jsonl/.csv). UI: UploadDatasetDialog (nama + file picker) + tombol "Upload dataset" di datasets-page + reload on success. Dataset lokal auto muncul di card Dashboard, menu Dataset, dropdown Fine-tune. (createDataset lama tetap ada; ini variannya utk file arbitrary-column.)
+**Files:** src/lib/finetune.ts, src/app/api/datasets/upload/route.ts (new), src/modules/datasets/components/upload-dataset-dialog.tsx (new), src/modules/datasets/components/datasets-page.tsx.
+**Result:** tsc 0, eslint 0, vitest 97/97. Tes E2E: upload JSONL+CSV -> 200, muncul di list+fine-tune dropdown, CSV kolom preserved (question/answer), error path (.txt ditolak 400, JSONL rusak "Baris N bukan JSON"). Dataset test dihapus (bersih). Belum commit (manual user; file baru -> git add -A).
+
+## 2026-07-06 05:55 WIB
+**Task:** Senior review kode baru (Upload Dataset + Dashboard) sebelum push + perbaiki temuan.
+**Action:** 1 agent review. Temuan diperbaiki: [MED] slug collision bisa overwrite dataset TL diam2 -> cek fetchLocalDatasets, tolak kalau id sudah ada (400). [MED] csvToJsonl buang kolom duplikat/lebih diam2 -> tolak header duplikat + baris > jumlah header (400). [LOW] route balikin 502 utk error input -> tambah class DatasetInputError (finetune.ts), route map ke 400. [LOW] MAX_BYTES dicek stlh buffer -> pre-check content-length -> 413. [LOW] dashboard "X GGUF · 0 safetensors" selalu sama (semua Ollama=GGUF) -> buang field gguf+isGguf, subtitle "Tersedia di Ollama (GGUF)". [LOW] normalizeJsonl nomor baris salah kalau ada baris kosong -> iterasi raw lines, nomor asli. [LOW] parseCsv comment. + self-review: strip BOM (charCodeAt) + 8 unit test parser (csvToJsonl/normalizeJsonl). Confirmed fine: dialog (no double-submit/leak), finishedAt sort, BOM.
+**Files:** src/lib/finetune.ts, src/app/api/datasets/upload/route.ts, src/app/(app)/dashboard/page.tsx, src/lib/finetune.test.ts.
+**Result:** tsc 0, eslint 0, vitest 105/105. E2E: overwrite->400, dup header->400, wide row->400, bad jsonl->400 baris asli, valid->200. SIAP PUSH. Belum commit (manual user).

@@ -11,13 +11,13 @@ import {
 } from "@/components/ui/dialog";
 import type { RegistryModel } from "@/modules/model-registry/types";
 
-type ArchiveModelDialogProps = {
+type DeleteModelDialogProps = {
   model: RegistryModel | null;
   onClose: () => void;
   onConfirm: () => void;
 };
 
-export function ArchiveModelDialog({ model, onClose, onConfirm }: ArchiveModelDialogProps) {
+export function DeleteModelDialog({ model, onClose, onConfirm }: DeleteModelDialogProps) {
   if (!model) return null;
 
   return (
@@ -29,18 +29,19 @@ export function ArchiveModelDialog({ model, onClose, onConfirm }: ArchiveModelDi
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-primary">Archive model?</DialogTitle>
+          <DialogTitle className="text-primary">Hapus model?</DialogTitle>
           <DialogDescription>
-            <strong className="text-ink">{model.modelName}</strong> will be moved to archived
-            status and hidden from the default registry view.
+            <strong className="text-ink">{model.modelName}</strong> akan dihapus permanen dari
+            Ollama (beserta file GGUF-nya). Tindakan ini tidak bisa dibatalkan — model bisa
+            di-download / di-export ulang nanti kalau diperlukan.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
+            Batal
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm}>
-            Archive
+            Hapus
           </Button>
         </DialogFooter>
       </DialogContent>

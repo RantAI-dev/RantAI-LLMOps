@@ -4,9 +4,10 @@ import { useParams, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
-import { ArchiveModelDialog } from "@/modules/model-registry/components/archive-model-dialog";
+import { DeleteModelDialog } from "@/modules/model-registry/components/delete-model-dialog";
 import { ModelDetailView } from "@/modules/model-registry/components/model-detail-view";
 import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-registry";
+import { baseSearchQuery } from "@/modules/model-registry/lib/utils";
 
 /**
  * Route-level model detail (`/models/[...id]`). Deep-linkable — Back/refresh work.
@@ -16,12 +17,28 @@ import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-regis
 export function ModelDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string | string[] }>();
-  const id = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
+  // Ids can carry ":" (Ollama tags like "…:latest") which arrives percent-encoded
+  // in the URL — decode each segment so the lookup matches the catalog id.
+  const rawId = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
+  const id = rawId
+    .split("/")
+    .map((seg) => {
+      try {
+        return decodeURIComponent(seg);
+      } catch {
+        return seg;
+      }
+    })
+    .join("/");
 
-  const { models, modelsLoading, archiveTargetId, setArchiveTargetId, archiveModel, showToast } =
+  const { models, modelsLoading, deleteTargetId, setDeleteTargetId, deleteModel } =
     useModelRegistry();
-  const model = models.find((m) => m.id === id) ?? null;
-  const archiveTarget = archiveTargetId ? models.find((m) => m.id === archiveTargetId) ?? null : null;
+  const stripLatest = (s: string) => s.replace(/:latest$/, "");
+  const model =
+    models.find((m) => m.id === id || m.id === rawId) ??
+    models.find((m) => stripLatest(m.id) === stripLatest(id)) ??
+    null;
+  const deleteTarget = deleteTargetId ? models.find((m) => m.id === deleteTargetId) ?? null : null;
   const back = () => router.push("/models");
 
   if (!model) {
@@ -44,29 +61,26 @@ export function ModelDetailPage() {
       <ModelDetailView
         model={model}
         onBack={back}
-        onTest={() =>
-          showToast({
-            title: "Opening Playground",
-            description: "Test this model in Playground before deploying to production.",
-            variant: "info",
-          })
-        }
+        onTest={() => router.push(`/interact?model=${encodeURIComponent(model.id)}`)}
         onFineTune={() =>
-          showToast({ title: "Fine-tune workflow", description: "Fine-tune setup will open here.", variant: "info" })
+          router.push(`/finetune?base=${encodeURIComponent(baseSearchQuery(model.id))}`)
         }
         onCompare={() =>
-          showToast({ title: "Compare models", description: "Model comparison view will open here.", variant: "info" })
+          router.push(
+            model.id.startsWith("nqr-")
+              ? `/generations?ft=${encodeURIComponent(model.id)}`
+              : `/generations?base=${encodeURIComponent(model.id)}`
+          )
         }
-        onArchive={() => setArchiveTargetId(model.id)}
+        onDelete={() => setDeleteTargetId(model.id)}
       />
-      <ArchiveModelDialog
-        model={archiveTarget}
-        onClose={() => setArchiveTargetId(null)}
-        onConfirm={() => {
-          if (archiveTargetId) {
-            archiveModel(archiveTargetId);
-            back();
-          }
+      <DeleteModelDialog
+        model={deleteTarget}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={async () => {
+          if (!deleteTargetId) return;
+          await deleteModel(deleteTargetId);
+          back();
         }}
       />
     </>

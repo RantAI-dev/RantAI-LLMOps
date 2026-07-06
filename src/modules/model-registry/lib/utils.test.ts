@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { computeSummaryStats, filterModels, generateId } from "@/modules/model-registry/lib/utils";
+import {
+  baseSearchQuery,
+  computeSummaryStats,
+  filterModels,
+  generateId,
+} from "@/modules/model-registry/lib/utils";
 import type { ModelFilters, RegistryModel } from "@/modules/model-registry/types";
 
 function model(overrides: Partial<RegistryModel> = {}): RegistryModel {
@@ -50,6 +55,22 @@ describe("computeSummaryStats", () => {
     expect(stats.readyToDeploy).toBe(1);
     expect(stats.inProduction).toBe(1);
     expect(stats.needReview).toBe(1);
+  });
+});
+
+describe("baseSearchQuery", () => {
+  it("reduces a GGUF/Ollama id to a searchable HF model name", () => {
+    expect(baseSearchQuery("hf.co/prithivMLmods/Qwen2.5-Coder-1.5B-GGUF:Q4_K_M")).toBe(
+      "Qwen2.5-Coder-1.5B"
+    );
+    expect(baseSearchQuery("hf.co/bartowski/Llama-3.2-1B-Instruct-GGUF:Q4_K_M")).toBe(
+      "Llama-3.2-1B-Instruct"
+    );
+    expect(baseSearchQuery("qwen2.5:0.5b")).toBe("qwen2.5");
+  });
+
+  it("strips our fine-tune prefix + job-id suffix", () => {
+    expect(baseSearchQuery("nqr-qwen3-1-7b-code-bf122f19:latest")).toBe("qwen3-1-7b-code");
   });
 });
 

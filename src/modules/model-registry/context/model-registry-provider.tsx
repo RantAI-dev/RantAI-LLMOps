@@ -11,7 +11,7 @@ import {
 import { toast } from "sonner";
 
 import { useResourceFetch } from "@/lib/use-resource-fetch";
-import { computeSummaryStats, filterModels, generateId } from "@/modules/model-registry/lib/utils";
+import { computeSummaryStats, filterModels } from "@/modules/model-registry/lib/utils";
 import {
   fetchModels,
   seedModels,
@@ -41,9 +41,9 @@ type ModelRegistryContextValue = {
   selectedModelId: string | null;
   setSelectedModelId: (id: string | null) => void;
   selectedModel: RegistryModel | null;
-  archiveTargetId: string | null;
-  setArchiveTargetId: (id: string | null) => void;
-  archiveModel: (id: string) => void;
+  deleteTargetId: string | null;
+  setDeleteTargetId: (id: string | null) => void;
+  deleteModel: (id: string) => Promise<void>;
   showToast: (toast: Omit<ToastMessage, "id">) => void;
   modelsLoading: boolean;
   modelsError: boolean;
@@ -61,7 +61,7 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
   );
   const [filters, setFilters] = useState<ModelFilters>(defaultFilters);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
-  const [archiveTargetId, setArchiveTargetId] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const showToast = useCallback((message: Omit<ToastMessage, "id">) => {
     const options = message.description ? { description: message.description } : undefined;
@@ -80,37 +80,35 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
 
   const resetFilters = useCallback(() => setFilters(defaultFilters), []);
 
-  const archiveModel = useCallback(
-    (id: string) => {
-      const now = new Date().toISOString();
-      setModels((prev) =>
-        prev.map((m) =>
-          m.id === id
-            ? {
-                ...m,
-                status: "Archived" as const,
-                updatedAt: now,
-                auditLogs: [
-                  {
-                    id: generateId("audit"),
-                    modelId: id,
-                    action: "Archived",
-                    actor: "Admin-NQR",
-                    timestamp: now,
-                    status: "Info" as const,
-                    notes: "Model archived from registry.",
-                  },
-                  ...m.auditLogs,
-                ],
-              }
-            : m
-        )
-      );
-      setArchiveTargetId(null);
+  // Real delete: removes the model from Ollama (and its GGUF blob) via the BFF,
+  // then re-fetches the registry so the row actually disappears — no fake local
+  // "archived" flag that a refresh would undo.
+  const deleteModel = useCallback(
+    async (id: string) => {
+      // Close the confirm dialog + clear selection up front so the destructive
+      // button can't be double-clicked during the request — a second delete of an
+      // already-removed tag would 502 and fire a spurious error toast.
+      setDeleteTargetId(null);
       if (selectedModelId === id) setSelectedModelId(null);
-      showToast({ title: "Model archived", variant: "info" });
+      try {
+        const res = await fetch("/api/models/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modelIds: [id] }),
+        });
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(data.error || "Gagal menghapus model");
+        showToast({ title: "Model dihapus", variant: "success" });
+        reloadModels();
+      } catch (err) {
+        showToast({
+          title: "Gagal menghapus model",
+          description: (err as Error).message,
+          variant: "error",
+        });
+      }
     },
-    [selectedModelId, showToast]
+    [selectedModelId, showToast, reloadModels]
   );
 
   const value = useMemo<ModelRegistryContextValue>(
@@ -124,9 +122,9 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       selectedModelId,
       setSelectedModelId,
       selectedModel,
-      archiveTargetId,
-      setArchiveTargetId,
-      archiveModel,
+      deleteTargetId,
+      setDeleteTargetId,
+      deleteModel,
       showToast,
       modelsLoading,
       modelsError,
@@ -140,8 +138,8 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
       summaryStats,
       selectedModelId,
       selectedModel,
-      archiveTargetId,
-      archiveModel,
+      deleteTargetId,
+      deleteModel,
       showToast,
       modelsLoading,
       modelsError,

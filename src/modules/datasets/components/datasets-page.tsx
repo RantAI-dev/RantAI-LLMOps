@@ -1,7 +1,8 @@
 "use client";
 
-import { Database, Download } from "lucide-react";
+import { Database, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
@@ -9,6 +10,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { DatasetCard } from "@/modules/datasets/components/dataset-card";
 import { DatasetFiltersBar } from "@/modules/datasets/components/dataset-filters";
 import { DatasetSummaryCards } from "@/modules/datasets/components/dataset-summary-cards";
+import { UploadDatasetDialog } from "@/modules/datasets/components/upload-dataset-dialog";
 import { datasetUi } from "@/modules/datasets/constants/dataset-ui";
 import { datasetHref } from "@/modules/datasets/lib/routes";
 import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
@@ -28,11 +30,12 @@ export function DatasetsPage() {
   } = useDatasets();
 
   const router = useRouter();
+  const [uploadOpen, setUploadOpen] = useState(false);
 
-  // Datasets reach Transformer Lab either by being pulled from Hugging Face at
-  // training time (the trainer does `load_dataset(id)`) or via the real Hub. The
-  // app has no honest "create a dataset from scratch" path, so this page is a
-  // viewer + a jump to the Hub — not a mock create wizard.
+  // Datasets reach Transformer Lab three ways: pulled from Hugging Face at training
+  // time (the trainer does `load_dataset(id)`), browsed via the real Hub, or
+  // uploaded here as a real .jsonl/.csv file (registered in TL, then usable in
+  // Fine-tune). No mock create wizard.
   const goToHub = () => router.push("/hub");
 
   const activeDatasets = datasets.filter((d) => d.validationStatus !== "Archived");
@@ -50,12 +53,22 @@ export function DatasetsPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" onClick={() => setUploadOpen(true)}>
+            <Upload className="size-4" />
+            Upload dataset
+          </Button>
           <Button type="button" onClick={goToHub}>
             <Download className="size-4" />
             Browse Hugging Face
           </Button>
         </div>
       </div>
+
+      <UploadDatasetDialog
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        onUploaded={() => reloadDatasets()}
+      />
 
       <DatasetSummaryCards datasets={datasets} />
 

@@ -15,9 +15,14 @@ type SetMessages = (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
 export function ChatArea({
   messages,
   setMessages,
+  presetModel = "",
+  onPresetApplied,
 }: {
   messages: ChatMessage[];
   setMessages: SetMessages;
+  /** A model id to preselect (from `/interact?model=`), owned by the parent. */
+  presetModel?: string;
+  onPresetApplied?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [model, setModel] = useState("");
@@ -35,6 +40,18 @@ export function ChatArea({
   // loop keeps calling setMessages after unmount and leaks tokens into whatever
   // session becomes active. The catch treats AbortError as a clean stop.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Apply a model preselected by the parent (from `/interact?model=`). Held in the
+  // parent so a session-switch remount here doesn't drop it; we consume it once
+  // (deferred to dodge the cascading-render lint) and tell the parent to clear it.
+  useEffect(() => {
+    if (!presetModel) return;
+    const t = setTimeout(() => {
+      setModel(presetModel);
+      onPresetApplied?.();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [presetModel, onPresetApplied]);
 
   async function send() {
     const text = input.trim();

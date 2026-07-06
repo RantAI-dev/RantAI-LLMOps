@@ -21,9 +21,21 @@ type TlCatalogModel = {
   localPath?: string;
 };
 
-/** "Qwen2.5-3B-Instruct" -> "3B"; falls back to "—". */
-function paramSizeFromName(name: string): string {
-  const m = name.match(/(\d+(?:\.\d+)?)\s*[bB](?![a-zA-Z])/);
+/**
+ * Best-effort parameter count from an HF model name ("Qwen2.5-3B-Instruct" ->
+ * "3B", "Llama-3.2-1B" -> "1B", "qwen2.5:0.5b" -> "0.5B"), else "—".
+ *
+ * Our fine-tune tags ("nqr-…") slugify the base name, which mangles the size
+ * ambiguously — "qwen3-1-7b" reads as 1.7B, but "llama-3-8b" would read as 3.8B
+ * (it's 8B), and the plain regex misreads "qwen3-1-7b" as 7B. There's no reliable
+ * way to recover it from the slug, so we don't guess: an honest "—" beats a
+ * confidently-wrong number.
+ */
+export function paramSizeFromName(name: string): string {
+  if (/^nqr-/i.test(name)) return "—";
+  // Accept a size token whose "b" isn't glued to another alphanumeric (so a quant
+  // like ":Q4_K_M" or a repo word can't be misread as a parameter count).
+  const m = name.match(/(\d+(?:\.\d+)?)\s*b(?![a-z0-9])/i);
   return m ? `${m[1]}B` : "—";
 }
 
@@ -33,7 +45,10 @@ function formatSize(sizeMb: number | null): string {
 }
 
 export function tlToRegistryModel(m: TlCatalogModel, now: string): RegistryModel {
-  const isFineTuned = m.id.startsWith("TransformerLab/");
+  // Our served fine-tunes are Ollama tags prefixed "nqr-" (the Compare/registry
+  // code discriminates on the same prefix); the old "TransformerLab/" check never
+  // matched a servable id, so the fine-tuned author/tag was never applied.
+  const isFineTuned = m.id.startsWith("nqr-");
   return {
     id: m.id,
     modelName: m.name,

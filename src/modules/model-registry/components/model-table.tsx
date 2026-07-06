@@ -1,12 +1,12 @@
 "use client";
 
 import {
-  Archive,
   Eye,
   GitCompare,
   MoreHorizontal,
   Play,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ type ModelTableProps = {
   onTest: (id: string) => void;
   onFineTune: (id: string) => void;
   onCompare: (id: string) => void;
-  onArchive: (id: string) => void;
+  onDelete: (id: string) => void;
 };
 
 export function ModelTable({
@@ -48,7 +48,7 @@ export function ModelTable({
   onTest,
   onFineTune,
   onCompare,
-  onArchive,
+  onDelete,
 }: ModelTableProps) {
 
   return (
@@ -124,8 +124,8 @@ export function ModelTable({
                         <DropdownMenuItem onClick={() => onCompare(model.id)}>
                           <GitCompare className="size-3.5" /> Compare
                         </DropdownMenuItem>
-                        <DropdownMenuItem className="text-destructive" onClick={() => onArchive(model.id)}>
-                          <Archive className="size-3.5" /> Archive
+                        <DropdownMenuItem className="text-destructive" onClick={() => onDelete(model.id)}>
+                          <Trash2 className="size-3.5" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>

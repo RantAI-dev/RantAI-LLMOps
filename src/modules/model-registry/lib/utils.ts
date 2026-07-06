@@ -12,6 +12,23 @@ export function generateId(prefix: string): string {
   return `${prefix}-${idCounter}`;
 }
 
+/**
+ * Turn a registry model id into a Hugging Face search query for the Fine-tune
+ * base picker. A GGUF/Ollama id ("hf.co/owner/Qwen2.5-Coder-1.5B-GGUF:Q4_K_M")
+ * can't be a training base, so we strip the owner path, our fine-tune prefix +
+ * job-id suffix, the ":quant" tag and the "GGUF" marker to leave a searchable
+ * model name ("Qwen2.5-Coder-1.5B").
+ */
+export function baseSearchQuery(id: string): string {
+  return (id.split("/").pop() ?? id)
+    .replace(/^nqr-/i, "")
+    .replace(/:.*$/, "")
+    .replace(/-[0-9a-f]{8}$/i, "")
+    .replace(/-?gguf/gi, "")
+    .replace(/[-_]+$/, "")
+    .trim();
+}
+
 export function formatDateTime(iso: string | null): string {
   const d = parseTlDate(iso);
   if (!d) return "—";

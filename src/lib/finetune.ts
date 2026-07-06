@@ -309,6 +309,123 @@ export async function createDataset(
   return id;
 }
 
+/** A user-input problem (bad file / name) — the route maps this to HTTP 400. */
+export class DatasetInputError extends Error {}
+
+/** RFC-4180-ish CSV parse: handles quoted fields, escaped `""`, and CRLF. */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else quoted = false;
+      } else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
+    else if (c !== "\r") field += c;
+  }
+  if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+  // Drop blank lines (from a trailing newline or gaps) — a bare "\n" parses to [""].
+  return rows.filter((r) => !(r.length === 1 && r[0] === ""));
+}
+
+/** CSV (header row + data rows) -> JSONL of `{ [column]: value }` objects. */
+export function csvToJsonl(csv: string): string {
+  const rows = parseCsv(csv);
+  if (rows.length < 2) {
+    throw new DatasetInputError("CSV harus punya baris header + minimal 1 baris data");
+  }
+  const headers = rows[0]!.map((h) => h.trim());
+  if (headers.some((h) => !h)) throw new DatasetInputError("Ada kolom header CSV yang kosong");
+  if (new Set(headers).size !== headers.length) {
+    throw new DatasetInputError("Ada nama kolom header CSV yang duplikat");
+  }
+  return rows
+    .slice(1)
+    .map((r, ri) => {
+      if (r.length > headers.length) {
+        throw new DatasetInputError(
+          `Baris ${ri + 2} punya lebih banyak kolom (${r.length}) daripada header (${headers.length})`
+        );
+      }
+      return JSON.stringify(Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
+    })
+    .join("\n");
+}
+
+/** Validate a JSONL file (every non-empty line must parse as a JSON object). */
+export function normalizeJsonl(text: string): string {
+  const kept: string[] = [];
+  // Iterate the RAW lines so error messages report the real file line number.
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const line = raw.trim();
+    if (!line) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new DatasetInputError(`Baris ${i + 1} bukan JSON yang valid`);
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new DatasetInputError(
+        `Baris ${i + 1} harus berupa objek JSON, mis. {"prompt": "...", "completion": "..."}`
+      );
+    }
+    kept.push(line);
+  });
+  if (kept.length === 0) throw new DatasetInputError("File JSONL kosong");
+  return kept.join("\n");
+}
+
+/**
+ * Upload a user's own dataset FILE (JSONL or CSV, arbitrary columns) as a local
+ * Transformer Lab dataset — unlike {@link createDataset} which only takes fixed
+ * prompt/completion rows. CSV is converted to JSONL; JSONL is validated. Returns
+ * the slugified dataset id, ready to pick in Fine-tune.
+ */
+export async function uploadDatasetFile(
+  name: string,
+  filename: string,
+  content: string
+): Promise<string> {
+  const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  if (!id) throw new DatasetInputError("Nama dataset wajib diisi (pakai huruf/angka)");
+  // Strip a leading UTF-8 BOM so it can't corrupt the first CSV header / JSON line.
+  const clean = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  const jsonl = /\.csv$/i.test(filename) ? csvToJsonl(clean) : normalizeJsonl(clean);
+
+  // The slug is lossy ("My Data!" and "my-data" both → "my-data"), so refuse to
+  // silently clobber an existing dataset — ask the user to rename/delete first.
+  const existing = await fetchLocalDatasets();
+  if (existing.some((d) => d.dataset_id === id)) {
+    throw new DatasetInputError(`Dataset "${id}" sudah ada. Pakai nama lain atau hapus dulu.`);
+  }
+
+  const created = await fetch(`${TL_ROOT}/data/new?dataset_id=${encodeURIComponent(id)}`, {
+    headers: inferenceHeaders(),
+  });
+  const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
+  if (!created.ok || cData.status === "error") {
+    throw new Error(cData.message || `Gagal membuat dataset (${created.status})`);
+  }
+
+  const form = new FormData();
+  form.append("files", new Blob([jsonl], { type: "application/jsonl" }), `${id}_train.jsonl`);
+  const up = await fetch(`${TL_ROOT}/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: inferenceHeaders(),
+    body: form,
+  });
+  if (!up.ok) throw new Error(`Upload dataset gagal (${up.status})`);
+  return id;
+}
+
 /**
  * Build a Jinja-ish formatting template from a dataset's columns so the trainer
  * knows how to turn a row into a single training string. Covers the common
