@@ -1,16 +1,13 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useExperiments } from "@/modules/experiments/hooks/use-experiments";
-import type { CreateExperimentInput, Experiment } from "@/modules/experiments/types";
 
 import { DeleteExperimentDialog } from "./delete-experiment-dialog";
 import { ExperimentDetailView } from "./experiment-detail-view";
-import { ExperimentFormSheet } from "./experiment-form-sheet";
 
 /**
  * Route-level experiment detail (`/experiments/[...id]`). Deep-linkable, so the
@@ -22,20 +19,8 @@ export function ExperimentDetailPage() {
   const params = useParams<{ id: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
 
-  const {
-    experiments,
-    tasks,
-    isLoading,
-    updateExperiment,
-    cloneExperiment,
-    archiveExperiment,
-    deleteExperiment,
-    changeExperimentStatus,
-    deleteTargetId,
-    setDeleteTargetId,
-  } = useExperiments();
-
-  const [editingExperiment, setEditingExperiment] = useState<Experiment | null>(null);
+  const { experiments, tasks, isLoading, deleteExperiment, deleteTargetId, setDeleteTargetId } =
+    useExperiments();
 
   const experiment = experiments.find((e) => e.id === id) ?? null;
   const deleteEntity =
@@ -63,24 +48,7 @@ export function ExperimentDetailPage() {
         experiment={experiment}
         tasks={tasks}
         onBack={back}
-        onEdit={() => setEditingExperiment(experiment)}
-        onClone={() => cloneExperiment(experiment.id)}
-        onArchive={() => archiveExperiment(experiment.id)}
         onDelete={() => setDeleteTargetId(experiment.id)}
-        onChangeStatus={(status) => changeExperimentStatus(experiment.id, status)}
-      />
-      <ExperimentFormSheet
-        key={editingExperiment?.id ?? "exp-edit-closed"}
-        open={!!editingExperiment}
-        mode="edit"
-        experiment={editingExperiment}
-        onClose={() => setEditingExperiment(null)}
-        onSubmit={(input: CreateExperimentInput) => {
-          if (editingExperiment) {
-            updateExperiment(editingExperiment.id, input);
-            setEditingExperiment(null);
-          }
-        }}
       />
       <DeleteExperimentDialog
         experiment={deleteEntity}

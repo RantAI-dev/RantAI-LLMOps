@@ -3,18 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { NotebookPen, Plus } from "lucide-react";
-import { useState } from "react";
 
 import { BreadcrumbNav } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { ExperimentActivityModal } from "@/modules/experiments/components/experiment-activity-modal";
 import { ExperimentDetailToolbar } from "@/modules/experiments/components/experiment-detail-toolbar";
 import { ExperimentStatusBadge } from "@/modules/experiments/components/experiment-status-badge";
 import {
   countTasksByStatus,
   deriveExperimentStatus,
-  formatDateTime,
   formatDuration,
   getExperimentTaskStats,
   getTasksForExperiment,
@@ -52,22 +49,14 @@ type ExperimentDetailViewProps = {
   experiment: Experiment;
   tasks: AITask[];
   onBack: () => void;
-  onEdit: () => void;
-  onClone: () => void;
-  onArchive: () => void;
   onDelete: () => void;
-  onChangeStatus: (status: Experiment["status"]) => void;
 };
 
 export function ExperimentDetailView({
   experiment,
   tasks,
   onBack,
-  onEdit,
-  onClone,
-  onArchive,
   onDelete,
-  onChangeStatus,
 }: ExperimentDetailViewProps) {
   const { selectedTask, setSelectedTaskId, stopTask, deleteTask } = useLlmOps();
   const router = useRouter();
@@ -77,7 +66,6 @@ export function ExperimentDetailView({
   const effectiveStatus = deriveExperimentStatus(experiment, tasks);
   const statusCounts = countTasksByStatus(tasks, experiment.id);
   const totalForBar = relatedTasks.length || 1;
-  const [activityOpen, setActivityOpen] = useState(false);
   const activeStatuses = TASK_STATUS_ORDER.filter((s) => statusCounts[s] > 0);
 
   return (
@@ -100,14 +88,7 @@ export function ExperimentDetailView({
             ) : null}
           </div>
           <ExperimentDetailToolbar
-            experiment={experiment}
-            activityCount={experiment.activityHistory.length}
-            onActivity={() => setActivityOpen(true)}
-            onEdit={onEdit}
-            onClone={onClone}
-            onArchive={onArchive}
             onDelete={onDelete}
-            onChangeStatus={onChangeStatus}
             onCreateTask={() => router.push("/finetune")}
           />
         </div>
@@ -118,48 +99,19 @@ export function ExperimentDetailView({
         className="rounded-lg border border-[#e8e8e8] bg-surface p-3"
       >
         <div className="grid gap-3 xl:grid-cols-12">
-          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs xl:col-span-5">
-            <Meta label="Objective" value={experiment.objective} className="col-span-2" />
-            <Meta label="Owner" value={experiment.owner} />
-            <Meta label="Base model" value={experiment.baseModel} />
-            <Meta label="Dataset" value={experiment.dataset} className="col-span-2" />
-            <Meta label="Success metric" value={experiment.successMetric} />
-            <Meta label="Threshold" value={experiment.evaluationThreshold} />
-            <Meta label="Created" value={formatDateTime(experiment.createdAt)} />
-            <Meta label="Updated" value={formatDateTime(experiment.updatedAt)} />
-            {experiment.tags.length > 0 ? (
-              <div className="col-span-2">
-                <dt className="font-medium text-ink-faint">Tags</dt>
-                <dd className="mt-1 flex flex-wrap gap-1">
-                  {experiment.tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-primary-soft px-2 py-0.5 text-[10px] font-medium text-primary-strong"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </dd>
-              </div>
-            ) : null}
-            <div className="col-span-2">
-              <dt className="font-medium text-ink-faint">Notes</dt>
-              <dd className="mt-0.5 line-clamp-2 text-ink">
-                {experiment.notes ? (
-                  experiment.notes
-                ) : (
-                  <span className="text-ink-faint italic">No notes yet</span>
-                )}
-              </dd>
-              <Link
-                href={`/notes/${experiment.id}`}
-                className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-              >
-                <NotebookPen className="size-3.5" />
-                {experiment.notes ? "Open notes" : "Add notes"}
-              </Link>
-            </div>
-          </dl>
+          <div className="text-xs xl:col-span-5">
+            <p className="font-medium text-ink-faint">Catatan</p>
+            <p className="mt-0.5 text-ink-soft">
+              Catatan markdown per-experiment, tersimpan di Transformer Lab.
+            </p>
+            <Link
+              href={`/notes/${experiment.id}`}
+              className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+            >
+              <NotebookPen className="size-3.5" />
+              Buka catatan
+            </Link>
+          </div>
 
           <div className="space-y-2 xl:col-span-4">
             <p className="text-[11px] font-medium tracking-wide text-ink-faint uppercase">Performance</p>
@@ -248,12 +200,6 @@ export function ExperimentDetailView({
         )}
       </section>
 
-      <ExperimentActivityModal
-        open={activityOpen}
-        experiment={experiment}
-        onClose={() => setActivityOpen(false)}
-      />
-
       <TaskDetailDrawer
         task={selectedTask}
         onClose={() => setSelectedTaskId(null)}
@@ -261,31 +207,6 @@ export function ExperimentDetailView({
         onDelete={deleteTask}
       />
     </article>
-  );
-}
-
-function Meta({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: string;
-  className?: string;
-}) {
-  if (className?.includes("col-span")) {
-    return (
-      <div className={className}>
-        <dt className="font-medium text-ink-faint">{label}</dt>
-        <dd className="mt-0.5 text-ink">{value || "—"}</dd>
-      </div>
-    );
-  }
-  return (
-    <>
-      <dt className="font-medium text-ink-faint">{label}</dt>
-      <dd className="truncate text-ink">{value || "—"}</dd>
-    </>
   );
 }
 

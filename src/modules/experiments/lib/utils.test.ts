@@ -27,10 +27,14 @@ describe("deriveExperimentStatus", () => {
     expect(deriveExperimentStatus(exp({ status: "Active" }), [])).toBe("Active");
   });
 
-  it("prioritises Running, then Failed, then all-Completed", () => {
+  it("prioritises Running, all-Completed, then Failed", () => {
     expect(deriveExperimentStatus(exp(), [task("Running"), task("Completed")])).toBe("Running");
-    expect(deriveExperimentStatus(exp(), [task("Failed"), task("Completed")])).toBe("Failed");
     expect(deriveExperimentStatus(exp(), [task("Completed"), task("Completed")])).toBe("Completed");
+    // "Failed" only when EVERY run failed/cancelled — nothing succeeded, nothing pending.
+    expect(deriveExperimentStatus(exp(), [task("Failed"), task("Failed")])).toBe("Failed");
+    // A mix (done+failed), or a failed run alongside a queued one, is still Active.
+    expect(deriveExperimentStatus(exp(), [task("Failed"), task("Completed")])).toBe("Active");
+    expect(deriveExperimentStatus(exp(), [task("Failed"), task("Queued")])).toBe("Active");
   });
 
   it("ignores tasks from other experiments", () => {

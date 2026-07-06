@@ -156,6 +156,7 @@ export function TaskDetailDrawer({
           <Section title="Logs">
             <TaskLogs
               taskId={task.id}
+              experimentId={task.experimentId}
               fallback={run?.logs ?? []}
               live={status === "Running" || status === "Retrying"}
             />
@@ -197,10 +198,12 @@ export function TaskDetailDrawer({
  */
 function TaskLogs({
   taskId,
+  experimentId,
   fallback,
   live = false,
 }: {
   taskId: string;
+  experimentId?: string;
   fallback: TaskLogEntry[];
   live?: boolean;
 }) {
@@ -209,8 +212,9 @@ function TaskLogs({
 
   useEffect(() => {
     let cancelled = false;
+    const qs = experimentId ? `?experimentId=${encodeURIComponent(experimentId)}` : "";
     const load = () =>
-      fetch(`/api/tasks/${encodeURIComponent(taskId)}/output`, { cache: "no-store" })
+      fetch(`/api/tasks/${encodeURIComponent(taskId)}/output${qs}`, { cache: "no-store" })
         .then((r) => r.json() as Promise<{ output?: string }>)
         .then((d) => {
           if (cancelled) return;
@@ -227,7 +231,7 @@ function TaskLogs({
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [taskId, live]);
+  }, [taskId, experimentId, live]);
 
   const hasReal = output != null && output.trim().length > 0;
 

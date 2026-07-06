@@ -29,6 +29,7 @@ import { listOllamaModels } from "@/lib/ollama";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
+import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
 import { logServerError } from "@/lib/log";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
@@ -448,14 +449,9 @@ export function buildFormattingTemplate(columns: string[]): string {
   return columns.map((c) => `{{${c}}}`).join("\n");
 }
 
-async function ensureExperiment(): Promise<void> {
-  // create is idempotent enough for our purposes; ignore "already exists".
-  await fetch(`${TL_ROOT}/experiment/create?name=${FINETUNE_EXPERIMENT}`, {
-    headers: inferenceHeaders(),
-  }).catch(() => {});
-}
-
 export type SubmitFinetuneParams = {
+  /** TL experiment to launch into (grouping). Defaults to the fine-tune experiment. */
+  experiment?: string;
   /** HF-resolvable base model id (e.g. "unsloth/Qwen2.5-0.5B-Instruct"). */
   baseModel: string;
   baseModelArchitecture?: string;
@@ -494,7 +490,8 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   // Validate at the edge: HF-resolvable ids, surfaced as a clear early error.
   assertModelId(p.baseModel);
   assertModelId(p.dataset);
-  await ensureExperiment();
+  // Create/reuse the target experiment and use TL's authoritative id back.
+  const experiment = await createTlExperiment(p.experiment?.trim() || FINETUNE_EXPERIMENT);
   const adaptorName = p.adaptorName.replace(/[^a-zA-Z0-9._-]/g, "-") || "adaptor";
 
   const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
@@ -505,7 +502,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
     // keys. The reasoning tags / system prompt / templates use the trainer's own
     // sensible defaults, so we only pass the essentials.
     return launchProviderTask({
-      experimentId: FINETUNE_EXPERIMENT,
+      experimentId: experiment,
       taskName: adaptorName,
       run: GRPO_RUN,
       setup: GRPO_SETUP,
@@ -540,7 +537,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
     // The base model is an Orpheus/CSM audio model, and the dataset needs an
     // audio column + a text column (defaults match bosonai/EmergentTTS-Eval).
     return launchProviderTask({
-      experimentId: FINETUNE_EXPERIMENT,
+      experimentId: experiment,
       taskName: adaptorName,
       run: TTS_RUN,
       setup: TTS_SETUP,
@@ -571,7 +568,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   }
 
   return launchProviderTask({
-    experimentId: FINETUNE_EXPERIMENT,
+    experimentId: experiment,
     taskName: adaptorName,
     run: TRAINER_RUN,
     setup: TRAINER_SETUP,
@@ -671,9 +668,10 @@ export async function exportFineTunedToGguf(
   jobId: string,
   onStage?: (stage: ExportStage) => void
 ): Promise<string> {
-  // Resolve the base model + adaptor name from the train job.
+  // Resolve the base model + adaptor name from the train job (in its experiment).
+  const experiment = await resolveJobExperiment(jobId);
   const jobRes = await fetch(
-    `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
+    `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
     { headers: inferenceHeaders() }
   );
   if (!jobRes.ok) throw new Error(`Training job "${jobId}" not found (${jobRes.status})`);
@@ -721,10 +719,9 @@ export async function exportFineTunedToGguf(
  * `fusedModelId` carries the train job id — the input to {@link exportFineTunedToGguf}.
  */
 export async function fetchFineTuned(): Promise<FineTunedModel[]> {
-  let rows: TlJob[] = [];
+  let rows: TlJob[];
   try {
-    const res = await tlFetch(`/experiment/${FINETUNE_EXPERIMENT}/jobs/list`);
-    rows = unwrapList<TlJob>(await res.json().catch(() => []));
+    rows = await listJobsAllExperiments();
   } catch (err) {
     logServerError("fetchFineTuned", err);
     return [];
@@ -747,8 +744,7 @@ export async function fetchFineTuned(): Promise<FineTunedModel[]> {
         ready,
         loadModelId: ready ? tag : null,
       } satisfies FineTunedModel;
-    })
-    .reverse();
+    });
 }
 
 type TlJob = {
@@ -766,8 +762,33 @@ type TlJob = {
     launch_progress?: { percent?: number };
     subtype?: string;
     run?: string;
+    start_time?: string;
   };
 };
+
+/**
+ * Raw TL jobs across EVERY experiment (TL scopes jobs per experiment), newest
+ * first. Used by the fine-tune lists so a job launched into any experiment still
+ * shows up. Sorted by start time desc; not-yet-started jobs sort to the top.
+ */
+async function listJobsAllExperiments(): Promise<TlJob[]> {
+  const ids = await allExperimentIds();
+  const perExperiment = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const res = await tlFetch(`/experiment/${encodeURIComponent(id)}/jobs/list`);
+        return unwrapList<TlJob>(await res.json().catch(() => []));
+      } catch {
+        return [];
+      }
+    })
+  );
+  return perExperiment
+    .flat()
+    .sort((a, b) =>
+      (b.job_data?.start_time || "9999").localeCompare(a.job_data?.start_time || "9999")
+    );
+}
 
 function normalizeJob(j: TlJob): TrainingJob {
   const d = j.job_data ?? {};
@@ -798,10 +819,8 @@ function normalizeJob(j: TlJob): TrainingJob {
  */
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
-    const res = await tlFetch(`/experiment/${FINETUNE_EXPERIMENT}/jobs/list`);
-    const rows = unwrapList<TlJob>(await res.json().catch(() => []));
-    const jobs = rows.filter(isTrainJob).map(normalizeJob);
-    return jobs.reverse();
+    const rows = await listJobsAllExperiments();
+    return rows.filter(isTrainJob).map(normalizeJob);
   } catch (err) {
     logServerError("fetchTrainingJobs", err);
     return [];
@@ -811,8 +830,9 @@ export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
 /** Ask a running training job to stop. Returns whether TL accepted the request. */
 export async function stopTrainingJob(jobId: string): Promise<boolean> {
   try {
+    const experiment = await resolveJobExperiment(jobId);
     const res = await fetch(
-      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}/stop`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}/stop`,
       { headers: inferenceHeaders() }
     );
     return res.ok;
@@ -824,8 +844,9 @@ export async function stopTrainingJob(jobId: string): Promise<boolean> {
 /** Delete a training job record. Returns whether TL accepted it. (v0.40.0: DELETE method.) */
 export async function deleteTrainingJob(jobId: string): Promise<boolean> {
   try {
+    const experiment = await resolveJobExperiment(jobId);
     const res = await fetch(
-      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
       { method: "DELETE", headers: inferenceHeaders() }
     );
     return res.ok;
@@ -837,8 +858,9 @@ export async function deleteTrainingJob(jobId: string): Promise<boolean> {
 /** Single training job status (v0.40.0: `/experiment/{id}/jobs/{id}`). */
 export async function fetchTrainingJob(id: string): Promise<TrainingJob | null> {
   try {
+    const experiment = await resolveJobExperiment(id);
     const res = await fetch(
-      `${TL_ROOT}/experiment/${FINETUNE_EXPERIMENT}/jobs/${encodeURIComponent(id)}`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}`,
       { headers: inferenceHeaders() }
     );
     if (!res.ok) return null;

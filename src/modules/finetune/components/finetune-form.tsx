@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FinetuneOptions } from "@/lib/finetune";
+import { useActiveExperiment } from "@/modules/experiments/context/active-experiment";
 import { cn } from "@/lib/utils";
 
 type Method = "sft" | "grpo" | "tts";
@@ -56,6 +57,8 @@ export function FinetuneForm({
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [touchedName, setTouchedName] = useState(false);
   const [deletingDataset, setDeletingDataset] = useState(false);
+  // New runs launch into the header's active experiment (chosen once, app-wide).
+  const { activeExperiment } = useActiveExperiment();
 
   // Prefill the dataset from `?dataset=` (e.g. picked in Hub → "Use in fine-tune").
   // Read from the URL once on mount (not lazy useState init) to avoid an SSR/
@@ -135,6 +138,7 @@ export function FinetuneForm({
   async function handleSubmit() {
     const ok = await onSubmit({
       method,
+      experiment: activeExperiment,
       baseModel,
       baseModelArchitecture: selectedModel?.architecture,
       dataset,
@@ -223,6 +227,12 @@ export function FinetuneForm({
           </div>
         ) : null}
       </div>
+
+      <p className="mb-3 rounded-md bg-surface-2 px-3 py-2 text-[12px] text-ink-soft">
+        Run ini masuk ke experiment{" "}
+        <strong className="text-ink">{activeExperiment}</strong> — ganti lewat pemilih
+        di kanan atas (header).
+      </p>
 
       {modelOptions.length === 0 && !loading ? (
         <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">

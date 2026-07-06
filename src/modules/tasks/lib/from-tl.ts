@@ -22,6 +22,7 @@ import type {
 
 type TlJobRow = {
   id: string;
+  experimentId: string;
   type: string;
   status: string;
   progress: number;
@@ -188,8 +189,8 @@ export function tlJobToTask(row: TlJobRow, now: string): Task {
     id: row.id,
     name: row.template,
     type,
-    experimentId: EXPERIMENT_ID,
-    experimentName: EXPERIMENT_ID,
+    experimentId: row.experimentId || EXPERIMENT_ID,
+    experimentName: row.experimentId || EXPERIMENT_ID,
     computeTarget,
     engine,
     createdAt: created,

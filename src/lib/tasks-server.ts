@@ -14,6 +14,7 @@ const EXPERIMENT = FINETUNE_EXPERIMENT;
 
 export type TlJobRow = {
   id: string;
+  experimentId: string; // the TL experiment this job lives under
   type: string; // TRAIN | EVAL | EXPORT | ...
   status: string; // raw TL status
   progress: number;
@@ -95,10 +96,11 @@ function headlineScore(raw?: string): number | null {
   }
 }
 
-function normalize(j: TlJob): TlJobRow {
+function normalize(j: TlJob, experimentId: string): TlJobRow {
   const d = j.job_data ?? {};
   return {
     id: String(j.id ?? ""),
+    experimentId,
     type: j.type ?? "TASK",
     status: j.status ?? "UNKNOWN",
     progress: typeof j.progress === "number" ? j.progress : 0,
@@ -131,22 +133,72 @@ function normalize(j: TlJob): TlJobRow {
   };
 }
 
+/** Jobs for one experiment, tagged with its id. No `slim` — it strips `job_data`
+ * (including `task_name`) which we need for the distinctive task label. */
+async function listJobsForExperiment(experimentId: string): Promise<TlJobRow[]> {
+  try {
+    const res = await tlFetch(`/experiment/${encodeURIComponent(experimentId)}/jobs/list`);
+    if (!res.ok) return [];
+    const rows = unwrapList<TlJob>(await res.json().catch(() => []));
+    return rows.map((j) => normalize(j, experimentId));
+  } catch {
+    return [];
+  }
+}
+
 /**
- * All jobs in the working experiment, newest first. (v0.40.0: experiment-scoped.)
- * No `slim` — it strips `job_data` (including `task_name`), which we need for the
- * distinctive task label.
+ * Every experiment id, including the default, tolerant of a failed list call —
+ * so a transient `/experiment/` list error still yields the default experiment
+ * instead of throwing. The single source for all cross-experiment fan-outs.
+ */
+export async function allExperimentIds(): Promise<string[]> {
+  const experiments = await listTlExperiments().catch(() => []);
+  return [...new Set([EXPERIMENT, ...experiments.map((e) => e.id)])];
+}
+
+/**
+ * All jobs across EVERY experiment, newest first. TL scopes jobs per experiment
+ * (`/experiment/{id}/jobs/list`) with no global endpoint, so we fan out over the
+ * experiment list and merge. Sorted by start time desc; not-yet-started jobs
+ * (empty startTime) sort to the top as the newest.
  */
 export async function listAllJobs(): Promise<TlJobRow[]> {
-  const res = await tlFetch(`/experiment/${EXPERIMENT}/jobs/list`);
-  if (!res.ok) throw new Error(`jobs ${res.status}`);
-  const rows = unwrapList<TlJob>(await res.json().catch(() => []));
-  return rows.map(normalize).reverse();
+  const ids = await allExperimentIds();
+  const perExperiment = await Promise.all(ids.map(listJobsForExperiment));
+  return perExperiment
+    .flat()
+    .sort((a, b) => (b.startTime || "9999").localeCompare(a.startTime || "9999"));
+}
+
+/**
+ * Which experiment a job lives under. TL scopes per-job ops per experiment, so
+ * acting on a job that was launched into a non-default experiment needs this. We
+ * check every experiment in parallel (slim listing) and fall back to the default.
+ * NOTE: if a job's real experiment list-call fails transiently, no match is found
+ * and the op targets the default — which then 404s. Callers treat that as a
+ * retriable failure (stop/delete return false), not a crash.
+ */
+export async function resolveJobExperiment(jobId: string): Promise<string> {
+  const ids = await allExperimentIds();
+  const matches = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const res = await tlFetch(`/experiment/${encodeURIComponent(id)}/jobs/list?slim=true`);
+        if (!res.ok) return null;
+        const rows = unwrapList<{ id?: string | number }>(await res.json().catch(() => []));
+        return rows.some((j) => String(j.id ?? "") === jobId) ? id : null;
+      } catch {
+        return null;
+      }
+    })
+  );
+  return matches.find((m): m is string => m != null) ?? EXPERIMENT;
 }
 
 /** SDK output for a job (`/jobs/{id}/output`) — the `lab.log()` summary. */
-async function fetchSdkOutput(id: string): Promise<string> {
+async function fetchSdkOutput(id: string, experiment: string): Promise<string> {
   const res = await fetch(
-    `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/output`,
+    `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/output`,
     { headers: inferenceHeaders() }
   );
   if (!res.ok) return "";
@@ -165,10 +217,10 @@ async function fetchSdkOutput(id: string): Promise<string> {
 
 /** Live provider console for a job (`/jobs/{id}/provider_logs`) — raw stdout
  *  (loss curves, progress, errors). This is what updates while a job RUNs. */
-async function fetchProviderConsole(id: string): Promise<string> {
+async function fetchProviderConsole(id: string, experiment: string): Promise<string> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=500`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=500`,
       { headers: inferenceHeaders() }
     );
     if (!res.ok) return "";
@@ -185,8 +237,15 @@ async function fetchProviderConsole(id: string): Promise<string> {
  * the `lab.log()` summary. We show the console when present (it's the most useful
  * while a job runs), falling back to the SDK output.
  */
-export async function jobOutput(id: string): Promise<string> {
-  const [console_, sdk] = await Promise.all([fetchProviderConsole(id), fetchSdkOutput(id)]);
+export async function jobOutput(id: string, experimentId?: string): Promise<string> {
+  // The drawer polls this every ~3s while a job runs and already knows the job's
+  // experiment, so it passes it through to skip the fan-out resolver on the hot
+  // path. Fall back to resolving only when the caller doesn't supply it.
+  const experiment = experimentId?.trim() || (await resolveJobExperiment(id));
+  const [console_, sdk] = await Promise.all([
+    fetchProviderConsole(id, experiment),
+    fetchSdkOutput(id, experiment),
+  ]);
   if (console_.trim()) {
     return sdk.trim() ? `${console_}\n\n— — — — —\n${sdk}` : console_;
   }
@@ -196,8 +255,9 @@ export async function jobOutput(id: string): Promise<string> {
 /** Ask a running job to stop (`GET /jobs/{id}/stop`). Returns whether TL accepted it. */
 export async function stopJob(id: string): Promise<boolean> {
   try {
+    const experiment = await resolveJobExperiment(id);
     const res = await fetch(
-      `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}/stop`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/stop`,
       { headers: inferenceHeaders() }
     );
     return res.ok;
@@ -209,8 +269,9 @@ export async function stopJob(id: string): Promise<boolean> {
 /** Delete a job record (`DELETE /jobs/{id}`). Returns whether TL accepted it. */
 export async function deleteJob(id: string): Promise<boolean> {
   try {
+    const experiment = await resolveJobExperiment(id);
     const res = await fetch(
-      `${TL_ROOT}/experiment/${EXPERIMENT}/jobs/${encodeURIComponent(id)}`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}`,
       { method: "DELETE", headers: inferenceHeaders() }
     );
     return res.ok;

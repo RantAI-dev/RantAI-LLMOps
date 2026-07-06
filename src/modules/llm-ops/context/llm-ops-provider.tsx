@@ -14,19 +14,10 @@ import { runOptimistic } from "@/lib/optimistic";
 import { useResourceFetch } from "@/lib/use-resource-fetch";
 import {
   fetchExperiments,
-  saveExperimentNotes,
   seedExperiments,
 } from "@/modules/experiments/services/experiments-service";
-import {
-  deriveExperimentStatus,
-  generateActivityId,
-  generateExperimentId,
-} from "@/modules/experiments/lib/utils";
-import type {
-  CreateExperimentInput,
-  Experiment,
-  ExperimentFilters,
-} from "@/modules/experiments/types";
+import { deriveExperimentStatus } from "@/modules/experiments/lib/utils";
+import type { Experiment, ExperimentFilters } from "@/modules/experiments/types";
 import { fetchTasks, seedTasks } from "@/modules/tasks/services/tasks-service";
 import { latestRun, taskProgress, taskStatus } from "@/modules/tasks/lib/utils";
 import { appendRunLog } from "@/modules/tasks/lib/run-engine";
@@ -74,14 +65,9 @@ type LlmOpsContextValue = {
   setIsCreateExperimentOpen: (open: boolean) => void;
   deleteExperimentTargetId: string | null;
   setDeleteExperimentTargetId: (id: string | null) => void;
-  createExperiment: (input: CreateExperimentInput) => string;
-  updateExperiment: (id: string, input: Partial<CreateExperimentInput>) => void;
+  createExperiment: (name: string) => string;
   updateExperimentNotes: (id: string, notes: string) => void;
-  cloneExperiment: (id: string) => void;
-  archiveExperiment: (id: string) => void;
   deleteExperiment: (id: string) => void;
-  changeExperimentStatus: (id: string, status: Experiment["status"]) => void;
-  appendExperimentActivity: (experimentId: string, type: string, message: string) => void;
   tasksLoading: boolean;
   tasksError: boolean;
   reloadTasks: () => void;
@@ -117,33 +103,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const getExperimentById = useCallback(
     (id: string) => experiments.find((e) => e.id === id),
     [experiments]
-  );
-
-  const appendExperimentActivity = useCallback(
-    (experimentId: string, type: string, message: string) => {
-      const createdAt = new Date().toISOString();
-      setExperiments((prev) =>
-        prev.map((exp) =>
-          exp.id === experimentId
-            ? {
-                ...exp,
-                updatedAt: createdAt,
-                activityHistory: [
-                  {
-                    id: generateActivityId(),
-                    experimentId,
-                    type,
-                    message,
-                    createdAt,
-                  },
-                  ...exp.activityHistory,
-                ],
-              }
-            : exp
-        )
-      );
-    },
-    []
   );
 
   const filteredTasks = useMemo(() => {
@@ -295,170 +254,61 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     [reloadTasks]
   );
 
-  const createExperiment = useCallback((input: CreateExperimentInput) => {
-    // TL uses the (secured) experiment name as its id. We optimistically add it,
-    // then create it for real and reload the authoritative list.
-    const id = input.name;
-    const now = new Date().toISOString();
-    const experiment: Experiment = {
-      id,
-      name: input.name,
-      description: input.description,
-      objective: input.objective,
-      status: input.status === "Archived" ? "Draft" : input.status,
-      owner: input.owner,
-      baseModel: input.baseModel,
-      dataset: input.dataset,
-      successMetric: input.successMetric,
-      evaluationThreshold: input.evaluationThreshold,
-      bestScore: 0,
-      tags: input.tags,
-      notes: input.notes,
-      createdAt: now,
-      updatedAt: now,
-      activityHistory: [
-        {
-          id: generateActivityId(),
-          experimentId: id,
-          type: "created",
-          message: "Experiment created",
-          createdAt: now,
-        },
-      ],
-    };
-    void runOptimistic({
-      apply: () => {
-        setExperiments((prev) => [experiment, ...prev]);
-        setIsCreateExperimentOpen(false);
-      },
-      request: () =>
-        fetch("/api/experiments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: input.name }),
-        }),
-      // On failure the optimistic row never existed in TL — reload drops it.
-      rollback: () => reloadExperiments(),
-      errorMessage: "Gagal membuat experiment di server",
-      // On success, reconcile against TL's authoritative id (it slugs the name).
-    }).then((ok) => {
-      if (ok) reloadExperiments();
-    });
-    return id;
-  }, [reloadExperiments]);
-
-  const updateExperiment = useCallback(
-    (id: string, input: Partial<CreateExperimentInput>) => {
+  const createExperiment = useCallback(
+    (name: string): string => {
+      // TL only stores an experiment's name (it becomes the id) — nothing else is
+      // persisted, so we create it with just the name and let TL be authoritative.
+      const id = name.trim();
       const now = new Date().toISOString();
-      setExperiments((prev) =>
-        prev.map((exp) =>
-          exp.id === id
-            ? {
-                ...exp,
-                ...input,
-                updatedAt: now,
-                activityHistory: [
-                  {
-                    id: generateActivityId(),
-                    experimentId: id,
-                    type: "updated",
-                    message: "Experiment updated",
-                    createdAt: now,
-                  },
-                  ...exp.activityHistory,
-                ],
-              }
-            : exp
-        )
-      );
+      const experiment: Experiment = {
+        id,
+        name: id,
+        description: "",
+        objective: "",
+        status: "Active",
+        owner: "—",
+        baseModel: "—",
+        dataset: "—",
+        successMetric: "—",
+        evaluationThreshold: "—",
+        bestScore: 0,
+        tags: [],
+        notes: "",
+        createdAt: now,
+        updatedAt: now,
+        activityHistory: [],
+      };
+      void runOptimistic({
+        apply: () => {
+          setExperiments((prev) => [experiment, ...prev]);
+          setIsCreateExperimentOpen(false);
+        },
+        request: () =>
+          fetch("/api/experiments", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: id }),
+          }),
+        // On failure the optimistic row never existed in TL — reload drops it.
+        rollback: () => reloadExperiments(),
+        errorMessage: "Gagal membuat experiment di server",
+      }).then((ok) => {
+        if (ok) reloadExperiments();
+      });
+      return id;
     },
-    []
+    [reloadExperiments]
   );
 
   const updateExperimentNotes = useCallback((id: string, notes: string) => {
+    // State-sync only. The notes editor is the single writer — it POSTs to
+    // /api/experiments/{id}/notes itself, then calls this to reflect the save in
+    // memory. Persisting here too would double-write every save.
     const now = new Date().toISOString();
     setExperiments((prev) =>
-      prev.map((exp) =>
-        exp.id === id
-          ? {
-              ...exp,
-              notes,
-              updatedAt: now,
-              activityHistory: [
-                {
-                  id: generateActivityId(),
-                  experimentId: id,
-                  type: "updated",
-                  message: "Notes updated",
-                  createdAt: now,
-                },
-                ...exp.activityHistory,
-              ],
-            }
-          : exp
-      )
+      prev.map((exp) => (exp.id === id ? { ...exp, notes, updatedAt: now } : exp))
     );
-    // Mirror to the data seam: no-op in mock, POST /experiment/{id}/notes when real.
-    void saveExperimentNotes(id, notes);
   }, []);
-
-  const changeExperimentStatus = useCallback(
-    (id: string, status: Experiment["status"]) => {
-      const now = new Date().toISOString();
-      setExperiments((prev) =>
-        prev.map((exp) =>
-          exp.id === id
-            ? {
-                ...exp,
-                status,
-                updatedAt: now,
-                activityHistory: [
-                  {
-                    id: generateActivityId(),
-                    experimentId: id,
-                    type: "status_changed",
-                    message: `Status changed to ${status}`,
-                    createdAt: now,
-                  },
-                  ...exp.activityHistory,
-                ],
-              }
-            : exp
-        )
-      );
-    },
-    []
-  );
-
-  const cloneExperiment = useCallback((id: string) => {
-    const source = experiments.find((e) => e.id === id);
-    if (!source) return;
-    const newId = generateExperimentId();
-    const now = new Date().toISOString();
-    const clone: Experiment = {
-      ...source,
-      id: newId,
-      name: `${source.name} (copy)`,
-      status: "Draft",
-      bestScore: 0,
-      createdAt: now,
-      updatedAt: now,
-      activityHistory: [
-        {
-          id: generateActivityId(),
-          experimentId: newId,
-          type: "created",
-          message: "Experiment cloned",
-          createdAt: now,
-        },
-      ],
-    };
-    setExperiments((prev) => [clone, ...prev]);
-  }, [experiments]);
-
-  const archiveExperiment = useCallback((id: string) => {
-    changeExperimentStatus(id, "Archived");
-  }, [changeExperimentStatus]);
 
   const deleteExperiment = useCallback(
     (id: string) => {
@@ -537,13 +387,8 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       deleteExperimentTargetId,
       setDeleteExperimentTargetId,
       createExperiment,
-      updateExperiment,
       updateExperimentNotes,
-      cloneExperiment,
-      archiveExperiment,
       deleteExperiment,
-      changeExperimentStatus,
-      appendExperimentActivity,
       tasksLoading,
       tasksError,
       reloadTasks,
@@ -568,13 +413,8 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       isCreateExperimentOpen,
       deleteExperimentTargetId,
       createExperiment,
-      updateExperiment,
       updateExperimentNotes,
-      cloneExperiment,
-      archiveExperiment,
       deleteExperiment,
-      changeExperimentStatus,
-      appendExperimentActivity,
       tasksLoading,
       tasksError,
       reloadTasks,

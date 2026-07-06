@@ -2,7 +2,6 @@
 
 import { Plus } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
@@ -10,7 +9,6 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { useExperiments } from "@/modules/experiments/hooks/use-experiments";
 import { detailHref } from "@/lib/detail-href";
 import { cn } from "@/lib/utils";
-import type { Experiment } from "@/modules/experiments/types";
 
 import { DeleteExperimentDialog } from "./delete-experiment-dialog";
 import { ExperimentCard } from "./experiment-card";
@@ -32,9 +30,6 @@ export function ExperimentsPage() {
     deleteTargetId,
     setDeleteTargetId,
     createExperiment,
-    updateExperiment,
-    cloneExperiment,
-    archiveExperiment,
     deleteExperiment,
     isLoading,
     isError,
@@ -43,7 +38,6 @@ export function ExperimentsPage() {
 
   const router = useRouter();
   const openExperiment = (id: string) => router.push(detailHref("/experiments", id));
-  const [editingExperiment, setEditingExperiment] = useState<Experiment | null>(null);
 
   const deleteExperimentEntity =
     deleteTargetId != null ? experiments.find((e) => e.id === deleteTargetId) ?? null : null;
@@ -102,9 +96,6 @@ export function ExperimentsPage() {
               experiment={experiment}
               tasks={tasks}
               onView={() => openExperiment(experiment.id)}
-              onEdit={() => setEditingExperiment(experiment)}
-              onClone={() => cloneExperiment(experiment.id)}
-              onArchive={() => archiveExperiment(experiment.id)}
               onDelete={() => setDeleteTargetId(experiment.id)}
             />
           ))}
@@ -114,25 +105,10 @@ export function ExperimentsPage() {
       <ExperimentFormSheet
         key={isCreateOpen ? "exp-create-open" : "exp-create-closed"}
         open={isCreateOpen}
-        mode="create"
         onClose={() => setIsCreateOpen(false)}
-        onSubmit={(input) => {
-          const id = createExperiment(input);
+        onSubmit={(name) => {
+          const id = createExperiment(name);
           openExperiment(id);
-        }}
-      />
-
-      <ExperimentFormSheet
-        key={editingExperiment?.id ?? "exp-edit-closed"}
-        open={!!editingExperiment}
-        mode="edit"
-        experiment={editingExperiment}
-        onClose={() => setEditingExperiment(null)}
-        onSubmit={(input) => {
-          if (editingExperiment) {
-            updateExperiment(editingExperiment.id, input);
-            setEditingExperiment(null);
-          }
         }}
       />
 

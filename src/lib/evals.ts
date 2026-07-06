@@ -17,11 +17,12 @@ import { launchProviderTask } from "@/lib/tl-provider";
 import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
+import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { logServerError } from "@/lib/log";
 
-// Evals run against fine-tune jobs, which live under the fine-tune experiment —
-// these MUST be the same id (single source of truth in tl-constants).
+// Default experiment for evals — the shared fine-tune one. A specific run can
+// override it (Pattern B: the header's active experiment).
 const EVAL_EXPERIMENT = FINETUNE_EXPERIMENT;
 
 /** GitHub-hosted EleutherAI lm-eval harness trainer (mirrors its task.yaml). */
@@ -100,6 +101,8 @@ export async function fetchEvalOptions(): Promise<EvalOptions> {
 }
 
 export type SubmitEvalParams = {
+  /** TL experiment to launch into (grouping). Defaults to the fine-tune experiment. */
+  experiment?: string;
   /**
    * Either an HF model id (e.g. "HuggingFaceTB/SmolLM-135M-Instruct") for a base
    * model, OR — when `fineTuned` is true — the TRAIN job id of a fine-tune.
@@ -137,12 +140,14 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
     label = merged.label;
   }
 
+  // Create/reuse the target experiment and use TL's authoritative id back.
+  const experiment = await createTlExperiment(p.experiment?.trim() || EVAL_EXPERIMENT);
   const name = `eval-${slug(label)}-${p.benchmark}`;
   const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
   if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;
 
   return launchProviderTask({
-    experimentId: EVAL_EXPERIMENT,
+    experimentId: experiment,
     taskName: name,
     run: EVAL_RUN,
     setup: EVAL_SETUP,
@@ -169,8 +174,10 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
  * harness can evaluate it by `model_path`. Returns the merged dir's WSL path.
  */
 async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string; label: string }> {
+  // The train job may live in any experiment (Pattern B) — resolve it.
+  const experiment = await resolveJobExperiment(jobId);
   const res = await fetch(
-    `${TL_ROOT}/experiment/${EVAL_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}`,
+    `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
     { headers: inferenceHeaders() }
   );
   if (!res.ok) throw new Error(`Fine-tune job "${jobId}" not found (${res.status})`);
@@ -277,10 +284,11 @@ type LmEvalResults = { results?: Record<string, Record<string, number | string>>
  * lm-eval results JSON (not `job_data.score`), exposed via `get_eval_results`.
  * We keep the primary accuracy metrics (`acc`, `acc_norm`) and drop stderr.
  */
-async function fetchEvalScores(jobId: string): Promise<EvalScore[]> {
+async function fetchEvalScores(jobId: string, experiment: string): Promise<EvalScore[]> {
   try {
+    const exp = encodeURIComponent(experiment);
     const res = await tlFetch(
-      `/experiment/${EVAL_EXPERIMENT}/jobs/${encodeURIComponent(jobId)}/get_eval_results?experimentId=${EVAL_EXPERIMENT}&task=view`
+      `/experiment/${exp}/jobs/${encodeURIComponent(jobId)}/get_eval_results?experimentId=${exp}&task=view`
     );
     if (!res.ok) return [];
     // The endpoint returns text/csv ("No evaluation results found") when empty.
@@ -307,27 +315,39 @@ async function fetchEvalScores(jobId: string): Promise<EvalScore[]> {
  * it strips the job_data we classify on) and keep the ones that ran the harness.
  */
 export async function fetchEvalJobs(): Promise<EvalJob[]> {
-  let jobs: EvalJob[];
-  try {
-    const res = await tlFetch(`/experiment/${EVAL_EXPERIMENT}/jobs/list`);
-    const rows = unwrapList<TlEvalJob>(await res.json().catch(() => []));
-    jobs = rows.filter(isEvalJob).map(normalize).reverse();
-  } catch (err) {
-    logServerError("fetchEvalJobs", err);
-    return []; // only the list fetch failing degrades to empty
-  }
-  // Scores live in a per-job artifact, not the list payload — fetch them for
-  // finished jobs. A failed score fetch returns [] for that one job only (see
-  // fetchEvalScores' own catch); it must never blank the whole list, so this
-  // runs OUTSIDE the try above.
-  await Promise.all(
-    jobs.map(async (j) => {
-      if (j.status === "COMPLETE" && j.scores.length === 0) {
-        j.scores = await fetchEvalScores(j.id);
+  // Eval jobs are experiment-scoped and can now live in any experiment (Pattern
+  // B), so fan out over all of them and merge — tagging each with its experiment
+  // so we can read its per-job score artifact from the right place.
+  const ids = await allExperimentIds();
+  const perExperiment = await Promise.all(
+    ids.map(async (experimentId) => {
+      try {
+        const res = await tlFetch(`/experiment/${encodeURIComponent(experimentId)}/jobs/list`);
+        const rows = unwrapList<TlEvalJob>(await res.json().catch(() => []));
+        return rows.filter(isEvalJob).map((j) => ({ job: normalize(j), experimentId }));
+      } catch {
+        return [];
       }
     })
   );
-  return jobs;
+  const tagged = perExperiment
+    .flat()
+    .sort((a, b) =>
+      (b.job.finishedAt || b.job.startedAt || "9999").localeCompare(
+        a.job.finishedAt || a.job.startedAt || "9999"
+      )
+    );
+  // Scores live in a per-job artifact, not the list payload — fetch them for
+  // finished jobs (from the job's own experiment). A failed score fetch returns
+  // [] for that one job only, never blanking the whole list.
+  await Promise.all(
+    tagged.map(async ({ job, experimentId }) => {
+      if (job.status === "COMPLETE" && job.scores.length === 0) {
+        job.scores = await fetchEvalScores(job.id, experimentId);
+      }
+    })
+  );
+  return tagged.map((t) => t.job);
 }
 
 function slug(s: string): string {

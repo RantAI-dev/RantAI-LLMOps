@@ -21,6 +21,7 @@ export function seedTasks(): Task[] {
 type TasksResponse = {
   jobs?: Array<{
     id: string;
+    experimentId: string;
     type: string;
     status: string;
     progress: number;

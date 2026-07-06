@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  Archive,
-  Copy,
-  Cpu,
-  Database,
-  MoreHorizontal,
-  Pencil,
-  Trash2,
-  User,
-} from "lucide-react";
+import { Cpu, Database, MoreHorizontal, Trash2, User } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -35,21 +26,10 @@ type ExperimentCardProps = {
   experiment: Experiment;
   tasks: AITask[];
   onView: () => void;
-  onEdit: () => void;
-  onClone: () => void;
-  onArchive: () => void;
   onDelete: () => void;
 };
 
-export function ExperimentCard({
-  experiment,
-  tasks,
-  onView,
-  onEdit,
-  onClone,
-  onArchive,
-  onDelete,
-}: ExperimentCardProps) {
+export function ExperimentCard({ experiment, tasks, onView, onDelete }: ExperimentCardProps) {
   const stats = getExperimentTaskStats(tasks, experiment.id);
   const effectiveStatus = deriveExperimentStatus(experiment, tasks);
   const visibleTags = experiment.tags.slice(0, 3);
@@ -92,17 +72,8 @@ export function ExperimentCard({
                 }
               />
               <DropdownMenuContent align="end" className="min-w-[148px]">
-                <DropdownMenuItem onClick={onEdit}>
-                  <Pencil className="size-3.5" /> Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onClone}>
-                  <Copy className="size-3.5" /> Clone
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={onArchive}>
-                  <Archive className="size-3.5" /> Archive
-                </DropdownMenuItem>
                 <DropdownMenuItem className="text-destructive" onClick={onDelete}>
-                  <Trash2 className="size-3.5" /> Delete
+                  <Trash2 className="size-3.5" /> Hapus
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

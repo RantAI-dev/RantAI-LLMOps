@@ -4,14 +4,6 @@ import { latestRun, taskProgress, taskStatus } from "@/modules/tasks/lib/utils";
 
 import type { Experiment, ExperimentStatus, ExperimentTaskStats } from "../types";
 
-export function generateExperimentId(): string {
-  return `exp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-export function generateActivityId(): string {
-  return `act-${Date.now().toString(36)}`;
-}
-
 export function formatDateTime(iso: string | undefined): string {
   const d = parseTlDate(iso);
   if (!d) return "—";
@@ -89,8 +81,11 @@ export function deriveExperimentStatus(
   if (statuses.some((s) => s === "Running" || s === "Retrying")) {
     return "Running";
   }
-  if (statuses.some((s) => s === "Failed")) return "Failed";
   if (statuses.every((s) => s === "Completed")) return "Completed";
+  // "Failed" only when EVERY run ended in failure/cancellation — nothing
+  // succeeded and nothing is still pending. A mix of done + failed (or a failed
+  // run alongside a queued one) is a working experiment, not a failure.
+  if (statuses.every((s) => s === "Failed" || s === "Cancelled")) return "Failed";
   return experiment.status === "Draft" ? "Draft" : "Active";
 }
 

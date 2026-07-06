@@ -1,5 +1,3 @@
-import { apiFetch } from "@/lib/api/client";
-import { USE_REAL_API } from "@/lib/api/config";
 import { initialExperiments } from "@/modules/experiments/data/initial-experiments";
 import type { Experiment } from "@/modules/experiments/types";
 
@@ -35,27 +33,9 @@ export async function fetchExperiments(): Promise<Experiment[]> {
   }
 }
 
-/**
- * Notes are a per-experiment markdown notebook (TL stores it as
- * `notes/readme.md` inside the experiment dir). In mock mode the content lives
- * on the in-memory `Experiment.notes` field, so these only do work when the
- * real API is on.
- */
-
-/** Read notes markdown — real `GET /experiment/{id}/notes` returns a raw string. */
-export async function fetchExperimentNotes(id: string): Promise<string> {
-  if (!USE_REAL_API) return "";
-  return apiFetch<string>(`/experiment/${id}/notes`);
-}
-
-/** Save notes markdown — real `POST /experiment/{id}/notes` (body = the string). */
-export async function saveExperimentNotes(id: string, content: string): Promise<void> {
-  if (!USE_REAL_API) return;
-  await apiFetch(`/experiment/${id}/notes`, {
-    method: "POST",
-    body: JSON.stringify(content),
-  });
-}
+// Notes are a per-experiment markdown notebook (TL stores it as `notes/readme.md`
+// inside the experiment dir). The notes editor reads/writes them directly against
+// the BFF (`/api/experiments/{id}/notes`), so no service helper is needed here.
 
 // --- Real-API mapping (TODO: confirm exact fields against backend/) -----------
 

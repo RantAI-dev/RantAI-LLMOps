@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { EvalJob, EvalOptions } from "@/lib/evals";
+import { useActiveExperiment } from "@/modules/experiments/context/active-experiment";
 
 const EMPTY: EvalOptions = { models: [], benchmarks: [] };
 const ACTIVE = new Set(["QUEUED", "RUNNING", "STARTED", "NOT_STARTED"]);
@@ -23,6 +24,7 @@ export function useEvals() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { activeExperiment } = useActiveExperiment();
 
   // Stops the compare poll loop from running / setState-ing after unmount.
   // Reset on mount too — under StrictMode the mount→cleanup→mount cycle would
@@ -96,7 +98,7 @@ export function useEvals() {
         const res = await fetch("/api/evals/submit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, experiment: activeExperiment }),
         });
         const data = (await res.json()) as { jobId?: string; error?: string };
         if (!res.ok || !data.jobId) throw new Error(data.error || "Failed to start eval");
@@ -109,7 +111,7 @@ export function useEvals() {
         setSubmitting(false);
       }
     },
-    [loadJobs]
+    [loadJobs, activeExperiment]
   );
 
   // --- Compare: run the SAME benchmark on several models, side by side. ---
@@ -161,6 +163,7 @@ export function useEvals() {
               benchmark,
               limit,
               fineTuned: models[i].fineTuned,
+              experiment: activeExperiment,
             }),
           });
           const data = (await res.json()) as { jobId?: string; error?: string };
@@ -179,7 +182,7 @@ export function useEvals() {
         setCompareProgress(null);
       }
     },
-    [loadJobs, pollUntilDone]
+    [loadJobs, pollUntilDone, activeExperiment]
   );
 
   return {
