@@ -27,6 +27,8 @@ export type HubModel = {
   task: string | null;
   updatedAt: string | null;
   gated: boolean;
+  /** Total parameter count from HF safetensors metadata (null if unpublished). */
+  params?: number | null;
 };
 
 export type HubSearch = {
@@ -77,6 +79,11 @@ export async function searchHfTrainableModels(opts: HubSearch): Promise<HubModel
   if (opts.search) params.set("search", opts.search);
   params.set("sort", SORT_FIELD[opts.sort ?? "downloads"] ?? "downloads");
   params.set("limit", String(Math.min(Math.max(opts.limit ?? 20, 1), 40)));
+  // `expand[]` returns ONLY the expanded fields, so we must list every one we
+  // read here — including `safetensors` for the parameter count (→ model size).
+  for (const f of ["safetensors", "downloads", "likes", "pipeline_tag", "lastModified", "gated"]) {
+    params.append("expand[]", f);
+  }
 
   const res = await fetch(`${HF_API}/models?${params.toString()}`, {
     headers: hfHeaders(),
@@ -92,6 +99,7 @@ export async function searchHfTrainableModels(opts: HubSearch): Promise<HubModel
       task: (m.pipeline_tag as string | undefined) ?? null,
       updatedAt: (m.lastModified as string | undefined) ?? null,
       gated: Boolean(m.gated),
+      params: Number((m.safetensors as { total?: number } | undefined)?.total) || null,
     }))
     .filter((m) => m.id && !/gguf|awq|gptq/i.test(m.id));
 }

@@ -1,11 +1,12 @@
 "use client";
 
-import { Loader2, Search, Sparkles, Trash2 } from "lucide-react";
+import { Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { FinetuneOptions } from "@/lib/finetune";
+import { HfSearch } from "@/modules/hub/components/hf-search";
 import { cn } from "@/lib/utils";
 
 type Method = "sft" | "grpo" | "tts";
@@ -15,9 +16,6 @@ type Method = "sft" | "grpo" | "tts";
 // applies these same defaults regardless.
 const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
 const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
-
-const selectClass =
-  "h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 function slug(s: string): string {
   return (s.split("/").pop() ?? s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -40,8 +38,6 @@ export function FinetuneForm({
 }) {
   const [method, setMethod] = useState<Method>("sft");
   const [baseModel, setBaseModel] = useState("");
-  // When true, the user types an arbitrary HF base id instead of picking a preset.
-  const [customBase, setCustomBase] = useState(false);
   // Prefilled HF search query when arriving from Model Registry's "Fine-tune".
   const [baseQuery, setBaseQuery] = useState("");
   const [dataset, setDataset] = useState("");
@@ -67,17 +63,12 @@ export function FinetuneForm({
   }, []);
 
   // Prefill the HF base search from `?base=` (Model Registry → "Fine-tune"). The
-  // registry model is a GGUF (not a valid training base), so we open the search
-  // seeded with its name instead of fake-selecting it. Deferred to dodge the
-  // cascading-render lint.
+  // registry model is a GGUF (not a valid training base), so we seed the combobox
+  // query with its name instead of fake-selecting it.
   useEffect(() => {
     const b = new URLSearchParams(window.location.search).get("base");
-    if (!b) return;
-    const t = setTimeout(() => {
-      setCustomBase(true);
-      setBaseQuery(b);
-    }, 0);
-    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync from the URL on mount
+    if (b) setBaseQuery(b);
   }, []);
 
   // Show the chosen dataset in the select even if it's a HF id not in the local
@@ -113,7 +104,6 @@ export function FinetuneForm({
   function chooseMethod(next: Method) {
     setMethod(next);
     if (next === "tts") {
-      setCustomBase(false);
       setBaseModel(TTS_DEFAULT_MODEL);
     } else if (baseModel === TTS_DEFAULT_MODEL) {
       setBaseModel("");
@@ -234,51 +224,27 @@ export function FinetuneForm({
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-[13px] font-medium text-ink">Base model</span>
-          <select
-            className={selectClass}
-            value={customBase ? "__custom__" : baseModel}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "__custom__") {
-                setCustomBase(true);
-                setBaseModel("");
-                // Manual open = a fresh search; don't re-seed a stale ?base= query.
-                setBaseQuery("");
-              } else {
-                setCustomBase(false);
-                setBaseModel(v);
-              }
-            }}
-          >
-            <option value="">Select a model…</option>
-            {modelOptions.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name} ({m.architecture})
-              </option>
-            ))}
-            <option value="__custom__">🔍 Cari model lain di Hugging Face…</option>
-          </select>
-          {customBase ? (
-            <HfBaseSearch selected={baseModel} onPick={setBaseModel} initialQuery={baseQuery} />
-          ) : null}
+          <HfSearch
+            key={baseQuery || "model"}
+            kind="model"
+            selected={baseModel}
+            onPick={setBaseModel}
+            initialQuery={baseQuery}
+            presets={modelOptions.map((m) => ({ id: m.id, label: `${m.name} (${m.architecture})` }))}
+          />
         </label>
 
         <label className="block">
           <span className="mb-1 block text-[13px] font-medium text-ink">Dataset</span>
-          <div className="flex items-center gap-1.5">
-            <select
-              className={selectClass}
-              value={dataset}
-              onChange={(e) => setDataset(e.target.value)}
-            >
-              <option value="">Select a dataset…</option>
-              {datasetOptions.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                  {d.downloaded ? "" : " — will download"}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-start gap-1.5">
+            <div className="min-w-0 flex-1">
+              <HfSearch
+                kind="dataset"
+                selected={dataset}
+                onPick={setDataset}
+                presets={datasetOptions.map((d) => ({ id: d.id, label: d.name, local: d.downloaded }))}
+              />
+            </div>
             {selectedDataset?.downloaded ? (
               <button
                 type="button"
@@ -293,7 +259,7 @@ export function FinetuneForm({
                   }
                 }}
                 aria-label="Delete dataset"
-                title="Delete this dataset"
+                title="Hapus dataset lokal ini"
                 className="grid size-9 shrink-0 place-items-center rounded-md border border-input text-ink-soft hover:text-danger disabled:opacity-60"
               >
                 {deletingDataset ? (
@@ -408,110 +374,3 @@ function MethodButton({
   );
 }
 
-type HfHit = { id: string; downloads: number };
-
-/** Live Hugging Face search for a trainable base model (debounced). */
-function HfBaseSearch({
-  selected,
-  onPick,
-  initialQuery = "",
-}: {
-  selected: string;
-  onPick: (id: string) => void;
-  initialQuery?: string;
-}) {
-  const [q, setQ] = useState(initialQuery);
-  const [results, setResults] = useState<HfHit[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  // Debounced search. All state updates happen inside the timeout callback (never
-  // synchronously in the effect body) so React doesn't flag cascading renders.
-  useEffect(() => {
-    const query = q.trim();
-    const t = setTimeout(() => {
-      if (query.length < 2) {
-        setResults([]);
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      fetch(`/api/hub/base-models?q=${encodeURIComponent(query)}`, { cache: "no-store" })
-        .then((r) => r.json() as Promise<{ models?: HfHit[] }>)
-        .then((d) => setResults(Array.isArray(d.models) ? d.models : []))
-        .catch(() => setResults([]))
-        .finally(() => setLoading(false));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [q]);
-
-  // Let the user use an exact "owner/name" they typed even if search didn't surface it.
-  const typed = q.trim();
-  const exact = typed.includes("/") && !results.some((m) => m.id === typed) ? typed : null;
-  const open = typed.length >= 2 && (loading || results.length > 0 || !!exact);
-  const pick = (id: string) => {
-    onPick(id);
-    setQ("");
-  };
-
-  return (
-    <div className="relative mt-1.5">
-      <div className="relative">
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-ink-soft" aria-hidden />
-        <Input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Cari di Hugging Face… (mis. qwen, llama, mistral)"
-          className="pl-8"
-          autoFocus
-        />
-      </div>
-      {selected ? (
-        <span className="mt-1 block truncate text-[11px] font-medium text-primary">✓ {selected}</span>
-      ) : (
-        <span className="mt-1 block text-[11px] text-ink-soft">
-          Model <strong>trainable</strong> (non-GGUF), ditarik otomatis saat training.
-        </span>
-      )}
-      {open ? (
-        <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-input bg-background shadow-lg">
-          {loading ? (
-            <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-soft">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden /> Mencari…
-            </div>
-          ) : results.length === 0 && !exact ? (
-            <div className="px-3 py-2 text-[12px] text-ink-soft">Ngga ada hasil.</div>
-          ) : (
-            <>
-              {exact ? (
-                <button
-                  type="button"
-                  onClick={() => pick(exact)}
-                  className="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-[13px] text-primary hover:bg-surface-2"
-                >
-                  <span className="truncate">Pakai persis: {exact}</span>
-                </button>
-              ) : null}
-              {results.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => pick(m.id)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[13px] hover:bg-surface-2"
-                >
-                  <span className="truncate text-ink">{m.id}</span>
-                  <span className="shrink-0 text-[11px] tabular-nums text-ink-soft">{fmtDownloads(m.downloads)}</span>
-                </button>
-              ))}
-            </>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function fmtDownloads(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M ↓`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k ↓`;
-  return `${n} ↓`;
-}

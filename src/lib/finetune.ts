@@ -493,7 +493,14 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   const experiment = await createTlExperiment(FINETUNE_EXPERIMENT);
   const adaptorName = p.adaptorName.replace(/[^a-zA-Z0-9._-]/g, "-") || "adaptor";
 
-  const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
+  const env_vars: Record<string, string> = {
+    PYTHONUNBUFFERED: "1",
+    // Unsloth's telemetry "is HF up?" probe downloads a README and hard-fails the
+    // whole run with a 120s TimeoutError when that one call is slow — even though
+    // the model is cached and HF is otherwise reachable. It's non-essential; skip
+    // it so a flaky probe can't kill training. (Unsloth honours this env var.)
+    UNSLOTH_DISABLE_STATISTICS: "1",
+  };
   if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;
 
   if (p.method === "grpo") {

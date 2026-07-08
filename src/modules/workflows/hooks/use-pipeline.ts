@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { addRun, clearRuns as clearRunsStore, loadRuns, type WorkflowRun } from "@/modules/workflows/lib/history";
+
 /**
  * One-click LLMOps pipeline: fine-tune → eval → export GGUF, run automatically
  * in sequence. App-orchestrated over the proven BFF routes (not TL's native
@@ -50,8 +52,11 @@ export function usePipeline() {
   const [stages, setStages] = useState<Stage[]>([]);
   const [result, setResult] = useState<PipelineResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
 
   const cancelledRef = useRef(false);
+  // Mirror of `stages` readable inside the async run() to record the final outcome.
+  const stagesRef = useRef<Stage[]>([]);
   useEffect(() => {
     cancelledRef.current = false;
     return () => {
@@ -59,15 +64,33 @@ export function usePipeline() {
     };
   }, []);
 
+  // Load local history once after mount (avoids SSR/hydration mismatch).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot load from localStorage
+    setRuns(loadRuns());
+  }, []);
+
   const setStage = useCallback((key: StageKey, patch: Partial<Stage>) => {
-    setStages((prev) => prev.map((s) => (s.key === key ? { ...s, ...patch } : s)));
+    // Update the ref SYNCHRONOUSLY (not inside the async state updater) so the
+    // history record built in run()'s `finally` sees the final "failed"/"done"
+    // status — a React state updater would still be pending at that point.
+    stagesRef.current = stagesRef.current.map((s) => (s.key === key ? { ...s, ...patch } : s));
+    setStages(stagesRef.current);
+  }, []);
+
+  const clearRuns = useCallback(() => {
+    clearRunsStore();
+    setRuns([]);
   }, []);
 
   const run = useCallback(
     async (cfg: PipelineConfig) => {
+      const startedAt = new Date().toISOString();
       setError(null);
       setResult(null);
-      setStages(initialStages(cfg.doEval, cfg.doExport));
+      const init = initialStages(cfg.doEval, cfg.doExport);
+      stagesRef.current = init;
+      setStages(init);
       setRunning(true);
       const out: PipelineResult = {
         adaptorName: cfg.adaptorName,
@@ -115,10 +138,27 @@ export function usePipeline() {
           throw new Error("Training gagal — pipeline dihentikan.");
         }
 
+        const jobId = trainData.jobId;
+
+        // A job can "complete" (its process exits cleanly) while the trainer
+        // errored INTERNALLY — e.g. the base-model download from HF timed out, so
+        // no adapter was ever saved. The trainer prints a structured result line;
+        // check it so we don't march on to eval/export with a phantom adapter.
+        let trainLog = "";
+        try {
+          const logRes = await fetch(`/api/tasks/${encodeURIComponent(jobId)}/output`);
+          trainLog = String(((await logRes.json()) as { output?: string })?.output ?? "");
+        } catch {
+          /* best-effort — if we can't read the log, trust the COMPLETE status */
+        }
+        if (/Training result:\s*\{'status':\s*'error'/.test(trainLog) || /Error loading model/.test(trainLog)) {
+          setStage("train", { status: "failed", detail: "training error — cek log job" });
+          throw new Error("Training error: model tidak terbentuk (lihat log). Pipeline dihentikan.");
+        }
+
         // v0.40.0: the training output IS the job (its adapter lives under the
         // job dir). The job id is the handle for export — no separate "fused"
         // model in a registry like v0.30.3 had.
-        const jobId = trainData.jobId;
         out.fusedModelId = jobId;
         setStage("train", { status: "done", detail: "selesai" });
 
@@ -160,11 +200,25 @@ export function usePipeline() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fusedModelId: jobId }),
           });
-          const expData = (await expRes.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-          if (!expRes.ok || !expData.ok) {
-            setStage("export", { status: "failed", detail: expData.error || "gagal" });
+          // The export endpoint STREAMS SSE (`data: {stage,percent}` … then
+          // `{done,tag}` or `{error}`) — reading it as JSON always failed and
+          // mislabelled successful exports as "gagal". Consume the stream and
+          // decide from its final event.
+          const exp = await consumeExportStream(expRes, cancelledRef, (stage, percent) =>
+            setStage("export", {
+              status: "running",
+              detail: percent != null ? `${stage} ${percent}%` : stage,
+            })
+          );
+          if (cancelledRef.current) return false;
+          if (exp.done && exp.tag) {
+            out.ggufReady = true;
+            out.loadModelId = exp.tag;
+            setStage("export", { status: "done", detail: "siap di-chat" });
+          } else if (exp.error) {
+            setStage("export", { status: "failed", detail: exp.error });
           } else {
-            // Confirm the model landed in Ollama (the catalog flips `ready` true).
+            // Stream cut off with no clear verdict — fall back to a catalog check.
             const ft = await waitGgufReady(jobId, cancelledRef);
             if (cancelledRef.current) return false;
             out.ggufReady = Boolean(ft?.ready);
@@ -185,13 +239,91 @@ export function usePipeline() {
         }
         return false;
       } finally {
-        if (!cancelledRef.current) setRunning(false);
+        // Record the run (success OR failure) to local history — but not on cancel.
+        if (!cancelledRef.current) {
+          setRuns(addRun(buildRun(cfg, out, stagesRef.current, startedAt)));
+          setRunning(false);
+        }
       }
     },
     [setStage]
   );
 
-  return { running, stages, result, error, run };
+  return { running, stages, result, error, run, runs, clearRuns };
+}
+
+/** Freeze the finished pipeline into a history record. */
+function buildRun(
+  cfg: PipelineConfig,
+  out: PipelineResult,
+  stages: Stage[],
+  startedAt: string
+): WorkflowRun {
+  const failed = stages.some((s) => s.status === "failed");
+  const anyDone = stages.some((s) => s.status === "done");
+  return {
+    id: startedAt,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    baseModel: cfg.baseModel,
+    dataset: cfg.dataset,
+    adaptorName: out.adaptorName,
+    epochs: cfg.epochs,
+    benchmark: cfg.benchmark,
+    coverage: cfg.coverage,
+    stages: stages.map((s) => ({ key: s.key, label: s.label, status: s.status })),
+    score: out.score,
+    ggufReady: out.ggufReady,
+    loadModelId: out.loadModelId,
+    trainJobId: out.fusedModelId,
+    overall: failed ? (anyDone ? "partial" : "failed") : "success",
+  };
+}
+
+/**
+ * Read the export endpoint's SSE stream to its verdict. Emits progress via
+ * `onProgress` and returns `{done+tag}` on success or `{error}` on failure.
+ */
+async function consumeExportStream(
+  res: Response,
+  cancelledRef: { current: boolean },
+  onProgress: (stage: string, percent?: number) => void
+): Promise<{ done: boolean; tag: string | null; error: string | null }> {
+  if (!res.ok || !res.body) return { done: false, tag: null, error: `HTTP ${res.status}` };
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let done = false;
+  let tag: string | null = null;
+  let error: string | null = null;
+  while (!cancelledRef.current) {
+    const { value, done: streamDone } = await reader.read();
+    if (streamDone) break;
+    buf += decoder.decode(value, { stream: true });
+    const parts = buf.split("\n\n");
+    buf = parts.pop() ?? "";
+    for (const part of parts) {
+      const line = part.trim();
+      if (!line.startsWith("data:")) continue;
+      try {
+        const ev = JSON.parse(line.slice(5).trim()) as {
+          stage?: string;
+          percent?: number;
+          done?: boolean;
+          tag?: string;
+          error?: string;
+        };
+        if (ev.error) error = ev.error;
+        else if (ev.done) {
+          done = true;
+          tag = ev.tag ?? null;
+        } else if (ev.stage) onProgress(ev.stage, ev.percent);
+      } catch {
+        /* ignore a malformed SSE line */
+      }
+    }
+  }
+  return { done, tag, error };
 }
 
 type FineTuned = { name: string; fusedModelId: string; ready: boolean; loadModelId: string | null };

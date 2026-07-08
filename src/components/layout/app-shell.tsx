@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
   Bell,
-  BookTemplate,
   Boxes,
   BrainCog,
   Columns2,
@@ -61,7 +60,6 @@ const mainNav: NavItem[] = [
 
 const workspaceNav: NavItem[] = [
   { label: "Hub", href: "/hub", icon: Compass },
-  { label: "Recipes", href: "/recipes", icon: BookTemplate },
   { label: "Model Registry", href: "/models", icon: Boxes },
   { label: "Dataset", href: "/datasets", icon: Database },
   { label: "Compute", href: "/compute", icon: BrainCog },

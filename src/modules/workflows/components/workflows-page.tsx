@@ -5,6 +5,8 @@ import { CheckCircle2, CircleAlert, Loader2, Play, Workflow } from "lucide-react
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { HfSearch } from "@/modules/hub/components/hf-search";
+import { WorkflowHistory } from "@/modules/workflows/components/workflow-history";
 import { usePipeline, type Stage, type StageStatus } from "@/modules/workflows/hooks/use-pipeline";
 
 const selectClass =
@@ -13,7 +15,7 @@ const inputClass =
   "h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 type CatalogModel = { id: string; name: string; architecture: string };
-type Dataset = { id: string; name: string };
+type Dataset = { id: string; name: string; downloaded: boolean };
 type FinetuneOptions = { models?: CatalogModel[]; datasets?: Dataset[] };
 type Benchmark = { id: string; name: string };
 
@@ -44,7 +46,7 @@ function StageRow({ stage, last }: { stage: Stage; last: boolean }) {
 
 /** Workflows: one-click fine-tune → eval → export GGUF pipeline. */
 export function WorkflowsPage() {
-  const { running, stages, result, error, run } = usePipeline();
+  const { running, stages, result, error, run, runs, clearRuns } = usePipeline();
   const [opts, setOpts] = useState<FinetuneOptions | null>(null);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
   const [model, setModel] = useState("");
@@ -79,6 +81,10 @@ export function WorkflowsPage() {
   const datasets = opts?.datasets ?? [];
   const selectedModel = useMemo(() => models.find((m) => m.id === model), [models, model]);
   const canRun = model && dataset && adaptorName.trim() && !running;
+
+  // Honest end-of-run summary: green only when nothing failed.
+  const failedStages = stages.filter((s) => s.status === "failed");
+  const doneStages = stages.filter((s) => s.status === "done");
 
   const handleRun = () => {
     run({
@@ -116,25 +122,21 @@ export function WorkflowsPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Base model</span>
-                <select className={selectClass} value={model} onChange={(e) => setModel(e.target.value)}>
-                  <option value="">Pilih model…</option>
-                  {models.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
+                <HfSearch
+                  kind="model"
+                  selected={model}
+                  onPick={setModel}
+                  presets={models.map((m) => ({ id: m.id, label: m.name }))}
+                />
               </label>
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Dataset</span>
-                <select className={selectClass} value={dataset} onChange={(e) => setDataset(e.target.value)}>
-                  <option value="">Pilih dataset…</option>
-                  {datasets.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
+                <HfSearch
+                  kind="dataset"
+                  selected={dataset}
+                  onPick={setDataset}
+                  presets={datasets.map((d) => ({ id: d.id, label: d.name, local: d.downloaded }))}
+                />
               </label>
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Nama adaptor</span>
@@ -227,21 +229,30 @@ export function WorkflowsPage() {
             <StageRow key={s.key} stage={s} last={i === stages.length - 1} />
           ))}
           {result && !running ? (
-            <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">
-              {result.fusedModelId ? (
-                <>
-                  ✅ Pipeline selesai. Model <span className="font-mono">{result.adaptorName}</span>
-                  {result.score != null ? ` · skor ${(result.score * 100).toFixed(1)}%` : ""}
-                  {result.ggufReady ? " · GGUF siap → bisa di-chat di Interact (tab Fine-tuned)" : ""}
-                  .
-                </>
-              ) : (
-                "Pipeline berhenti sebelum selesai — lihat detail tiap tahap di atas."
-              )}
-            </div>
+            failedStages.length === 0 && result.fusedModelId ? (
+              <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">
+                ✅ Pipeline selesai. Model <span className="font-mono">{result.adaptorName}</span>
+                {result.score != null ? ` · skor ${(result.score * 100).toFixed(1)}%` : ""}
+                {result.ggufReady ? " · GGUF siap → bisa di-chat di Interact (tab Fine-tuned)" : ""}.
+              </div>
+            ) : (
+              <div className="mt-1 rounded-lg border border-warning-border bg-warning-soft px-3 py-2 text-[13px] text-warning-strong">
+                {doneStages.length === 0 ? (
+                  <>⚠️ Pipeline gagal — {failedStages.map((s) => s.label).join(", ") || "training"} tidak berhasil.</>
+                ) : (
+                  <>
+                    ⚠️ Selesai sebagian: <strong>{doneStages.map((s) => s.label).join(", ")}</strong> berhasil,{" "}
+                    <strong>{failedStages.map((s) => s.label).join(", ")}</strong> gagal.
+                  </>
+                )}{" "}
+                Lihat detail tiap tahap di atas.
+              </div>
+            )
           ) : null}
         </div>
       ) : null}
+
+      <WorkflowHistory runs={runs} onClear={clearRuns} />
     </div>
   );
 }
