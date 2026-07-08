@@ -56,10 +56,6 @@ export function ComputePage() {
     return { localGpus, activeClusters, defaultProvider };
   }, [providers]);
 
-  // is_default is a TL PATCH we don't expose yet; keep it local-only (visual).
-  const setDefault = (id: string) =>
-    setProviders((prev) => prev.map((p) => ({ ...p, isDefault: p.id === id })));
-
   const removeProvider = (id: string) => {
     setProviders((prev) => prev.filter((p) => p.id !== id)); // optimistic
     void removeComputeProvider(id).then(() => providersFetch.reload());
@@ -118,7 +114,6 @@ export function ComputePage() {
             <ProviderCard
               key={provider.id}
               provider={provider}
-              onSetDefault={() => setDefault(provider.id)}
               onRemove={() => removeProvider(provider.id)}
             />
           ))}
@@ -130,11 +125,9 @@ export function ComputePage() {
 
 function ProviderCard({
   provider,
-  onSetDefault,
   onRemove,
 }: {
   provider: ComputeProvider;
-  onSetDefault: () => void;
   onRemove: () => void;
 }) {
   return (
@@ -158,11 +151,6 @@ function ProviderCard({
           <p className="mt-1 text-[13px] text-ink-soft">{provider.detail}</p>
         </div>
         <div className="flex items-center gap-1">
-          {!provider.isDefault ? (
-            <Button type="button" variant="outline" size="sm" className="h-8" onClick={onSetDefault}>
-              Set default
-            </Button>
-          ) : null}
           {provider.type !== "Local" ? (
             <Button type="button" variant="ghost" size="icon-xs" onClick={onRemove} title="Remove provider">
               <Trash2 className="size-3.5" />

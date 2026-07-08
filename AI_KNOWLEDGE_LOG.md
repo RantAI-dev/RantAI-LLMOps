@@ -1635,3 +1635,20 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Action:** Akar SEBENARNYA (bukan Ollama ngadat): endpoint /api/finetune/export balikin SSE stream (text/event-stream: data:{stage,percent}... lalu {done,tag}/{error}), TAPI use-pipeline manggil expRes.json() -> selalu gagal parse -> expData.ok undefined -> if(!expData.ok) SELALU tandai export "gagal" + waitGgufReady tak pernah jalan. Padahal server menyelesaikan export (model ready=True di catalog, terverifikasi chat OK). FIX: helper consumeExportStream(res, cancelledRef, onProgress) baca body.getReader() + parse event data: per \n\n; on {stage,percent} -> update progres live; on {done,tag} -> sukses (out.ggufReady=true, loadModelId=tag); on {error} -> gagal; fallback ke waitGgufReady kalau stream keputus tanpa verdict. Ganti blok export di run().
 **Files:** src/modules/workflows/hooks/use-pipeline.ts.
 **Result:** tsc 0, eslint 0, vitest 95/95. Export sekarang: baca SSE benar -> tampil progres GGUF live + status akurat (sukses/gagal). Terbukti sebelumnya: SmolLM2-135M-Instruct + finance-alpaca tembus penuh (train->eval 50.8%->export nqr-wdadwadsada-f8075e5e di Ollama->chat OK). CATATAN: dataset dolly-15k bikin trainer crash (index 0 size 0); pakai finance-alpaca/alpaca. Belum commit (manual user).
+
+## 2026-07-08 13:07 WIB
+**Task:** Compute page — user tanya real/mock + tombol berfungsi. Buang tombol "Set default" yg menyesatkan.
+**Action:** Audit: data REAL (fetchComputeProviders -> /api/compute/providers -> TL /compute_provider/providers/; GPU via nvidia-smi; isDefault dari TL is_default; 0 clusters jujur). Tombol "Set default" = VISUAL-ONLY (setProviders lokal, tak persist ke TL — komentar akui "TL PATCH we don't expose yet"), lagipula pointless dgn 1 provider. "Remove" real tapi cuma tampil utk provider non-Local (Local bawaan tak bisa dihapus, aman). User pilih: buang tombol Set default. Hapus: handler setDefault+komentar, prop onSetDefault (call site + signature + type), tombol di ProviderCard. Kartu summary "Default" DIBIARKAN (isDefault dari TL, valid).
+**Files:** src/modules/compute/components/compute-page.tsx.
+**Result:** tsc 0, eslint 0, /compute 200. Compute kini jujur = halaman info (provider Local + GPU real), tanpa tombol setengah-jadi. Belum commit (manual user). Sisa menu belum dites: Hub.
+
+## 2026-07-08 13:31 WIB
+**Task:** Tes menu Hub (menu terakhir yang belum dites).
+**Action:** User search "qwen2.5 0.5b" -> Qwen/Qwen2.5-0.5B-Instruct-GGUF -> Download -> picker quant Q4_K_M -> pull ke Ollama (progress) -> toast "Downloaded". Verifikasi: qwen2.5:0.5b ada di Ollama (379MB) + chat OK ("Hello! How can I help you today?"). Alur Hub REAL: searchHfModels (GGUF) -> /api/hub/model (quants) -> pullModelWithProgress -> /api/models/download (Ollama pull SSE). Tab Downloaded (hub-downloaded) list model Ollama + tombol hapus real.
+**Files:** none (tes UI).
+**Result:** Hub LOLOS. SEMUA MENU sudah dites. Downloaded tab: 14 model 9.8GB (banyak artefak test nqr-* -> bisa dibersihin, disk ketat ~20GB).
+
+## 2026-07-08 13:34 WIB
+**Task:** Bersihkan artefak test Ollama (disk ketat).
+**Action:** DELETE via Ollama /api/delete: 9 model test nqr-* (qwen3-1-7b, qwen2.5-1.5b, grpo-reasoning, docker-smoke, wf-test, real-adaptor, grpo-verify, wdadwadsada, smollm135-alpaca) -> semua 200. Simpan: nqr-alpaca-cleaned (demo), qwen2.5:0.5b, + 4 base hf.co/* (usable).
+**Result:** Ollama 15 model/10.97GB -> 6 model/4.93GB (freed ~6GB DI DALAM WSL vhdx ~/.ollama). Catatan: space balik ke vhdx internal (tak auto ke C: tanpa compact); tapi vhdx punya banyak ruang kosong internal (venv+ollama) jadi tak membengkak.
