@@ -450,8 +450,6 @@ export function buildFormattingTemplate(columns: string[]): string {
 }
 
 export type SubmitFinetuneParams = {
-  /** TL experiment to launch into (grouping). Defaults to the fine-tune experiment. */
-  experiment?: string;
   /** HF-resolvable base model id (e.g. "unsloth/Qwen2.5-0.5B-Instruct"). */
   baseModel: string;
   baseModelArchitecture?: string;
@@ -490,8 +488,9 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   // Validate at the edge: HF-resolvable ids, surfaced as a clear early error.
   assertModelId(p.baseModel);
   assertModelId(p.dataset);
-  // Create/reuse the target experiment and use TL's authoritative id back.
-  const experiment = await createTlExperiment(p.experiment?.trim() || FINETUNE_EXPERIMENT);
+  // All jobs run under one fixed experiment (TL requires an experiment context);
+  // the concept is hidden from the UI. Create/reuse it and use TL's id back.
+  const experiment = await createTlExperiment(FINETUNE_EXPERIMENT);
   const adaptorName = p.adaptorName.replace(/[^a-zA-Z0-9._-]/g, "-") || "adaptor";
 
   const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };

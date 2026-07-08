@@ -31,14 +31,12 @@ type DatasetDetailViewProps = {
   dataset: Dataset;
   onBack: () => void;
   onArchive: () => void;
-  onUseInExperiment: () => void;
 };
 
 export function DatasetDetailView({
   dataset,
   onBack,
   onArchive,
-  onUseInExperiment,
 }: DatasetDetailViewProps) {
   const [activeTab, setActiveTab] = useState("overview");
   const [previewSearch, setPreviewSearch] = useState("");
@@ -73,7 +71,6 @@ export function DatasetDetailView({
           <DatasetDetailToolbar
             datasetId={dataset.id}
             datasetName={dataset.name}
-            onUseInExperiment={onUseInExperiment}
             onArchive={onArchive}
           />
         </div>

@@ -57,7 +57,7 @@ export function TaskDetailDrawer({
             </span>
           </div>
           <SheetTitle className="truncate text-xl text-primary">{task.name}</SheetTitle>
-          <SheetDescription>{task.experimentName}</SheetDescription>
+          <SheetDescription>{task.id}</SheetDescription>
         </SheetHeader>
 
         {/* v0.40.0: jobs run via the compute provider — Stop (cancel) and Delete
@@ -82,7 +82,6 @@ export function TaskDetailDrawer({
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
           <Section title="Task Overview">
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
-              <Meta label="Experiment" value={task.experimentName} full />
               <Meta label="Owner" value={task.owner} />
               <Meta label="Created" value={formatDateTime(task.createdAt)} />
               <Meta label="Started" value={formatDateTime(run?.startedAt)} />

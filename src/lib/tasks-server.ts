@@ -8,7 +8,7 @@
  */
 import { inferenceHeaders, TL_ROOT } from "@/lib/inference";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
-import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
+import { FINETUNE_EXPERIMENT, NOTE_PREFIX } from "@/lib/tl-constants";
 
 const EXPERIMENT = FINETUNE_EXPERIMENT;
 
@@ -153,7 +153,10 @@ async function listJobsForExperiment(experimentId: string): Promise<TlJobRow[]> 
  */
 export async function allExperimentIds(): Promise<string[]> {
   const experiments = await listTlExperiments().catch(() => []);
-  return [...new Set([EXPERIMENT, ...experiments.map((e) => e.id)])];
+  // Note experiments (`note-*`) hold Notes markdown, never jobs — skip them so
+  // the per-experiment job fan-out doesn't waste a request on each note.
+  const ids = experiments.map((e) => e.id).filter((id) => !id.startsWith(NOTE_PREFIX));
+  return [...new Set([EXPERIMENT, ...ids])];
 }
 
 /**

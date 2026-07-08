@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { DatasetDetailView } from "@/modules/datasets/components/dataset-detail-view";
 import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
-import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
 
 /**
  * Route-level dataset detail (`/datasets/[...id]`). Deep-linkable, so the browser
@@ -20,7 +19,6 @@ export function DatasetDetailPage() {
   const id = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
 
   const { getDatasetById, datasetsLoading, archiveDataset } = useDatasets();
-  const { setIsCreateExperimentOpen } = useLlmOps();
 
   const dataset = getDatasetById(id);
   const back = () => router.push("/datasets");
@@ -50,7 +48,6 @@ export function DatasetDetailPage() {
         archiveDataset(dataset.id);
         back();
       }}
-      onUseInExperiment={() => setIsCreateExperimentOpen(true)}
     />
   );
 }

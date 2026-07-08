@@ -7,7 +7,6 @@ export function useTasks() {
 
   return {
     tasks: ctx.tasks,
-    experiments: ctx.experiments,
     filteredTasks: ctx.filteredTasks,
     filters: ctx.taskFilters,
     setFilters: ctx.setTaskFilters,

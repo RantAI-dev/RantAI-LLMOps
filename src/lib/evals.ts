@@ -21,8 +21,8 @@ import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/li
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { logServerError } from "@/lib/log";
 
-// Default experiment for evals — the shared fine-tune one. A specific run can
-// override it (Pattern B: the header's active experiment).
+// Eval jobs run under the same single hidden experiment as fine-tunes (TL
+// requires an experiment context; the concept isn't exposed in the UI).
 const EVAL_EXPERIMENT = FINETUNE_EXPERIMENT;
 
 /** GitHub-hosted EleutherAI lm-eval harness trainer (mirrors its task.yaml). */
@@ -101,8 +101,6 @@ export async function fetchEvalOptions(): Promise<EvalOptions> {
 }
 
 export type SubmitEvalParams = {
-  /** TL experiment to launch into (grouping). Defaults to the fine-tune experiment. */
-  experiment?: string;
   /**
    * Either an HF model id (e.g. "HuggingFaceTB/SmolLM-135M-Instruct") for a base
    * model, OR — when `fineTuned` is true — the TRAIN job id of a fine-tune.
@@ -140,8 +138,9 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
     label = merged.label;
   }
 
-  // Create/reuse the target experiment and use TL's authoritative id back.
-  const experiment = await createTlExperiment(p.experiment?.trim() || EVAL_EXPERIMENT);
+  // All eval jobs run under one fixed experiment (hidden from the UI). Create/
+  // reuse it and use TL's authoritative id back.
+  const experiment = await createTlExperiment(EVAL_EXPERIMENT);
   const name = `eval-${slug(label)}-${p.benchmark}`;
   const env_vars: Record<string, string> = { PYTHONUNBUFFERED: "1" };
   if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;

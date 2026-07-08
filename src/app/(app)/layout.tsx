@@ -1,7 +1,6 @@
 import { AppShell } from "@/components/layout/app-shell";
 import { AuthGate, AuthProvider } from "@/modules/auth";
 import { DatasetsProvider } from "@/modules/datasets";
-import { ActiveExperimentProvider } from "@/modules/experiments/context/active-experiment";
 import { LlmOpsProvider } from "@/modules/llm-ops/context/llm-ops-provider";
 import { ModelRegistryProvider } from "@/modules/model-registry";
 
@@ -17,9 +16,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <LlmOpsProvider>
           <DatasetsProvider>
             <ModelRegistryProvider>
-              <ActiveExperimentProvider>
-                <AppShell>{children}</AppShell>
-              </ActiveExperimentProvider>
+              <AppShell>{children}</AppShell>
             </ModelRegistryProvider>
           </DatasetsProvider>
         </LlmOpsProvider>

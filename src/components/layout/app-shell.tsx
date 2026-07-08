@@ -24,11 +24,9 @@ import {
   Radio,
   Search,
   Sparkles,
-  TestTubes,
   Workflow,
 } from "lucide-react";
 
-import { ActiveExperimentSelector } from "@/modules/experiments/components/active-experiment-selector";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -51,7 +49,6 @@ type NavItem = {
 /** Main app navigation — Dashboard first, then operations. */
 const mainNav: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: House },
-  { label: "Experiments", href: "/experiments", icon: TestTubes },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Interact", href: "/interact", icon: MessageSquareMore },
   { label: "Fine-tune", href: "/finetune", icon: Sparkles },
@@ -158,10 +155,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               ) : null}
             </Link>
-          </div>
-
-          <div className={cn("border-b border-hairline-2 py-2", isSidebarOpen ? "px-2" : "px-3")}>
-            <ActiveExperimentSelector collapsed={!isSidebarOpen} />
           </div>
 
           <div className={cn("flex-1 space-y-6 py-3", isSidebarOpen ? "px-2" : "px-3")}>

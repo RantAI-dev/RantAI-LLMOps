@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, Download, Loader2, MoreHorizontal, Play } from "lucide-react";
+import { Archive, Download, Loader2, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import {
 type DatasetDetailToolbarProps = {
   datasetId: string;
   datasetName: string;
-  onUseInExperiment: () => void;
   onArchive: () => void;
 };
 
@@ -24,7 +23,6 @@ type PreviewResponse = { columns: string[]; rows: Array<Record<string, string>> 
 export function DatasetDetailToolbar({
   datasetId,
   datasetName,
-  onUseInExperiment,
   onArchive,
 }: DatasetDetailToolbarProps) {
   const [downloading, setDownloading] = useState(false);
@@ -74,10 +72,6 @@ export function DatasetDetailToolbar({
       >
         {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
         Download
-      </Button>
-      <Button type="button" size="sm" className="h-8 gap-1.5" onClick={onUseInExperiment}>
-        <Play className="size-3.5" />
-        Use in Experiment
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger

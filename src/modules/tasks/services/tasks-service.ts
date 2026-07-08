@@ -1,21 +1,20 @@
-import { initialMockTasks } from "@/modules/tasks/data/mock-tasks";
 import { tlJobToTask } from "@/modules/tasks/lib/from-tl";
 import type { Task } from "@/modules/tasks/types";
 
 /**
  * The data seam for tasks.
  *
- * `seedTasks()` gives the rich mock for instant first paint. `fetchTasks()`
- * pulls REAL jobs (train / eval / export) from Transformer Lab via our
- * `/api/tasks/list` BFF (server-side permanent key, independent of the app's
- * mock login). Each job becomes a Task with one execution run — real dataset +
- * hyperparameters included. Only per-job resource telemetry (GPU/VRAM/cost) stays
- * defaulted (TL doesn't expose that per job).
+ * `fetchTasks()` pulls REAL jobs (train / eval / export) from Transformer Lab
+ * via our `/api/tasks/list` BFF (server-side permanent key, independent of the
+ * app's mock login). Each job becomes a Task with one execution run — real
+ * dataset + hyperparameters included. Only per-job resource telemetry
+ * (GPU/VRAM/cost) stays defaulted (TL doesn't expose that per job).
  */
 
-/** Sync seed for instant initial render. */
+/** Empty sync seed — first paint shows nothing until the real list loads (no
+ *  fake demo tasks). */
 export function seedTasks(): Task[] {
-  return initialMockTasks;
+  return [];
 }
 
 type TasksResponse = {
@@ -54,12 +53,10 @@ export async function fetchTasks(): Promise<Task[]> {
     const data = (await res.json()) as TasksResponse;
     const now = new Date().toISOString();
     // Return the REAL list even when empty — "the backend has no jobs" is honest
-    // data, not a reason to show demo tasks. (Demo mocks would also include a
-    // perpetually-"Running" row, which would keep the live poller running
-    // forever.) Mocks are only for the instant-paint seed + unreachable BFF.
+    // data, not a reason to show demo tasks.
     return (data.jobs ?? []).map((j) => tlJobToTask(j, now));
   } catch {
-    // BFF unreachable (or non-browser context): degrade to the mock seed.
-    return initialMockTasks;
+    // BFF unreachable (or non-browser context): honest empty list, not fake data.
+    return [];
   }
 }

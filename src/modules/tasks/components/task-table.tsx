@@ -71,7 +71,6 @@ export function TaskTable({
           <TableRow className="bg-surface">
             <TableHead>Task Name</TableHead>
             <TableHead>Type</TableHead>
-            <TableHead>Experiment</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="min-w-[120px]">Progress</TableHead>
             <TableHead>Compute</TableHead>
@@ -102,7 +101,6 @@ export function TaskTable({
                   </p>
                 </TableCell>
                 <TableCell className="text-ink">{task.type}</TableCell>
-                <TableCell className="text-ink-soft">{task.experimentName}</TableCell>
                 <TableCell>
                   <TaskStatusBadge status={status} />
                 </TableCell>

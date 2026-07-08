@@ -70,10 +70,13 @@ export function MarkdownPreview({ source }: { source: string }) {
           : level === 2
             ? "text-base font-semibold text-ink"
             : "text-sm font-semibold text-ink";
+      // Emit the real heading element for the level so the preview has a proper
+      // document outline (screen readers), not just heading-styled paragraphs.
+      const Tag = (["h1", "h2", "h3"] as const)[level - 1];
       blocks.push(
-        <p key={`b${bk++}`} className={`mt-3 first:mt-0 ${cls}`}>
+        <Tag key={`b${bk++}`} className={`mt-3 first:mt-0 ${cls}`}>
           {renderInline(heading[2], `h${bk}`)}
-        </p>
+        </Tag>
       );
       i++;
       continue;

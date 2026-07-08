@@ -115,8 +115,6 @@ export type TaskTimelineStep = {
   timestamp?: string;
 };
 
-export type { Experiment } from "@/modules/experiments/types";
-
 /**
  * A Run is one execution of a Task — the equivalent of a Transformer Lab "job"
  * (`/experiment/{id}/jobs`). All live/execution state lives here, never on the
@@ -150,7 +148,6 @@ export type Task = {
   name: string;
   type: TaskType;
   experimentId: string;
-  experimentName: string;
   computeTarget: ComputeTarget;
   engine: EnginePlugin;
   createdAt: string;
@@ -192,7 +189,6 @@ export type CreateTaskInput = {
 
 export type TaskFilters = {
   search: string;
-  experiment: string | "all";
   type: TaskType | "all";
   status: TaskStatus | "all";
   computeTarget: ComputeTarget | "all";

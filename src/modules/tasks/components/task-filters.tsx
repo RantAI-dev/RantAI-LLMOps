@@ -1,6 +1,5 @@
 import { FilterBar } from "@/components/ui/filter-bar";
 import { searchFieldClassName } from "@/modules/tasks/constants/task-ui";
-import { useLlmOps } from "@/modules/llm-ops/context/llm-ops-provider";
 import {
   COMPUTE_TARGETS,
   TASK_STATUSES,
@@ -18,14 +17,12 @@ type TaskFiltersBarProps = {
 
 const hasActiveFilters = (filters: TaskFilters) =>
   filters.search.trim() !== "" ||
-  filters.experiment !== "all" ||
   filters.type !== "all" ||
   filters.status !== "all" ||
   filters.computeTarget !== "all" ||
   filters.sort !== "newest";
 
 export function TaskFiltersBar({ filters, onChange, onReset }: TaskFiltersBarProps) {
-  const { experiments } = useLlmOps();
   const active = hasActiveFilters(filters);
 
   return (
@@ -34,27 +31,16 @@ export function TaskFiltersBar({ filters, onChange, onReset }: TaskFiltersBarPro
       title="Filter tasks"
       searchValue={filters.search}
       onSearchChange={(search) => onChange({ search })}
-      searchPlaceholder="Search by task or experiment name..."
-      searchAriaLabel="Search by task or experiment name"
+      searchPlaceholder="Search by task name..."
+      searchAriaLabel="Search by task name"
       searchClassName={searchFieldClassName}
       active={active}
       onReset={onReset}
       resetLabel="Reset"
       sectionClassName="border-b border-hairline pb-4"
-      gridClassName="sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"
+      gridClassName="sm:grid-cols-2 lg:grid-cols-4"
     >
       <FilterSelect
-            showLabel
-            label="Experiment"
-            value={filters.experiment}
-            onChange={(v) => onChange({ experiment: v })}
-            options={[
-              { value: "all", label: "All experiments" },
-              ...experiments.map((e) => ({ value: e.id, label: e.name })),
-            ]}
-            className="sm:col-span-2 lg:col-span-1"
-          />
-          <FilterSelect
             showLabel
             label="Task type"
             value={filters.type}

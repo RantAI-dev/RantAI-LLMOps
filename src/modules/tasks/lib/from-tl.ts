@@ -190,7 +190,6 @@ export function tlJobToTask(row: TlJobRow, now: string): Task {
     name: row.template,
     type,
     experimentId: row.experimentId || EXPERIMENT_ID,
-    experimentName: row.experimentId || EXPERIMENT_ID,
     computeTarget,
     engine,
     createdAt: created,

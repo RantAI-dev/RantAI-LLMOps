@@ -8,3 +8,10 @@
  * tasks-server.
  */
 export const FINETUNE_EXPERIMENT = "nqr-ft";
+
+/**
+ * Notes are stored as TL experiments' `notes/readme.md`. Each user-facing note is
+ * a hidden experiment whose id carries this prefix, which keeps the notes
+ * namespace separate from real job experiments (and lets job fan-outs skip them).
+ */
+export const NOTE_PREFIX = "note-";
