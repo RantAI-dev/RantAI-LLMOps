@@ -4,12 +4,16 @@
  * quants. No auth needed for public repos; an optional `HF_TOKEN` lifts rate
  * limits and reaches gated repos.
  */
+import { getHfToken } from "@/lib/settings-store";
+
 const HF_API = "https://huggingface.co/api";
-const HF_TOKEN = process.env.HF_TOKEN ?? "";
 const TIMEOUT_MS = 15_000;
 
-function hfHeaders(): Record<string, string> {
-  return HF_TOKEN ? { Authorization: `Bearer ${HF_TOKEN}` } : {};
+/** Auth header from the saved token (or `HF_TOKEN` env) — lets gated repos and
+ *  higher rate limits work once the user sets a token in Fine-tune settings. */
+async function hfHeaders(): Promise<Record<string, string>> {
+  const token = await getHfToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // HF API sort field for each UI sort option (always descending).
@@ -48,7 +52,7 @@ export async function searchHfModels(opts: HubSearch): Promise<HubModel[]> {
   params.set("limit", String(Math.min(Math.max(opts.limit ?? 30, 1), 60)));
 
   const res = await fetch(`${HF_API}/models?${params.toString()}`, {
-    headers: hfHeaders(),
+    headers: await hfHeaders(),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HF models ${res.status}`);
@@ -86,7 +90,7 @@ export async function searchHfTrainableModels(opts: HubSearch): Promise<HubModel
   }
 
   const res = await fetch(`${HF_API}/models?${params.toString()}`, {
-    headers: hfHeaders(),
+    headers: await hfHeaders(),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HF models ${res.status}`);
@@ -119,7 +123,7 @@ export async function searchHfDatasets(opts: HubSearch): Promise<HubDataset[]> {
   params.set("limit", String(Math.min(Math.max(opts.limit ?? 30, 1), 60)));
 
   const res = await fetch(`${HF_API}/datasets?${params.toString()}`, {
-    headers: hfHeaders(),
+    headers: await hfHeaders(),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HF datasets ${res.status}`);
@@ -150,7 +154,7 @@ export async function hfModelDetail(repo: string): Promise<HubModelDetail> {
   // manipulate the request path/query (e.g. "x?full=true" or "../").
   const encoded = repo.split("/").map(encodeURIComponent).join("/");
   const res = await fetch(`${HF_API}/models/${encoded}`, {
-    headers: hfHeaders(),
+    headers: await hfHeaders(),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   if (!res.ok) throw new Error(`HF model ${res.status}`);

@@ -7,8 +7,12 @@ import type { FinetuneOptions, TrainingJob } from "@/lib/finetune";
 
 const EMPTY_OPTIONS: FinetuneOptions = { models: [], datasets: [] };
 
-const ACTIVE = new Set(["QUEUED", "RUNNING", "STARTED", "NOT_STARTED"]);
-export const isJobActive = (status: string) => ACTIVE.has(status.toUpperCase());
+// A job is "active" (keep polling + show the live monitor) until it hits a
+// terminal status. A denylist beats an allowlist here: TL's compute provider
+// emits setup states like LAUNCHING / PROVISIONING / SETTING_UP that we'd
+// otherwise mistake for "finished" — freezing the monitor mid-setup.
+const TERMINAL = new Set(["COMPLETE", "COMPLETED", "FAILED", "STOPPED", "CANCELLED", "DELETED"]);
+export const isJobActive = (status: string) => !TERMINAL.has((status ?? "").toUpperCase());
 
 /**
  * Drives the Fine-tune page: loads form options, polls the job list while any

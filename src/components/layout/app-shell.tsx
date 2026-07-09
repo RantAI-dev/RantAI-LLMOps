@@ -22,6 +22,7 @@ import {
   PanelLeftOpen,
   Radio,
   Search,
+  Settings,
   Sparkles,
   Workflow,
 } from "lucide-react";
@@ -64,6 +65,9 @@ const workspaceNav: NavItem[] = [
   { label: "Dataset", href: "/datasets", icon: Database },
   { label: "Compute", href: "/compute", icon: BrainCog },
 ];
+
+/** App-wide settings — pinned to the sidebar bottom, above the account menu. */
+const bottomNav: NavItem[] = [{ label: "Settings", href: "/settings", icon: Settings }];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
@@ -178,6 +182,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ) : null}
               {renderNav(workspaceNav)}
             </nav>
+          </div>
+
+          <div className={cn("border-t border-sidebar-border py-2", isSidebarOpen ? "px-2" : "px-3")}>
+            <nav aria-label="Settings">{renderNav(bottomNav)}</nav>
           </div>
 
           <div className={cn("p-2", isSidebarOpen ? "" : "px-3")}>

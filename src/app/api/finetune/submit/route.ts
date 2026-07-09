@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
+import { getHfToken } from "@/lib/settings-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,12 @@ export async function POST(req: NextRequest) {
       { error: "`baseModel`, `dataset` and `adaptorName` are required" },
       { status: 400 }
     );
+  }
+  // Gated base models (Llama, etc.) need an HF token at download time. Inject the
+  // saved one server-side so the secret never has to ride in the request body.
+  if (!body.hfToken) {
+    const stored = await getHfToken();
+    if (stored) body.hfToken = stored;
   }
   try {
     const jobId = await submitFinetune(body as SubmitFinetuneParams);

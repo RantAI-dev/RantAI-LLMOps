@@ -1690,3 +1690,44 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Wipe data (via API):** TL experiments dihapus semua (alpha, note-notes-1, note-tes, nqr-eval, nqr-ft) + ~32 job -> TL experiment list KOSONG. Ollama: 8 model (26.74 GB) dihapus semua (HTTP /api/delete rewel 400 beruntun -> pakai `ollama rm` CLI di WSL, loop 1 sesi + </dev/null). Dataset sudah 0. Folder .nqr-data (deployments) di-rm. Workflow history: key di-rename -> app baca key baru (kosong); data lama nqr:workflow-runs masih nyangkut di localStorage browser (invisible, bisa clear manual).
 **Verify:** TL experiments (KOSONG), ollama list kosong, kode tak ada lagi id internal nqr (cuma regex backward-compat /^(rantai|nqr)-/ tersisa - harmless), tsc 0, eslint 0, vitest 95/95.
 **DISK:** C: 17.8 GB free / 476 GB (SESAK). 26 GB dibebaskan tapi ADA DI DALAM vhdx WSL yang tak auto-shrink. Ubuntu vhdx = 194.7 GB di C:\Users\idham\AppData\Local\wsl\{7fb4d107-...}\ext4.vhdx. Perlu COMPACT vhdx (wsl --shutdown + diskpart/Optimize-VHD admin, ATAU --set-sparse) buat balikin ~20-26 GB ke C:. BELUM dilakukan (disruptif + butuh admin) - tunggu keputusan user.
+
+## DISK — compact vhdx WSL (reklaim ke C:)
+**Temuan:** C: 17.8 GB free / 476 GB (sesak). Ubuntu vhdx = 194.7 GB file tapi isi asli 121 GB -> ~74 GB slack bisa direклaim. (D: punya 241 GB free.)
+**Dicoba (non-admin):** wsl --shutdown + `wsl --manage Ubuntu --set-sparse true --allow-unsafe` (sukses, vhdx jadi sparse) + `wsl -u root fstrim -av` (885 GiB free di-trim). HASIL: C: cuma naik 17.8->19.4 GB (+1.6 GB). set-sparse+fstrim TAK cukup meng-compact blok teralokasi.
+**Solusi:** butuh `diskpart compact vdisk` (ADMIN) - AI tak bisa elevate di sesi non-interaktif. Dibuatkan batch self-elevating di Desktop: C:\Users\idham\Desktop\compact-wsl-disk.bat (stop Docker+WSL -> diskpart attach readonly+compact+detach vhdx Ubuntu). User double-click -> Yes -> ~70 GB balik ke C:.
+**Restart stack:** Docker Desktop dinyalakan lagi (TL container auto-start ~1-2 mnt), Ollama serve di WSL (background task bkiqnyl6k) -> :11434 200, 0 model. 
+**Catatan:** Docker Desktop nge-mount WSL bikin Ubuntu auto-restart -> saat compact harus stop Docker dulu (batch sudah handle taskkill Docker Desktop).
+
+## DISK — compact BERHASIL + stack restored (2026-07-09 06:22 WIB)
+**Hasil:** diskpart compact SUKSES (100% + compacted + detached bersih, tak perlu restart PC). C: 17.8 -> 89.5 GB free (+71.7 GB). vhdx Ubuntu 194.7 -> 123 GB.
+**Kunci fix:** (1) diskpart nolak vhdx sparse -> `wsl --manage Ubuntu --set-sparse false` dulu. (2) Gagal awal "file in use" krn AI terus jalanin `wsl -d Ubuntu` (restart Ollama) yang mem-boot Ubuntu saat compact + Docker WSL-integration -> solusi: batch taskkill semua proses Docker + net stop com.docker.service + AI stop nyentuh WSL. (3) fstrim di batch error (execvpe fstrim not found via -e; butuh path /usr/sbin/fstrim atau bash -lc) TAPI fstrim sukses sebelumnya sudah cukup -> compact tetap reklaim penuh.
+**Restart:** Docker Desktop dinyalakan -> container transformerlab tadi Exited(127) (efek kill paksa) -> `docker start transformerlab` -> TL :8339 200. Ollama serve (nohup+disown) -> :11434 200, 0 model. App :3000 200. Login rantai-admin 200.
+**State fresh:** TL experiments = alpha/beta/gamma (default TL, 0 job) - bukan data lama. Ollama 0 model. Semua bersih.
+**Artefak:** batch compact tersimpan di C:\Users\idham\OneDrive\Desktop\compact-wsl-disk.bat (v2) - Desktop di-redirect ke OneDrive (bukan C:\Users\idham\Desktop).
+
+## FITUR: HF token + advanced knobs + live training monitor
+**Task:** User minta bangun 3 fitur (biar mendekati TL): HF token (model gated), live training log+loss, knob advanced.
+**Temuan:** Backend SUDAH siap - SubmitFinetuneParams punya hfToken/loraR/loraAlpha/learningRate/maxSteps/epochs; submitFinetune inject HF_TOKEN env (line 504); provider_logs punya loss/progress; /api/tasks/[id]/output ekspos log. Yang kurang cuma UI + persistensi token.
+**Fitur 1 (HF token):** NEW src/lib/settings-store.ts (getHfToken/setHfToken di .rantai-data/settings.json, fallback env HF_TOKEN) + NEW /api/settings (GET hasHfToken saja, POST simpan/clear - token tak pernah dikirim balik ke browser) + submit route inject stored token server-side + hf-hub.ts hfHeaders() jadi async pakai getHfToken (gated search/download juga kepakai). UI: field HF token di finetune-form Advanced (password, simpan ke server, indikator "Tersimpan").
+**Fitur 3 (knob):** finetune-form Advanced +LoRA alpha +Max steps (dengan note "override epochs, -1=ikut epochs"). loraR/learningRate/epochs sudah ada. Semua diteruskan ke submit body -> backend baca.
+**Fitur 2 (live monitor):** NEW training-monitor.tsx - poll /api/tasks/[id]/output tiap 3s saat aktif, parse `'loss': X` -> sparkline SVG (dependency-free, warna accent), tail 40 baris log (konsol dark, auto-scroll). Collapsible, auto-buka utk job aktif. Di-wire ke job-list per job.
+**Security:** .gitignore diperbaiki .nqr-data/ -> +.rantai-data/ (folder token, tadinya TIDAK diabaikan -> token bisa ke-commit). settings.json {} bersih.
+**Verify:** tsc 0, eslint 0, vitest 95/95. E2E /api/settings: GET false -> POST true (persist) -> clear false. /finetune 200. Belum commit.
+
+## REFACTOR: HF token pindah ke halaman Settings (level-app)
+**Alasan (feedback user):** HF token itu kredensial level-APP, salah tempat di tab Fine-tune. Harusnya di Settings terpusat spt TL - simpan sekali, kepakai di mana saja.
+**Catatan:** backend sudah level-app (settings-store global, dipakai training+hf-hub) - cuma UI yang salah taruh.
+**Action:** NEW modul settings: components/hf-token-field.tsx (ekstrak logika token) + components/settings-page.tsx (section Credentials) + index.ts + route src/app/(app)/settings/page.tsx. app-shell: +nav "Settings" (icon gear) di blok bawah sidebar (border-t, di atas account). finetune-form: HAPUS field+state+handler HF token, ganti jadi 1 baris note link ke /settings (pakai next/link). Knob training (LoRA/lr/max steps) TETAP di finetune (memang training-specific).
+**Verify:** tsc 0, eslint 0, vitest 95/95, /settings 200 (render Settings/Credentials/HuggingFace token). Belum commit.
+
+## FIX: monitor beku saat LAUNCHING + pesan "No log files found"
+**Gejala:** Saat test live monitor (SmolLM2-135M + touch-rugby-rules), fase awal status LAUNCHING nampilin "No log files found" + monitor tak auto-refresh.
+**Sebab:** isJobActive pakai ALLOWLIST ["QUEUED","RUNNING","STARTED","NOT_STARTED"] -> LAUNCHING tak termasuk -> dianggap selesai -> job-list + monitor stop polling selama setup. Log baru muncul pas RUNNING.
+**Fix:** use-finetune.ts isJobActive jadi DENYLIST (aktif = bukan status terminal COMPLETE/COMPLETED/FAILED/STOPPED/CANCELLED/DELETED) -> LAUNCHING/PROVISIONING/SETTING_UP kehitung aktif. training-monitor.tsx: deteksi hasRealLog (output kosong / "No log files found" = belum ada log) -> tampilkan pesan ramah "Menyiapkan training - build venv + download model..." bukan mentah; hapus pesan "Menunggu langkah pertama" dobel di bagian loss.
+**Hasil:** Monitor TERBUKTI JALAN - screenshot user nunjukin kurva loss (sparkline biru, 3.336->3.413, 4 langkah) + log live (Step 2/3/4 loss=...). tsc 0, eslint 0. Belum commit.
+
+## BUGFIX: export gagal "nqr_export_gguf.sh No such file"
+**Gejala:** Export adaptor (SmolLM2 fine-tune) gagal: `bash: /home/idham/nqr_export_gguf.sh: No such file or directory`.
+**Akar masalah (kesalahanku pas rename script):** Waktu rename ~/nqr_*.sh -> rantai_*.sh, cek cross-ref internal pakai regex `nqr_[a-z]*\.sh` yang GAGAL match `nqr_export_gguf.sh` (underscore di export_gguf tak ke-cover [a-z]*). Jadi panggilan internal di rantai_serve_finetune.sh line 16 (`exec bash ~/nqr_export_gguf.sh`) + dir kerja `nqr_merged` + komentar usage TERLEWAT, masih nama lama.
+**Fix:** sed s/nqr_/rantai_/g di ketiga ~/rantai_*.sh. Sekarang: line 16 -> rantai_export_gguf.sh; dir rantai_merged konsisten (merge nulis $NAME, export baca $TAG); usage comment bersih. Verifikasi: 0 sisa nqr_ di ~/*.sh, bash -n OK ketiganya.
+**Pelajaran:** rename identifier di file eksternal (script) HARUS grep tanpa regex sempit — pakai `grep nqr_` polos, bukan pola yang bisa kelewat underscore.

@@ -41,5 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# Server-side app data (deployments store)
+# Server-side app data (deployments + settings store — may hold the HF token)
+.rantai-data/
 .nqr-data/

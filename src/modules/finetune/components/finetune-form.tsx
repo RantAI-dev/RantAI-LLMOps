@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Loader2, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -44,7 +45,9 @@ export function FinetuneForm({
   const [adaptorName, setAdaptorName] = useState("");
   const [epochs, setEpochs] = useState(1);
   const [loraR, setLoraR] = useState(8);
+  const [loraAlpha, setLoraAlpha] = useState(16);
   const [learningRate, setLearningRate] = useState(0.0002);
+  const [maxSteps, setMaxSteps] = useState(60);
   const [inputField, setInputField] = useState("question");
   const [outputField, setOutputField] = useState("answer");
   const [audioColumn, setAudioColumn] = useState("audio");
@@ -131,7 +134,9 @@ export function FinetuneForm({
       adaptorName: effectiveName,
       epochs,
       loraR,
+      loraAlpha,
       learningRate,
+      maxSteps,
       ...(method === "grpo"
         ? { datasetInputField: inputField, datasetOutputField: outputField }
         : {}),
@@ -300,30 +305,61 @@ export function FinetuneForm({
         onClick={() => setShowAdvanced((v) => !v)}
         className="mt-3 text-[12px] font-medium text-ink-soft hover:text-ink"
       >
-        {showAdvanced ? "− Hide" : "+ Advanced"} (LoRA rank, learning rate)
+        {showAdvanced ? "− Sembunyikan" : "+ Advanced"} (LoRA, learning rate, max steps)
       </button>
 
       {showAdvanced ? (
-        <div className="mt-2 grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-[13px] font-medium text-ink">LoRA rank (r)</span>
-            <Input
-              type="number"
-              min={1}
-              value={loraR}
-              onChange={(e) => setLoraR(Math.max(1, Number(e.target.value) || 8))}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-[13px] font-medium text-ink">Learning rate</span>
-            <Input
-              type="number"
-              step="0.0001"
-              min={0}
-              value={learningRate}
-              onChange={(e) => setLearningRate(Number(e.target.value) || 0.0002)}
-            />
-          </label>
+        <div className="mt-2 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">LoRA rank (r)</span>
+              <Input
+                type="number"
+                min={1}
+                value={loraR}
+                onChange={(e) => setLoraR(Math.max(1, Number(e.target.value) || 8))}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">LoRA alpha</span>
+              <Input
+                type="number"
+                min={1}
+                value={loraAlpha}
+                onChange={(e) => setLoraAlpha(Math.max(1, Number(e.target.value) || 16))}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">Learning rate</span>
+              <Input
+                type="number"
+                step="0.0001"
+                min={0}
+                value={learningRate}
+                onChange={(e) => setLearningRate(Number(e.target.value) || 0.0002)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">Max steps</span>
+              <Input
+                type="number"
+                min={-1}
+                value={maxSteps}
+                onChange={(e) => setMaxSteps(Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 60)}
+              />
+              <span className="mt-1 block text-[11px] text-ink-soft">
+                Batas langkah training — <strong>override epochs</strong>. Set <code>-1</code> biar ikut epochs penuh.
+              </span>
+            </label>
+          </div>
+
+          <p className="rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
+            Model <strong>gated</strong> (Llama/Gemma)?{" "}
+            <Link href="/settings" className="font-medium text-accent underline-offset-2 hover:underline">
+              Set HuggingFace token di Settings
+            </Link>{" "}
+            — sekali simpan, kepakai di semua fine-tune &amp; download.
+          </p>
         </div>
       ) : null}
 
