@@ -67,7 +67,7 @@ export function ModelDetailPage() {
         }
         onCompare={() =>
           router.push(
-            model.id.startsWith("nqr-")
+            /^(rantai|nqr)-/.test(model.id)
               ? `/generations?ft=${encodeURIComponent(model.id)}`
               : `/generations?base=${encodeURIComponent(model.id)}`
           )

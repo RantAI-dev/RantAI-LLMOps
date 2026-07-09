@@ -14,7 +14,7 @@
  */
 export const APP_PASSWORD = process.env.APP_PASSWORD ?? "";
 export const AUTH_ENABLED = APP_PASSWORD.length > 0;
-export const AUTH_COOKIE = "nqr_auth";
+export const AUTH_COOKIE = "rantai_auth";
 /** 30 days. */
 export const AUTH_MAX_AGE = 60 * 60 * 24 * 30;
 
@@ -23,11 +23,11 @@ export const AUTH_MAX_AGE = 60 * 60 * 24 * 30;
  * without it the token is `SHA-256(password)`, which is offline-guessable if the
  * cookie ever leaks. Defaults to a constant so local dev keeps working unset.
  */
-const AUTH_SECRET = process.env.AUTH_SECRET ?? "nqr-default-secret";
+const AUTH_SECRET = process.env.AUTH_SECRET ?? "rantai-default-secret";
 
-/** Session token = SHA-256("nqr::" + secret + "::" + password), hex. */
+/** Session token = SHA-256("rantai::" + secret + "::" + password), hex. */
 export async function sessionToken(): Promise<string> {
-  const data = new TextEncoder().encode(`nqr::${AUTH_SECRET}::${APP_PASSWORD}`);
+  const data = new TextEncoder().encode(`rantai::${AUTH_SECRET}::${APP_PASSWORD}`);
   const buf = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))

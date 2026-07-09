@@ -3,8 +3,8 @@
  * file on the app server, so the list is shared across every browser/device/user
  * hitting this app instance — unlike the old per-browser localStorage.
  *
- * Location: `$NQR_DATA_DIR/deployments.json` (defaults to `.nqr-data/` in the app
- * working dir; gitignored). Reads degrade to an empty store on any error.
+ * Location: `$RANTAI_DATA_DIR/deployments.json` (defaults to `.rantai-data/` in the
+ * app working dir; gitignored). Reads degrade to an empty store on any error.
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -13,7 +13,7 @@ import type { Deployment } from "@/modules/serve/lib/deployment";
 
 export type DeploymentStore = { deployments: Deployment[]; activeId: string | null };
 
-const DATA_DIR = process.env.NQR_DATA_DIR ?? path.join(process.cwd(), ".nqr-data");
+const DATA_DIR = process.env.RANTAI_DATA_DIR ?? path.join(process.cwd(), ".rantai-data");
 const FILE = path.join(DATA_DIR, "deployments.json");
 
 const EMPTY: DeploymentStore = { deployments: [], activeId: null };

@@ -40,9 +40,11 @@ describe("fineTuneTag", () => {
     expect(fineTuneTag("My Run", "42")).toBe(fineTuneTag("My Run", "42"));
   });
 
-  it("always carries one nqr- prefix and a slugified name", () => {
-    expect(fineTuneTag("My Run", "42")).toBe("nqr-my-run-42");
-    expect(fineTuneTag("nqr-already", "7")).toBe("nqr-already-7");
+  it("always carries one rantai- prefix and a slugified name", () => {
+    expect(fineTuneTag("My Run", "42")).toBe("rantai-my-run-42");
+    // A leading brand prefix in the name (new or legacy) isn't doubled up.
+    expect(fineTuneTag("rantai-already", "7")).toBe("rantai-already-7");
+    expect(fineTuneTag("nqr-already", "7")).toBe("rantai-already-7");
   });
 });
 

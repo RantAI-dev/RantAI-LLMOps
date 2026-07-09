@@ -25,7 +25,7 @@ export function DatasetCard({
   onArchive,
 }: DatasetCardProps) {
   return (
-    <Card className="flex flex-col overflow-hidden border-hairline bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(255,80,1,0.08)]">
+    <Card className="flex flex-col overflow-hidden border-hairline bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[border-color,box-shadow] hover:border-primary/20 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-start justify-between gap-2">
           <DatasetStatusBadge status={dataset.validationStatus} />

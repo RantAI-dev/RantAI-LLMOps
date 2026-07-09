@@ -54,9 +54,10 @@ export function GenerationsPage() {
     };
   }, []);
 
-  // Base = servable Ollama models that aren't our own fine-tune exports (nqr-*).
+  // Base = servable Ollama models that aren't our own fine-tune exports
+  // (rantai-*, or legacy nqr-*).
   const baseModels = useMemo(
-    () => (catalog?.servable ?? []).filter((m) => !m.id.startsWith("nqr-")),
+    () => (catalog?.servable ?? []).filter((m) => !/^(rantai|nqr)-/.test(m.id)),
     [catalog]
   );
   const fineTuned = catalog?.fineTuned ?? [];

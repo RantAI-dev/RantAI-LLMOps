@@ -21,7 +21,7 @@ export function generateId(prefix: string): string {
  */
 export function baseSearchQuery(id: string): string {
   return (id.split("/").pop() ?? id)
-    .replace(/^nqr-/i, "")
+    .replace(/^(rantai|nqr)-/i, "")
     .replace(/:.*$/, "")
     .replace(/-[0-9a-f]{8}$/i, "")
     .replace(/-?gguf/gi, "")

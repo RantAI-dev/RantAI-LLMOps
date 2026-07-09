@@ -29,7 +29,7 @@ export type WorkflowRun = {
   overall: RunOverall;
 };
 
-const KEY = "nqr:workflow-runs";
+const KEY = "rantai:workflow-runs";
 const MAX = 50;
 
 export function loadRuns(): WorkflowRun[] {

@@ -113,7 +113,7 @@ export function DatasetsProvider({ children }: { children: ReactNode }) {
           {
             id: generateActivityId(),
             timestamp: now,
-            actor: "Admin-NQR",
+            actor: "Admin-RantAI",
             activity: "Dataset archived",
             description: `${d.name} moved to archive`,
           },

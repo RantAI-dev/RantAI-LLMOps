@@ -1,42 +1,49 @@
+/*
+ * RantAI design tokens — mirrors the RantAI-Agents palette (shadcn "new-york").
+ * Monochrome primary (near-black / near-white) + blue accent, warm off-white
+ * light surface, flat-black dark, radius 0.75rem. Token NAMES are kept stable so
+ * every LLMOps component keeps working; only the VALUES were retinted to match.
+ */
 :root {
-  /* Color tokens */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  /* Core (RantAI exact) */
+  --background: oklch(0.98 0.002 90);
+  --foreground: oklch(0.15 0 0);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.15 0 0);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  /* Figma LLM-Ops primary button (node 81:916) */
-  --primary: #ff5001;
-  --primary-foreground: #f8fafc;
-  --primary-hover: #e64801;
-  --primary-active: #cc4001;
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: #551d00;
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.15 0 0);
+  /* Brand primary — monochrome (matches the RantAI logo's dark head) */
+  --primary: oklch(0.15 0 0);
+  --primary-foreground: oklch(0.98 0.002 90);
+  --primary-hover: oklch(0.25 0 0);
+  --primary-active: oklch(0.32 0 0);
+  --secondary: oklch(0.94 0.01 80);
+  --secondary-foreground: oklch(0.15 0 0);
+  --muted: oklch(0.92 0.01 80);
+  --muted-foreground: oklch(0.45 0 0);
+  /* Blue accent — matches the RantAI logo's blue puzzle squares */
+  --accent: oklch(0.55 0.2 250);
+  --accent-foreground: oklch(1 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: #e2e8f0;
-  --ring: #ff5001;
+  --border: oklch(0.88 0.01 80);
+  --input: oklch(0.92 0.01 80);
+  --ring: oklch(0.15 0 0);
 
-  /* Brand shades (exact values, centralized) */
-  --primary-soft: #fff0e8;
-  --primary-strong: #c2410c;
-  --primary-light: #ff9c6d;
+  /* Brand shades (retinted from orange -> mono) */
+  --primary-soft: oklch(0.94 0.01 80);
+  --primary-strong: oklch(0.1 0 0);
+  --primary-light: oklch(0.45 0 0);
 
-  /* Neutral ink (text) + surfaces + hairlines */
-  --ink: #551d00;
-  --ink-soft: #5d5d5d;
-  --ink-faint: #a1a1aa;
-  --ink-faint-strong: #71717a;
-  --surface: #fafafa;
-  --surface-2: #f4f4f5;
-  --hairline: #e2e8f0;
+  /* Neutral ink (text) + surfaces + hairlines — warm neutral (hue 80) */
+  --ink: oklch(0.15 0 0);
+  --ink-soft: oklch(0.45 0 0);
+  --ink-faint: oklch(0.62 0 0);
+  --ink-faint-strong: oklch(0.52 0 0);
+  --surface: oklch(0.97 0.005 80);
+  --surface-2: oklch(0.94 0.01 80);
+  --hairline: oklch(0.88 0.01 80);
 
-  /* Status palette (text + soft background) */
+  /* Status palette (semantic — kept; reads fine on warm off-white) */
   --success: #15803d;
   --success-soft: #ecfdf3;
   --warning: #b45309;
@@ -78,31 +85,40 @@
   --pink-soft: #fce7f3;
 
   /* Extended neutrals + brand tints */
-  --ink-strong: #52525b;
-  --hairline-2: #e5e7eb;
-  --surface-3: #f0f0f0;
-  --primary-tint: #fff7ed;
-  --primary-tint-2: #fffaf7;
+  --ink-strong: oklch(0.4 0 0);
+  --hairline-2: oklch(0.9 0.008 80);
+  --surface-3: oklch(0.92 0.01 80);
+  --primary-tint: oklch(0.96 0.005 80);
+  --primary-tint-2: oklch(0.98 0.002 90);
 
-  /* Optional chart/sidebar primitives used by shadcn */
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  /* Charts (RantAI vivid set) */
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+
+  /* Sidebar (RantAI light — neutral) */
   --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-foreground: oklch(0.15 0 0);
+  --sidebar-primary: oklch(0.94 0.01 80);
+  --sidebar-primary-foreground: oklch(0.15 0 0);
+  --sidebar-accent: oklch(0.94 0.01 80);
+  --sidebar-accent-foreground: oklch(0.15 0 0);
+  --sidebar-border: oklch(0.88 0.01 80);
+  --sidebar-ring: oklch(0.15 0 0 / 0.1);
+  --sidebar-muted: oklch(0.45 0 0);
+  --sidebar-hover: oklch(0.92 0.01 80);
+
+  /* Panel gradient (RantAI) */
+  --panel-from: oklch(0.96 0.01 80);
+  --panel-via: oklch(0.96 0.01 80);
+  --panel-to: oklch(0.985 0 0);
 
   /* Typography tokens */
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-poppins);
   --font-mono: var(--font-geist-mono);
-  --font-heading: var(--font-geist-sans);
+  --font-heading: var(--font-poppins);
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-base: 1rem;
@@ -122,30 +138,74 @@
   --space-10: 2.5rem;
   --space-12: 3rem;
 
-  /* Radius tokens */
-  --radius: 0.625rem;
-  --radius-md: 0.375rem; /* 6px — Figma radius-md */
+  /* Radius tokens (RantAI 0.75rem) */
+  --radius: 0.75rem;
+  --radius-md: 0.375rem;
 }
 
 .dark {
+  /* Core (RantAI exact — flat black) */
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.145 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.145 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: #ff5001;
-  --primary-foreground: #f8fafc;
-  --primary-hover: #e64801;
-  --primary-active: #cc4001;
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --primary-hover: oklch(0.9 0 0);
+  --primary-active: oklch(0.82 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+
+  /* Brand shades (dark) */
+  --primary-soft: oklch(0.269 0 0);
+  --primary-strong: oklch(1 0 0);
+  --primary-light: oklch(0.708 0 0);
+  --primary-tint: oklch(0.205 0 0);
+  --primary-tint-2: oklch(0.185 0 0);
+
+  /* Neutral ink + surfaces + hairlines (dark) */
+  --ink: oklch(0.985 0 0);
+  --ink-soft: oklch(0.708 0 0);
+  --ink-faint: oklch(0.556 0 0);
+  --ink-faint-strong: oklch(0.62 0 0);
+  --ink-strong: oklch(0.8 0 0);
+  --surface: oklch(0.205 0 0);
+  --surface-2: oklch(0.269 0 0);
+  --surface-3: oklch(0.3 0 0);
+  --hairline: oklch(1 0 0 / 10%);
+  --hairline-2: oklch(1 0 0 / 12%);
+
+  /* Charts (RantAI dark set) */
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+
+  /* Sidebar (RantAI dark — fully black) */
+  --sidebar: oklch(0.145 0 0);
+  --sidebar-foreground: rgba(255, 255, 255, 0.95);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: oklch(0.205 0 0);
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgba(255, 255, 255, 0.1);
+  --sidebar-ring: rgba(255, 255, 255, 0.3);
+  --sidebar-muted: rgba(255, 255, 255, 0.45);
+  --sidebar-hover: rgba(255, 255, 255, 0.1);
+
+  /* Panel gradient (dark) */
+  --panel-from: oklch(0.205 0 0);
+  --panel-via: oklch(0.205 0 0);
+  --panel-to: oklch(0.145 0 0);
 }

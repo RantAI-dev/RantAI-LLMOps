@@ -40,7 +40,7 @@ export function ModelsPage() {
   const testModel = (id: string) => router.push(`/interact?model=${encodeURIComponent(id)}`);
   const compareModel = (id: string) =>
     router.push(
-      id.startsWith("nqr-")
+      /^(rantai|nqr)-/.test(id)
         ? `/generations?ft=${encodeURIComponent(id)}`
         : `/generations?base=${encodeURIComponent(id)}`
     );

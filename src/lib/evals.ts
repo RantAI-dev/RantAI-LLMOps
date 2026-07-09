@@ -196,7 +196,7 @@ async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string;
   let stdout: string;
   try {
     // Fixed template; values bind to $1/$2/$3 via "$@" — never interpolated.
-    ({ stdout } = await runHostScript('bash ~/nqr_merge.sh "$@"', [jobId, base, tag]));
+    ({ stdout } = await runHostScript('bash ~/rantai_merge.sh "$@"', [jobId, base, tag]));
   } catch (err) {
     throw new Error(`Merge for eval failed: ${err instanceof Error ? err.message : err}`);
   }

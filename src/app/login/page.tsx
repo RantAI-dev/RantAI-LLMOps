@@ -58,7 +58,7 @@ function LoginForm() {
             <Lock className="size-4" aria-hidden />
           </span>
           <div>
-            <div className="text-sm font-semibold text-primary">NQR LLMOps</div>
+            <div className="text-sm font-semibold text-primary">RantAI LLMOps</div>
             <div className="text-[12px] text-ink-soft">Masuk dengan password tim</div>
           </div>
         </div>

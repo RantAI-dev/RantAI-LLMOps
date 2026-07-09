@@ -629,16 +629,16 @@ function isTrainJob(j: TlJob): boolean {
 export function fineTuneTag(name: string, jobId: string): string {
   const slug = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/(^-|-$)/g, "");
-  const nameSlug = (slug(name || "model") || "model").replace(/^nqr-/, "").slice(0, 48);
+  const nameSlug = (slug(name || "model") || "model").replace(/^(rantai|nqr)-/, "").slice(0, 48);
   const shortId = (slug(jobId).replace(/-/g, "") || "0").slice(0, 8);
-  return `nqr-${nameSlug.replace(/-+$/, "")}-${shortId}`;
+  return `rantai-${nameSlug.replace(/-+$/, "")}-${shortId}`;
 }
 
 /** A live progress update from the export pipeline. */
 export type ExportStage = { message: string; percent?: number };
 
 /**
- * Map a raw line from `nqr_export_gguf.sh` to a friendly stage, or null to ignore.
+ * Map a raw line from `rantai_export_gguf.sh` to a friendly stage, or null to ignore.
  * The script prints `[n/4] …` markers per phase; the GGUF converter prints
  * `Writing: NN%` (via `\r`) during the longest phase — surface that as real %.
  */
@@ -696,7 +696,7 @@ export async function exportFineTunedToGguf(
   assertTag(tag);
 
   // Fixed command template; values bind to $1/$2/$3 via "$@" — never interpolated.
-  const cmd = 'bash ~/nqr_serve_finetune.sh "$@"';
+  const cmd = 'bash ~/rantai_serve_finetune.sh "$@"';
   const cmdArgs = [jobId, base, tag];
   try {
     if (onStage) {

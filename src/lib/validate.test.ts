@@ -31,7 +31,7 @@ describe("assertModelId", () => {
 
 describe("assertTag", () => {
   it("accepts slug-shaped tags", () => {
-    for (const ok of ["nqr-foo", "eval-bar_1", "Qwen2.5"]) {
+    for (const ok of ["rantai-foo", "eval-bar_1", "Qwen2.5"]) {
       expect(() => assertTag(ok), ok).not.toThrow();
     }
   });

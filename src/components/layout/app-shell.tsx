@@ -87,13 +87,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             title={item.label}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex h-9 w-full items-center rounded-md text-left text-sm leading-5 transition-colors",
-              isSidebarOpen ? "gap-2 px-2" : "justify-center px-0",
+              "group relative flex h-9 w-full items-center rounded-lg text-left text-sm leading-5 transition-all",
+              isSidebarOpen ? "gap-2 px-3" : "justify-center px-0",
               active
-                ? "border border-border bg-surface-2 text-primary-light"
-                : "text-primary hover:bg-surface-2"
+                ? "bg-sidebar-accent font-medium text-sidebar-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-hover hover:text-sidebar-foreground"
             )}
           >
+            {isSidebarOpen ? (
+              <span
+                className={cn(
+                  "absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-sm bg-sidebar-foreground transition-all duration-150 ease-in-out",
+                  active ? "h-6 opacity-100" : "h-2 opacity-0 group-hover:h-4 group-hover:opacity-100"
+                )}
+                aria-hidden
+              />
+            ) : null}
             <item.icon className="size-4 shrink-0" aria-hidden />
             {isSidebarOpen ? (
               <span className="min-w-0 flex-1 truncate">{item.label}</span>
@@ -118,27 +127,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <main className="flex h-dvh overflow-hidden bg-white text-sm leading-5 text-primary">
+    <main className="flex h-dvh overflow-hidden bg-background text-sm leading-5 text-foreground">
       <div className="flex h-full min-h-0 w-full">
         <aside
           className={cn(
-            "flex h-full shrink-0 flex-col border-r border-hairline-2 bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.06)] transition-[width] duration-200",
+            "flex h-full shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200",
             isSidebarOpen ? "w-[214px]" : "w-[70px]"
           )}
         >
-          <div className={cn("border-b border-hairline-2 py-3", isSidebarOpen ? "px-4" : "px-3")}>
+          <div className={cn("border-b border-sidebar-border py-3", isSidebarOpen ? "px-4" : "px-3")}>
             <Link
               href="/dashboard"
               title="Home"
               className={cn(
-                "flex h-12 w-full items-center rounded-md transition-colors hover:bg-surface-2",
+                "flex h-12 w-full items-center rounded-lg transition-colors hover:bg-sidebar-hover",
                 isSidebarOpen ? "gap-2 px-1" : "justify-center"
               )}
             >
               <div className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded bg-white shadow-[0_2px_6px_rgba(0,0,0,0.12)]">
                 <Image
-                  src="/nq-logo.png"
-                  alt="NQR"
+                  src="/rantai-logo.png"
+                  alt="RantAI"
                   width={32}
                   height={32}
                   className="object-contain p-0.5"
@@ -148,8 +157,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               {isSidebarOpen ? (
                 <div className="text-left">
-                  <p className="text-sm leading-none font-semibold text-primary">NQR</p>
-                  <p className="mt-1 text-sm leading-none text-ink-soft">LLMOps</p>
+                  <p className="text-sm leading-none font-semibold text-sidebar-foreground">RantAI</p>
+                  <p className="mt-1 text-sm leading-none text-sidebar-muted">LLMOps</p>
                 </div>
               ) : null}
             </Link>
@@ -158,14 +167,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className={cn("flex-1 space-y-6 py-3", isSidebarOpen ? "px-2" : "px-3")}>
             <nav aria-label="Main">
               {isSidebarOpen ? (
-                <p className="px-2 py-1 text-sm leading-5 font-medium text-primary/70">Main</p>
+                <p className="px-2 py-1 text-sm leading-5 font-medium text-sidebar-muted">Main</p>
               ) : null}
               {renderNav(mainNav)}
             </nav>
 
             <nav aria-label="Workspace">
               {isSidebarOpen ? (
-                <p className="px-2 py-1 text-sm leading-5 font-medium text-primary/70">Workspace</p>
+                <p className="px-2 py-1 text-sm leading-5 font-medium text-sidebar-muted">Workspace</p>
               ) : null}
               {renderNav(workspaceNav)}
             </nav>
@@ -179,20 +188,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     type="button"
                     title="Account"
                     className={cn(
-                      "flex min-h-12 w-full items-center rounded-md transition-colors outline-none hover:bg-surface-2",
+                      "flex min-h-12 w-full items-center rounded-lg transition-colors outline-none hover:bg-sidebar-hover",
                       isSidebarOpen ? "gap-2 px-2" : "justify-center"
                     )}
                   >
                     <Avatar>
-                      <AvatarFallback className="bg-[#ffddb8] text-[#7a2900]">{initials}</AvatarFallback>
+                      <AvatarFallback className="bg-sidebar-accent text-sidebar-foreground">{initials}</AvatarFallback>
                     </Avatar>
                     {isSidebarOpen ? (
                       <>
                         <div className="min-w-0 flex-1 text-left">
-                          <p className="truncate text-sm leading-5 font-semibold">{user?.name ?? "—"}</p>
-                          <p className="truncate text-sm leading-5 text-ink-soft">{user?.email ?? ""}</p>
+                          <p className="truncate text-sm leading-5 font-semibold text-sidebar-foreground">{user?.name ?? "—"}</p>
+                          <p className="truncate text-sm leading-5 text-sidebar-muted">{user?.email ?? ""}</p>
                         </div>
-                        <LogOut className="size-4 shrink-0 text-ink-soft" aria-hidden />
+                        <LogOut className="size-4 shrink-0 text-sidebar-muted" aria-hidden />
                       </>
                     ) : null}
                   </button>
@@ -213,7 +222,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="shrink-0 border-b border-hairline-2 bg-surface px-4 py-3">
+          <header className="shrink-0 border-b border-border bg-background px-4 py-3">
             <div className="flex items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
                 <button
@@ -236,7 +245,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <button
                 type="button"
-                className="grid size-9 place-items-center rounded-md text-primary hover:bg-primary-soft"
+                className="grid size-9 place-items-center rounded-md text-foreground hover:bg-surface-2"
                 aria-label="Notifications"
               >
                 <Bell className="size-4" />
@@ -244,7 +253,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-white p-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto bg-background p-4 scrollbar-thin">
             {children}
           </div>
         </section>

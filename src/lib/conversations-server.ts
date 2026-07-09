@@ -11,7 +11,7 @@ import { TL_ROOT } from "@/lib/models-catalog";
 import { logServerError } from "@/lib/log";
 
 /** Experiment used purely as the storage bucket for chat conversations. */
-const CHAT_EXPERIMENT = "nqr-ft";
+const CHAT_EXPERIMENT = "rantai-ft";
 
 const convUrl = (id?: string) =>
   `${TL_ROOT}/experiment/${CHAT_EXPERIMENT}/conversations${id ? `/${encodeURIComponent(id)}` : ""}`;

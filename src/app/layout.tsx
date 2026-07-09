@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Poppins, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// RantAI's primary typeface (matches the RantAI-Agents app).
+const poppins = Poppins({
+  variable: "--font-poppins",
+  weight: ["300", "400", "500", "600", "700"],
   subsets: ["latin"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -14,9 +17,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NQR - LLMOps",
-  description: "NQR LLM Ops — manage experiments, tasks, models, datasets, and compute.",
-  icons: { icon: "/nq-logo.png" },
+  title: "RantAI - LLMOps",
+  description: "RantAI LLMOps — fine-tune, evaluate, and serve LLMs on your own hardware.",
+  // Favicon is provided by the App Router file conventions: src/app/favicon.ico
+  // + src/app/icon.png (both the RantAI logo).
 };
 
 export default function RootLayout({
@@ -27,7 +31,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${poppins.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="h-full overflow-hidden bg-background text-foreground">
         {children}

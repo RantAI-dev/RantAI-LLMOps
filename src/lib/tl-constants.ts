@@ -7,7 +7,7 @@
  * Keeping it here removes the previously-duplicated literal in finetune/evals/
  * tasks-server.
  */
-export const FINETUNE_EXPERIMENT = "nqr-ft";
+export const FINETUNE_EXPERIMENT = "rantai-ft";
 
 /**
  * Notes are stored as TL experiments' `notes/readme.md`. Each user-facing note is
