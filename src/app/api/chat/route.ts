@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { INFERENCE_MODEL, INFERENCE_STREAM } from "@/lib/inference";
+import { logInference } from "@/lib/inference-log-store";
 import { OLLAMA_V1, loadedOllamaModel } from "@/lib/ollama";
 
 export const runtime = "nodejs";
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
       signal: AbortSignal.any([req.signal, AbortSignal.timeout(10 * 60_000)]),
     });
   } catch {
+    logChatError(model, t0);
     return Response.json(
       {
         error: `Could not reach Ollama at ${OLLAMA_V1}. Is it running? (start it in WSL: ~/start_ollama.sh, or set OLLAMA_BASE_URL in .env.local)`,
@@ -76,6 +78,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!upstream.ok || !upstream.body) {
+    logChatError(model, t0);
     const detail = await upstream.text().catch(() => "");
     return Response.json(
       { error: detail || `Inference engine returned ${upstream.status}` },
@@ -86,7 +89,7 @@ export async function POST(req: NextRequest) {
   // Real streaming path: pass the OpenAI-compatible SSE stream straight through,
   // tapped to append per-response inference metrics after it ends.
   if (INFERENCE_STREAM) {
-    return new Response(tapChatMetrics(upstream.body, t0), { headers: SSE_HEADERS });
+    return new Response(tapChatMetrics(upstream.body, t0, model), { headers: SSE_HEADERS });
   }
 
   // Fallback path (engine streaming is unreliable, e.g. TL llama.cpp GGUF):
@@ -114,7 +117,24 @@ const SSE_HEADERS = {
  * untouched, so rendering is unaffected. The client reads until the stream
  * closes (not `[DONE]`), so appending in `flush` is safe.
  */
-function tapChatMetrics(body: ReadableStream<Uint8Array>, t0: number): ReadableStream<Uint8Array> {
+/** Log a failed chat request (Ollama unreachable / non-OK) so the Dashboard's
+ *  error rate is real. Fire-and-forget. */
+function logChatError(model: string, t0: number): void {
+  void logInference({
+    ts: Date.now(),
+    model,
+    status: "error",
+    tokens: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    tokS: 0,
+    ttftMs: 0,
+    totalMs: Date.now() - t0,
+    finishReason: "error",
+  });
+}
+
+function tapChatMetrics(body: ReadableStream<Uint8Array>, t0: number, model: string): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
@@ -158,6 +178,8 @@ function tapChatMetrics(body: ReadableStream<Uint8Array>, t0: number): ReadableS
         totalMs: now - t0,
         finishReason,
       };
+      // Persist for the Dashboard's usage analytics (fire-and-forget).
+      void logInference({ ts: now, model, status: "ok", ...metrics });
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ rantai_metrics: metrics })}\n\n`));
     },
   });

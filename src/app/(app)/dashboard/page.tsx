@@ -1,7 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Boxes, Database, FlaskConical, ListTodo, Loader2, Sparkles } from "lucide-react";
+import {
+  Boxes,
+  Database,
+  FlaskConical,
+  Hash,
+  ListTodo,
+  Loader2,
+  MessageSquare,
+  Sparkles,
+  Timer,
+  Zap,
+} from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -28,6 +39,30 @@ type EvalScore = { type: string; score: number };
 type EvalJob = { model?: string; benchmark?: string; scores?: EvalScore[]; finishedAt?: string };
 type EvalsResp = { jobs?: EvalJob[] };
 
+type InferenceStats = {
+  total: number;
+  errors: number;
+  errorRate: number;
+  last24h: number;
+  totalTokens: number;
+  avgTtftMs: number;
+  avgTotalMs: number;
+  avgTokS: number;
+  byModel: Array<{ model: string; count: number }>;
+};
+
+const EMPTY_INFERENCE: InferenceStats = {
+  total: 0,
+  errors: 0,
+  errorRate: 0,
+  last24h: 0,
+  totalTokens: 0,
+  avgTtftMs: 0,
+  avgTotalMs: 0,
+  avgTokS: 0,
+  byModel: [],
+};
+
 type Summary = {
   models: number;
   fineTuned: number;
@@ -37,7 +72,11 @@ type Summary = {
   jobsTotal: number;
   lastEval: { score: number; label: string } | null;
   recent: Job[];
+  inference: InferenceStats;
 };
+
+const fmtMs = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms} ms`);
+const fmtNum = (n: number): string => new Intl.NumberFormat("en-US").format(n);
 
 const ACTIVE = new Set(["RUNNING", "STARTED", "QUEUED", "NOT_STARTED"]);
 
@@ -49,7 +88,7 @@ const ui = {
 } as const;
 
 async function loadSummary(): Promise<Summary> {
-  const [cat, ds, tk, ev] = await Promise.all([
+  const [cat, ds, tk, ev, inf] = await Promise.all([
     fetch("/api/models/catalog", { cache: "no-store" }).then((r) => r.json() as Promise<Catalog>),
     fetch("/api/datasets/list", { cache: "no-store" }).then((r) => r.json() as Promise<DatasetsResp>),
     fetch("/api/tasks/list", { cache: "no-store" }).then((r) => r.json() as Promise<TasksResp>),
@@ -58,6 +97,10 @@ async function loadSummary(): Promise<Summary> {
     fetch("/api/evals/jobs", { cache: "no-store" })
       .then((r) => r.json() as Promise<EvalsResp>)
       .catch(() => ({ jobs: [] as EvalJob[] })),
+    // Real chat usage from the inference request log.
+    fetch("/api/dashboard/inference-stats", { cache: "no-store" })
+      .then((r) => r.json() as Promise<InferenceStats>)
+      .catch(() => EMPTY_INFERENCE),
   ]);
   const servable = cat.servable ?? [];
   const jobs = tk.jobs ?? [];
@@ -85,6 +128,7 @@ async function loadSummary(): Promise<Summary> {
     jobsTotal: jobs.length,
     lastEval,
     recent: jobs.slice(0, 6),
+    inference: inf ?? EMPTY_INFERENCE,
   };
 }
 
@@ -262,6 +306,82 @@ export default function Page() {
                 )}
               </CardContent>
             </Card>
+          </div>
+
+          {/* Chat inference usage — real, from the request log */}
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <MessageSquare className="size-4 text-primary" />
+              <h2 className={cn("text-primary", ui.cardHeading)}>Penggunaan chat (inference)</h2>
+            </div>
+            {data.inference.total === 0 ? (
+              <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-ink-soft">
+                Belum ada request chat. Coba chat di <strong>Interact</strong> — statistik penggunaan
+                muncul di sini.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+                  <MetricCard
+                    title="Request"
+                    icon={<MessageSquare className="size-4" />}
+                    iconBg="bg-info-soft"
+                    iconColor="text-info-bright"
+                    value={fmtNum(data.inference.total)}
+                    sub={`${data.inference.last24h} dalam 24 jam · error ${(data.inference.errorRate * 100).toFixed(0)}%`}
+                  />
+                  <MetricCard
+                    title="Rata-rata latency"
+                    icon={<Timer className="size-4" />}
+                    iconBg="bg-warning-soft"
+                    iconColor="text-warning-gold"
+                    value={fmtMs(data.inference.avgTotalMs)}
+                    sub={`ttft ~${data.inference.avgTtftMs} ms`}
+                  />
+                  <MetricCard
+                    title="Rata-rata tok/s"
+                    icon={<Zap className="size-4" />}
+                    iconBg="bg-success-soft"
+                    iconColor="text-success-bright"
+                    value={data.inference.avgTokS}
+                    sub="kecepatan generate"
+                  />
+                  <MetricCard
+                    title="Total token"
+                    icon={<Hash className="size-4" />}
+                    iconBg="bg-purple-soft"
+                    iconColor="text-purple-bright"
+                    value={fmtNum(data.inference.totalTokens)}
+                    sub={`${data.inference.byModel.length} model dipakai`}
+                  />
+                </div>
+
+                {data.inference.byModel.length > 0 ? (
+                  <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
+                    <CardHeader className="pb-2">
+                      <CardTitle className={cn("text-primary", ui.cardHeading)}>
+                        Request per model
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="divide-y divide-border">
+                        {data.inference.byModel.map((m) => (
+                          <li
+                            key={m.model}
+                            className="flex items-center justify-between gap-3 py-1.5 text-sm"
+                          >
+                            <span className="min-w-0 truncate text-ink">{m.model.split("/").pop()}</span>
+                            <span className="shrink-0 tabular-nums text-ink-soft">
+                              {fmtNum(m.count)} request
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                ) : null}
+              </div>
+            )}
           </div>
         </>
       )}
