@@ -6,8 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ModelPicker } from "@/modules/playground/components/model-picker";
-import { parseChatSseLine } from "@/modules/playground/lib/sse";
-import type { ChatMessage } from "@/modules/playground/types";
+import { parseChatMetrics, parseChatSseLine } from "@/modules/playground/lib/sse";
+import type { ChatMessage, ChatMetrics } from "@/modules/playground/types";
 import { cn } from "@/lib/utils";
 
 type SetMessages = (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
@@ -91,7 +91,12 @@ export function ChatArea({
         buffer = lines.pop() ?? "";
         for (const line of lines) {
           const delta = parseChatSseLine(line);
-          if (delta) setMessages((prev) => appendDelta(prev, delta));
+          if (delta) {
+            setMessages((prev) => appendDelta(prev, delta));
+            continue;
+          }
+          const metrics = parseChatMetrics(line);
+          if (metrics) setMessages((prev) => attachMetrics(prev, metrics));
         }
       }
     } catch (err) {
@@ -133,13 +138,24 @@ export function ChatArea({
                     <Bot className="size-4" aria-hidden />
                   </div>
                 ) : null}
-                <div
-                  className={cn(
-                    "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap",
-                    m.role === "user" ? "bg-primary text-primary-foreground" : "bg-surface-2 text-ink"
-                  )}
-                >
-                  {m.content || (isStreaming && m.role === "assistant" ? "…" : "")}
+                <div className="flex max-w-[80%] flex-col gap-1">
+                  <div
+                    className={cn(
+                      "rounded-2xl px-3.5 py-2 text-sm whitespace-pre-wrap",
+                      m.role === "user" ? "bg-primary text-primary-foreground" : "bg-surface-2 text-ink"
+                    )}
+                  >
+                    {m.content || (isStreaming && m.role === "assistant" ? "…" : "")}
+                  </div>
+                  {m.role === "assistant" && m.metrics ? (
+                    <p className="px-1 text-[11px] tabular-nums text-ink-faint-strong">
+                      {m.metrics.tokens} tokens · {m.metrics.tokS} tok/s · ttft {m.metrics.ttftMs} ms ·{" "}
+                      {fmtDuration(m.metrics.totalMs)}
+                      {m.metrics.finishReason === "length" ? (
+                        <span className="ml-1 font-medium text-warning">· ⚠️ terpotong (kena limit token)</span>
+                      ) : null}
+                    </p>
+                  ) : null}
                 </div>
                 {m.role === "user" ? (
                   <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-soft">
@@ -195,4 +211,16 @@ function appendDelta(prev: ChatMessage[], delta: string): ChatMessage[] {
   const last = next[next.length - 1];
   if (last?.role === "assistant") next[next.length - 1] = { ...last, content: last.content + delta };
   return next;
+}
+
+function attachMetrics(prev: ChatMessage[], metrics: ChatMetrics): ChatMessage[] {
+  const next = [...prev];
+  const last = next[next.length - 1];
+  if (last?.role === "assistant") next[next.length - 1] = { ...last, metrics };
+  return next;
+}
+
+/** Human-friendly duration: seconds once it passes 1s, else milliseconds. */
+function fmtDuration(ms: number): string {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms} ms`;
 }
