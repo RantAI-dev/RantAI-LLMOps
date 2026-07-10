@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useResourceFetch } from "@/lib/use-resource-fetch";
+import { GpuMeters } from "@/modules/compute/components/gpu-meters";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import {
   fetchComputeProviders,
@@ -97,6 +98,15 @@ export function ComputePage() {
           </Card>
         ))}
       </div>
+
+      <section className="rounded-xl border border-border bg-surface p-4">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Cpu className="size-4 text-primary" aria-hidden />
+          <h2 className="text-sm font-semibold text-primary">GPU realtime</h2>
+          <span className="text-[11px] text-ink-soft">nvidia-smi · refresh tiap ~2,5 dtk</span>
+        </div>
+        <GpuMeters />
+      </section>
 
       {providersFetch.isLoading ? (
         <LoadingState label="Loading compute providers…" />

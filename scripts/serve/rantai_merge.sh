@@ -6,12 +6,12 @@
 set -e
 JOB="$1"; BASE="$2"; NAME="$3"
 if [ -z "$JOB" ] || [ -z "$BASE" ] || [ -z "$NAME" ]; then
-  echo "usage: nqr_merge.sh <jobId> <base_model> <name>" >&2; exit 2
+  echo "usage: rantai_merge.sh <jobId> <base_model> <name>" >&2; exit 2
 fi
 PY="$HOME/.transformerlab/envs/transformerlab/bin/python"
 ADIR=$(find "$HOME/.transformerlab/orgs" -path "*jobs/$JOB/models/*" -name adapter_config.json -printf '%h\n' 2>/dev/null | head -1)
 if [ -z "$ADIR" ]; then echo "ADAPTER_NOT_FOUND for job $JOB" >&2; exit 3; fi
-OUT="$HOME/.transformerlab/nqr_merged/$NAME"
+OUT="$HOME/.transformerlab/rantai_merged/$NAME"
 
 if [ ! -f "$OUT/config.json" ]; then
   "$PY" - "$ADIR" "$BASE" "$OUT" >&2 <<'PYEOF'

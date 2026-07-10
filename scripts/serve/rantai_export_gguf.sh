@@ -1,17 +1,17 @@
 #!/bin/bash
 # NQR: serve a fine-tuned LoRA via Ollama.
-# Usage: nqr_export_gguf.sh <adapter_dir> <base_model_hf_id> <ollama_tag> [outtype]
+# Usage: rantai_export_gguf.sh <adapter_dir> <base_model_hf_id> <ollama_tag> [outtype]
 # Merges adapter into the fp16 base (peft), converts to GGUF (llama.cpp),
 # then 'ollama create' so it becomes a chattable Ollama model.
 set -e
 ADIR="$1"; BASE="$2"; TAG="$3"; OUTTYPE="${4:-q8_0}"
 if [ -z "$ADIR" ] || [ -z "$BASE" ] || [ -z "$TAG" ]; then
-  echo "usage: nqr_export_gguf.sh <adapter_dir> <base_model> <tag> [outtype]"; exit 2
+  echo "usage: rantai_export_gguf.sh <adapter_dir> <base_model> <tag> [outtype]"; exit 2
 fi
 export PATH="$HOME/.local/bin:$PATH"
 PY="$HOME/.transformerlab/envs/transformerlab/bin/python"
 PIP="$HOME/.transformerlab/envs/transformerlab/bin/pip"
-MERGED="$HOME/.transformerlab/nqr_merged/$TAG"
+MERGED="$HOME/.transformerlab/rantai_merged/$TAG"
 LCPP="$HOME/.transformerlab/llama.cpp"
 GGUF="$MERGED/$TAG.$OUTTYPE.gguf"
 

@@ -9,6 +9,7 @@
 import { inferenceHeaders, TL_ROOT } from "@/lib/inference";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { FINETUNE_EXPERIMENT, NOTE_PREFIX } from "@/lib/tl-constants";
+import { readJobLog, saveJobLog } from "@/lib/job-log-store";
 
 const EXPERIMENT = FINETUNE_EXPERIMENT;
 
@@ -223,7 +224,7 @@ async function fetchSdkOutput(id: string, experiment: string): Promise<string> {
 async function fetchProviderConsole(id: string, experiment: string): Promise<string> {
   try {
     const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=500`,
+      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=2000`,
       { headers: inferenceHeaders() }
     );
     if (!res.ok) return "";
@@ -249,10 +250,23 @@ export async function jobOutput(id: string, experimentId?: string): Promise<stri
     fetchProviderConsole(id, experiment),
     fetchSdkOutput(id, experiment),
   ]);
-  if (console_.trim()) {
-    return sdk.trim() ? `${console_}\n\n— — — — —\n${sdk}` : console_;
+  const live = console_.trim()
+    ? sdk.trim()
+      ? `${console_}\n\n— — — — —\n${sdk}`
+      : console_
+    : sdk;
+
+  // TL purges provider_logs after a run, so a finished job's log + loss curve
+  // would go blank. While the live provider console is present (job running),
+  // snapshot the freshest tail and serve it; once purged, serve the last
+  // snapshot (falling back to the SDK summary / raw text if none was captured).
+  const consoleReal = console_.trim().length > 0 && !/no log files? found/i.test(console_);
+  if (consoleReal) {
+    await saveJobLog(id, live);
+    return live;
   }
-  return sdk;
+  const persisted = await readJobLog(id);
+  return persisted.trim() ? persisted : live;
 }
 
 /** Ask a running job to stop (`GET /jobs/{id}/stop`). Returns whether TL accepted it. */

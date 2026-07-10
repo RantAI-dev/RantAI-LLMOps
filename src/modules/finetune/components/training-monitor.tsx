@@ -3,6 +3,8 @@
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { GpuMeters } from "@/modules/compute/components/gpu-meters";
+
 /**
  * Live training monitor for one job: polls the job's raw output (`provider_logs`,
  * i.e. the Unsloth/HF trainer stdout) while it runs, parses the per-step training
@@ -106,6 +108,13 @@ export function TrainingMonitor({ jobId, active }: { jobId: string; active: bool
                 </span>
               </div>
               <LossSparkline values={losses} />
+            </div>
+          ) : null}
+
+          {active ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium text-ink-soft">GPU (live)</p>
+              <GpuMeters compact intervalMs={3000} />
             </div>
           ) : null}
 

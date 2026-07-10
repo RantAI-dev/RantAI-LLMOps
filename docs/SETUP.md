@@ -43,8 +43,8 @@ This (idempotently):
    binds `/mnt/wsl` so bwrap can resolve `/etc/resolv.conf` (otherwise **every job
    FAILS** with `bwrap: Can't create file at /etc/resolv.conf`).
 2. **Installs Ollama** userspace into `~/.local` (no sudo) — `scripts/setup/install-ollama.sh`.
-3. Installs the serve-fine-tune scripts into `$HOME` (`nqr_export_gguf.sh`,
-   `nqr_serve_finetune.sh` — used by the "Export to use" button).
+3. Installs the serve-fine-tune scripts into `$HOME` (`rantai_export_gguf.sh`,
+   `rantai_serve_finetune.sh` — used by the "Export to use" button).
 4. Starts both backends.
 5. Creates experiments `nqr-ft` / `nqr-eval`.
 6. Raises the team quota to effectively unlimited (self-host, no cloud cost; the
@@ -74,7 +74,7 @@ already up.
 
 1. **Fine-tune** → a compute-provider job trains a LoRA adapter (Unsloth, pulls
    the base model + dataset from Hugging Face by id).
-2. **Export to use** → `scripts/serve/nqr_serve_finetune.sh` (via `wsl.exe`):
+2. **Export to use** → `scripts/serve/rantai_serve_finetune.sh` (via `wsl.exe`):
    merges the adapter into the fp16 base (peft) → converts to **GGUF**
    (llama.cpp) → `ollama create`. The model then appears in the chat picker.
 

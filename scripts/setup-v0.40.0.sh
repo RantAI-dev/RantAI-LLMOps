@@ -26,11 +26,11 @@ echo "== 2) install Ollama (userspace) =="
 bash "$HERE/setup/install-ollama.sh"
 
 echo "== 3) install serve-fine-tune scripts into \$HOME =="
-cp "$HERE/serve/nqr_export_gguf.sh" "$HOME/nqr_export_gguf.sh"
-cp "$HERE/serve/nqr_serve_finetune.sh" "$HOME/nqr_serve_finetune.sh"
-cp "$HERE/serve/nqr_merge.sh" "$HOME/nqr_merge.sh"
-chmod +x "$HOME/nqr_export_gguf.sh" "$HOME/nqr_serve_finetune.sh" "$HOME/nqr_merge.sh"
-echo "  installed ~/nqr_export_gguf.sh, ~/nqr_serve_finetune.sh, ~/nqr_merge.sh"
+cp "$HERE/serve/rantai_export_gguf.sh" "$HOME/rantai_export_gguf.sh"
+cp "$HERE/serve/rantai_serve_finetune.sh" "$HOME/rantai_serve_finetune.sh"
+cp "$HERE/serve/rantai_merge.sh" "$HOME/rantai_merge.sh"
+chmod +x "$HOME/rantai_export_gguf.sh" "$HOME/rantai_serve_finetune.sh" "$HOME/rantai_merge.sh"
+echo "  installed ~/rantai_export_gguf.sh, ~/rantai_serve_finetune.sh, ~/rantai_merge.sh"
 
 echo "== 4) start backends (TL :8339 + Ollama :11434) =="
 bash "$HERE/start-all.sh" || true

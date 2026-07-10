@@ -30,9 +30,9 @@ services:
       - ${HOME}/.transformerlab:${HOME}/.transformerlab
       # Serve/merge pipeline scripts (used when HOST_RUNNER=docker). Mounted from
       # the repo so they always exist and stay version-controlled.
-      - ../scripts/serve/nqr_serve_finetune.sh:${HOME}/nqr_serve_finetune.sh:ro
-      - ../scripts/serve/nqr_merge.sh:${HOME}/nqr_merge.sh:ro
-      - ../scripts/serve/nqr_export_gguf.sh:${HOME}/nqr_export_gguf.sh:ro
+      - ../scripts/serve/rantai_serve_finetune.sh:${HOME}/rantai_serve_finetune.sh:ro
+      - ../scripts/serve/rantai_merge.sh:${HOME}/rantai_merge.sh:ro
+      - ../scripts/serve/rantai_export_gguf.sh:${HOME}/rantai_export_gguf.sh:ro
 
     working_dir: ${HOME}/.transformerlab/src
     # Launch TL the same way scripts/start-all.sh does, but in the foreground.
