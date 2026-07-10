@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { GpuMeters } from "@/modules/compute/components/gpu-meters";
+import { parseLoss } from "@/modules/finetune/lib/parse-loss";
 
 /**
  * Live training monitor for one job: polls the job's raw output (`provider_logs`,
@@ -11,18 +12,6 @@ import { GpuMeters } from "@/modules/compute/components/gpu-meters";
  * loss into a sparkline, and tails the raw log — so a user can SEE it's really
  * working, not just a spinner. Collapses to a one-line summary when idle.
  */
-
-/** Pull the HF Trainer's per-step `'loss': X` values out of the raw stdout. */
-function parseLoss(text: string): number[] {
-  const out: number[] = [];
-  const re = /['"]loss['"]\s*:\s*([0-9]+(?:\.[0-9]+)?)/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    const v = Number(m[1]);
-    if (Number.isFinite(v)) out.push(v);
-  }
-  return out;
-}
 
 function LossSparkline({ values }: { values: number[] }) {
   const w = 300;

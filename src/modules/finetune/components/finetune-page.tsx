@@ -4,13 +4,14 @@ import { useState } from "react";
 
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
+import { CompareRuns } from "@/modules/finetune/components/compare-runs";
 import { DatasetForm } from "@/modules/finetune/components/dataset-form";
 import { FinetuneForm } from "@/modules/finetune/components/finetune-form";
 import { JobList } from "@/modules/finetune/components/job-list";
 import { SweepPanel } from "@/modules/finetune/components/sweep-panel";
 import { useFinetune } from "@/modules/finetune/hooks/use-finetune";
 
-type Tab = "single" | "sweep";
+type Tab = "single" | "sweep" | "compare";
 
 /** Fine-tune workspace: configure + start a LoRA run, then watch jobs live. */
 export function FinetunePage() {
@@ -47,6 +48,7 @@ export function FinetunePage() {
               [
                 ["single", "Single run"],
                 ["sweep", "Sweep"],
+                ["compare", "Compare"],
               ] as const
             ).map(([id, lbl]) => (
               <button
@@ -76,8 +78,10 @@ export function FinetunePage() {
 
               <DatasetForm onCreate={createDataset} />
             </>
-          ) : (
+          ) : tab === "sweep" ? (
             <SweepPanel options={options} />
+          ) : (
+            <CompareRuns />
           )}
 
           <div>
