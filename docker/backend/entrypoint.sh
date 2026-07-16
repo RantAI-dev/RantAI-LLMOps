@@ -47,5 +47,27 @@ if [ ! -f "$MARK" ]; then
   echo "[rantai-init] Install complete."
 fi
 
+# TL sandboxes each training job with bwrap (bubblewrap), which must create a new
+# user namespace — and that needs a PRIVILEGED container. Many hosts (locked-down
+# Portainer, the UGM GX10) forbid privileged, so bwrap fails at run time with
+# "Creating new namespace failed: Operation not permitted" and every job FAILS.
+# TL's own fallback: if it can't find `bwrap` on PATH it uses HOME-override
+# isolation instead, which needs NO privileges. So unless RANTAI_SANDBOX=1 is set
+# (which you'd pair with `privileged: true`), hide bwrap here so training just
+# works on an unprivileged container. Runs every start (survives a redeploy).
+if [ "${RANTAI_SANDBOX:-0}" != "1" ]; then
+  _bw="$(command -v bwrap 2>/dev/null || true)"
+  if [ -n "$_bw" ]; then
+    echo "[rantai-init] RANTAI_SANDBOX!=1 → disabling bwrap ($_bw) so no privileged container is needed"
+    mv "$_bw" "${_bw}.disabled" || true
+  fi
+fi
+
+# GPU-stats sidecar: serves nvidia-smi as JSON on :8341 so the UI's GPU widget
+# works even though the frontend container has no GPU (see docker/backend/
+# gpu-server.py). Best-effort background process — if it dies only the widget is
+# affected, never training. Uses the system python3 (stdlib only).
+python3 /opt/rantai/gpu-server.py >/tmp/rantai-gpu-server.log 2>&1 &
+
 cd "$TLAB/src"
 exec ./run.sh -p 8339 -h 0.0.0.0

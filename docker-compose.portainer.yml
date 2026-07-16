@@ -63,8 +63,10 @@ services:
       - tl_data:/root/.transformerlab
     ports:
       - "8339:8339"
-    # bwrap (the compute-provider sandbox) needs elevated privileges to nest.
-    privileged: true
+    # NO privileged needed: the entrypoint disables bwrap by default so TL uses
+    # its unprivileged HOME-override isolation (many hosts, incl. the GX10, forbid
+    # privileged containers). For stronger bwrap sandboxing on a host that DOES
+    # allow it, set `privileged: true` here AND environment `RANTAI_SANDBOX=1`.
     deploy:
       resources:
         reservations:
@@ -108,6 +110,10 @@ services:
       # team (TL resolves it server-side), which is what a fresh install wants.
       - INFERENCE_TEAM_ID=${INFERENCE_TEAM_ID:-}
       - OLLAMA_BASE_URL=http://ollama:11434
+      # GPU widget reads nvidia-smi from the backend's sidecar (the frontend has
+      # no GPU). Points at the backend service on the sidecar port (see
+      # docker/backend/gpu-server.py).
+      - GPU_STATS_URL=http://rantai-backend:8341
       - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:0.5b}
       - HOST_RUNNER=docker
       - DOCKER_CONTAINER=rantai-backend
