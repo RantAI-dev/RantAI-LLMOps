@@ -48,7 +48,10 @@ SHELL ["/bin/bash", "--login", "-c"]
 
 # OS deps: TL installer + build toolchain, the bwrap compute-provider sandbox,
 # tini (PID 1 reaps job processes), and the serve-pipeline tools (git, zstd).
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Drop the NVIDIA CUDA apt repo first: we install nothing from it, and its mirror
+# occasionally serves a mid-sync index that fails apt-get update.
+RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
       curl git ca-certificates \
       python3.11 python3-pip python-is-python3 g++ ninja-build \
       bubblewrap procps tini xz-utils zstd \

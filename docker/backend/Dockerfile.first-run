@@ -36,7 +36,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
 SHELL ["/bin/bash", "-c"]
 
 # Build toolchain the first-run install needs + the bwrap sandbox + serve tools.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Drop the NVIDIA CUDA apt repo first: we install NOTHING from it (every package
+# below is in Ubuntu main), and its mirror occasionally serves a mid-sync index
+# that fails `apt-get update` ("File has unexpected size … Mirror sync in
+# progress"). Removing it makes the build immune to that transient CDN issue.
+RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
       curl git ca-certificates \
       python3.11 python3-pip python-is-python3 g++ ninja-build \
       bubblewrap procps tini xz-utils zstd \

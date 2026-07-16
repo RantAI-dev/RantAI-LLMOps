@@ -24,7 +24,7 @@
 #   APP_PASSWORD   — password to protect the web UI (can be empty to disable)
 #   AUTH_SECRET    — NextAuth secret (generate: openssl rand -base64 32)
 #   HF_TOKEN       — HuggingFace token (optional, for private models)
-#   INFERENCE_API_KEY — TransformerLab API key. NOT optional if you want the UI to
+#   INFERENCE_API_KEY — backend API key. NOT optional if you want the UI to
 #                    reach TL. A fresh TL has no key; mint one with
 #                    `bash scripts/bootstrap-tl-auth.sh` (it also creates the
 #                    rantai-ft / rantai-eval experiments and raises the quota),
@@ -36,8 +36,8 @@
 #                    value"), so the bootstrap and the UI cannot authenticate.
 
 services:
-  # ─── Backend (TransformerLab) ────────────────────────────────────────────────
-  transformerlab:
+  # ─── Backend (LLMOps engine) ─────────────────────────────────────────────────
+  rantai-backend:
     # SELF-CONTAINED image (built from docker/backend/Dockerfile): the TL source,
     # the conda env with torch+CUDA, the rantai_* serve scripts, llama.cpp and the
     # Ollama CLI are all BAKED IN — so the host needs NO ~/.transformerlab and no
@@ -49,7 +49,7 @@ services:
     # NOTE: this image is ~41 GB and cannot be built on a GitHub-hosted runner
     # (14 GB disk). Build it on the GPU host itself — see the header.
     image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend:latest}
-    container_name: transformerlab
+    container_name: rantai-backend
     environment:
       - PYTHONUNBUFFERED=1
       # REQUIRED — see the header. Unset = TL serves `/` but every login 500s.
@@ -101,7 +101,7 @@ services:
     image: ${FRONTEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-fe:latest}
     container_name: rantai-frontend
     environment:
-      - INFERENCE_BASE_URL=http://transformerlab:8339/v1
+      - INFERENCE_BASE_URL=http://rantai-backend:8339/v1
       # Mint both with scripts/bootstrap-tl-auth.sh against a running backend.
       - INFERENCE_API_KEY=${INFERENCE_API_KEY:-}
       # Optional: if left empty the API key falls back to the admin's personal
@@ -110,7 +110,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:0.5b}
       - HOST_RUNNER=docker
-      - DOCKER_CONTAINER=transformerlab
+      - DOCKER_CONTAINER=rantai-backend
       - APP_PASSWORD=${APP_PASSWORD:-}
       - AUTH_SECRET=${AUTH_SECRET}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -120,7 +120,7 @@ services:
       # data is lost on every container replace.
       - ui_data:/data
       # ── OPTIONAL: in-app GGUF export ────────────────────────────────────────
-      # HOST_RUNNER=docker makes the UI run `docker exec transformerlab …` for the
+      # HOST_RUNNER=docker makes the UI run `docker exec rantai-backend …` for the
       # merge → GGUF → ollama-create pipeline, which needs the Docker socket. That
       # is a BIND MOUNT granting the UI control of host Docker, and Portainer must
       # allow bind mounts for it — so it's OFF by default, keeping the whole stack
@@ -130,7 +130,7 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - transformerlab
+      - rantai-backend
       - ollama
     restart: unless-stopped
     networks:
