@@ -1,0 +1,74 @@
+# syntax=docker/dockerfile:1
+#
+# "Install-at-first-run" Transformer Lab backend — the SMALL variant.
+#
+# Unlike docker/backend/Dockerfile (which bakes the ~15 GB conda/torch env at
+# BUILD time → 41 GB image), this image ships only the vendored source + patches
+# (~3 GB). The heavy env is installed on the FIRST container start, into the named
+# volume at /root/.transformerlab (see entrypoint.sh). Result:
+#   - small image → fits GitHub CI + GHCR, easy to pull
+#   - built natively for the host's arch on first run (arm64 on the GX10)
+#   - NO host ~/.transformerlab mount, NO bind-mount exception (named volume)
+# Trade-off: first boot ~30-40 min and needs internet. AIRGAPPED host → use the
+# baked Dockerfile instead.
+#
+#   docker build -f docker/backend/Dockerfile.first-run -t rantai-llmops-backend:slim .
+#
+# Multi-arch (incl. the GX10's arm64) is cheap here because nothing heavy builds:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     -f docker/backend/Dockerfile.first-run -t ghcr.io/rantai-dev/rantai-llmops-backend:slim --push .
+#
+# NOTE on CUDA + ARM: the GX10 (NVIDIA GB10 Grace Blackwell) runs CUDA fine — ARM
+# is only the CPU; the GPU is NVIDIA. install.sh auto-detects the DGX Spark via
+# /etc/dgx-release at first run and picks the cu130 (CUDA 13) wheels.
+
+# `-base` (not `-devel`): torch/conda bring their own CUDA at first run, and the
+# NVIDIA driver is injected by nvidia-container-toolkit — so we don't need the
+# multi-GB CUDA toolkit in the image itself.
+ARG CUDA_TAG=12.8.1-base-ubuntu22.04
+FROM nvidia/cuda:${CUDA_TAG}
+
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive \
+    HOME=/root \
+    TLAB_DIR=/root/.transformerlab \
+    PYTHONUNBUFFERED=1
+SHELL ["/bin/bash", "-c"]
+
+# Build toolchain the first-run install needs + the bwrap sandbox + serve tools.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl git ca-certificates \
+      python3.11 python3-pip python-is-python3 g++ ninja-build \
+      bubblewrap procps tini xz-utils zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV UV_INSTALL_DIR=/usr/local/bin
+RUN curl -LsSf https://astral.sh/uv/0.11.21/install.sh | env INSTALLER_NO_MODIFY_PATH=1 sh \
+    && uv --version
+
+# Stage the vendored source + patches in the image (small). NOT installed here —
+# entrypoint.sh copies them into the volume and installs on first run.
+COPY backend/ /opt/rantai/tl-src/
+COPY scripts/setup/conversations.py scripts/setup/apply-conversations.sh /opt/rantai/
+COPY scripts/serve/rantai_serve_finetune.sh \
+     scripts/serve/rantai_merge.sh \
+     scripts/serve/rantai_export_gguf.sh /opt/rantai/serve/
+COPY docker/backend/entrypoint.sh /usr/local/bin/rantai-entrypoint.sh
+RUN find /opt/rantai -name '*.sh' -exec sed -i 's/\r$//' {} + \
+    && sed -i 's/\r$//' /usr/local/bin/rantai-entrypoint.sh \
+    && chmod +x /usr/local/bin/rantai-entrypoint.sh
+
+# Ollama CLI (arch-matched) for `ollama create` in the export pipeline.
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in arm64) A=arm64 ;; *) A=amd64 ;; esac; \
+    mkdir -p /root/.local; \
+    curl -fL --retry 3 -o /tmp/o.tar.zst \
+      "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${A}.tar.zst"; \
+    tar --use-compress-program=unzstd -xf /tmp/o.tar.zst -C /root/.local; \
+    rm /tmp/o.tar.zst
+
+ENV PATH=/root/.local/bin:${TLAB_DIR}/miniforge3/bin:$PATH
+EXPOSE 8339
+VOLUME ["/root/.transformerlab"]
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/rantai-entrypoint.sh"]

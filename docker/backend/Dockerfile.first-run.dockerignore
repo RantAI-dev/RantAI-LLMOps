@@ -1,0 +1,37 @@
+# Per-Dockerfile ignore for the first-run (slim) backend build. BuildKit uses this
+# instead of the root .dockerignore (which excludes backend/ + scripts/ for the FE
+# build). Keep backend/, scripts/, and docker/backend/entrypoint.sh; drop only the
+# UI cruft + secrets.
+
+# UI-only + regenerated
+node_modules
+.next
+out
+build
+coverage
+src
+public
+components.json
+*.tsbuildinfo
+
+# git + CI
+.git
+.github
+.gitignore
+.gitattributes
+
+# env + secrets — NEVER copy into an image
+.env*
+
+# runtime app data (may hold the HF token)
+.rantai-data
+.nqr-data
+
+# the knowledge log carries live credentials
+AI_KNOWLEDGE_LOG.md
+
+# docs + misc (NOTE: docker/ is NOT excluded — entrypoint.sh is copied from it)
+docs
+*.md
+.DS_Store
+*.pem
