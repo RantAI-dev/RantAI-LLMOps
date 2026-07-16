@@ -22,10 +22,17 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+# The server-side stores (deployments, settings, job logs, inference log) default to
+# `$(cwd)/.rantai-data`, i.e. /app/.rantai-data — which appuser cannot create because
+# /app is root-owned. Point them at a dedicated dir owned by appuser and expose it as
+# a volume, otherwise every write fails (EACCES) and the data is lost on restart.
+ENV RANTAI_DATA_DIR=/data
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
+ && mkdir -p /data && chown appuser:appgroup /data
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 USER appuser
+VOLUME ["/data"]
 EXPOSE 3000
 CMD ["node", "server.js"]

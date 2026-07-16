@@ -1,3 +1,25 @@
+# Publishes the images this project deploys with.
+#
+# SCOPE — read before adding a job for the self-contained backend:
+#   `publish-backend` below builds docker/Dockerfile, the THIN container: CUDA
+#   base + bwrap + uv (~600 MB). It has no TL source and no torch, so the host it
+#   runs on must already have a hand-built ~/.transformerlab bind-mounted in.
+#
+#   The SELF-CONTAINED backend (docker/backend/Dockerfile) is deliberately NOT
+#   built here. It bakes conda + torch/CUDA and lands at ~41 GB, while a
+#   GitHub-hosted runner has ~14 GB of free disk — the build cannot fit, even
+#   with the free-disk-space actions. On top of that the GX10 is arm64, so a
+#   cross-build here would run under QEMU and take hours.
+#
+#   Build it on the GPU host instead:
+#     docker build -f docker/backend/Dockerfile -t ghcr.io/rantai-dev/rantai-llmops-backend:latest .
+#     # on a DGX Spark / GB10 (the GX10): add --build-arg TLAB_FORCE_CUDA13=1
+#     docker push ghcr.io/rantai-dev/rantai-llmops-backend:latest
+#
+#   To move it into CI later, both need solving first: (1) slim the image with a
+#   multi-stage build (build in -devel, copy the env into a -runtime base — the
+#   CUDA toolkit is currently installed 2-3x over), and (2) use a native arm64
+#   runner (self-hosted on the GX10, or GitHub's arm64 runners).
 name: Publish GHCR Image
 
 on:
@@ -12,7 +34,8 @@ permissions:
 
 jobs:
   publish-backend:
-    name: Build and push Backend image
+    # The THIN backend (needs a host ~/.transformerlab). See the note at the top.
+    name: Build and push Backend image (thin)
     runs-on: ubuntu-latest
 
     steps:

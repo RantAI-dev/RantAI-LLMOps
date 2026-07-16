@@ -4,43 +4,66 @@
 #
 # Prerequisites on the Docker host:
 #   - nvidia-container-toolkit installed (for GPU)
-#   - ~/.transformerlab exists with TL backend set up
-#   - ghcr.io/rantai-dev/rantai-llmops image accessible (public or logged-in)
-#   - For the FE: either (a) build image first and set FRONTEND_IMAGE, or
-#     (b) use Portainer Git integration so the build context is available
+#   - the two images below pullable (public, or `docker login ghcr.io` first)
+#   - ~60+ GB free disk: the backend image is ~41 GB and its named volume is
+#     seeded from it on first run
+#   NOTE: a host TL install (~/.transformerlab) and a checkout of this repo are
+#   NO LONGER needed — the backend image is self-contained.
+#
+# First run (the backend has no API key until you make one):
+#   1. deploy this stack (the frontend will start but can't reach TL yet)
+#   2. bash scripts/bootstrap-tl-auth.sh   (TL_URL=http://<host>:8339)
+#   3. paste the INFERENCE_API_KEY it writes into this stack's env, redeploy
+#
+# Building the backend image: NOT on a GitHub-hosted runner — it needs ~41 GB and
+# those runners have ~14 GB. Build it on the GPU host itself:
+#   docker build -f docker/backend/Dockerfile -t <tag> .
+#   (add --build-arg TLAB_FORCE_CUDA13=1 on a DGX Spark / GB10 box like the GX10)
 #
 # Required env vars (set in Portainer > Stacks > Environment variables):
-#   TL_HOME        — absolute path to your .transformerlab dir, e.g. /home/harpun/.transformerlab
-#   REPO_PATH      — absolute path to this repo, e.g. /home/harpun/Documents/NQRust-LLMOps
 #   APP_PASSWORD   — password to protect the web UI (can be empty to disable)
 #   AUTH_SECRET    — NextAuth secret (generate: openssl rand -base64 32)
 #   HF_TOKEN       — HuggingFace token (optional, for private models)
-#   INFERENCE_API_KEY — TransformerLab API key (from TL dashboard, optional)
+#   INFERENCE_API_KEY — TransformerLab API key. NOT optional if you want the UI to
+#                    reach TL. A fresh TL has no key; mint one with
+#                    `bash scripts/bootstrap-tl-auth.sh` (it also creates the
+#                    rantai-ft / rantai-eval experiments and raises the quota),
+#                    then paste the value it writes to .env.tl-bootstrap here.
+#   TRANSFORMERLAB_JWT_SECRET     — REQUIRED. openssl rand -hex 32
+#   TRANSFORMERLAB_REFRESH_SECRET — REQUIRED, and DIFFERENT from the one above.
+#                    Without both, TL still answers `/` but every login returns
+#                    500 (jwt.encode gets None -> "TypeError: Expected a string
+#                    value"), so the bootstrap and the UI cannot authenticate.
 
 services:
   # ─── Backend (TransformerLab) ────────────────────────────────────────────────
   transformerlab:
-    image: ghcr.io/rantai-dev/rantai-llmops:latest
+    # SELF-CONTAINED image (built from docker/backend/Dockerfile): the TL source,
+    # the conda env with torch+CUDA, the rantai_* serve scripts, llama.cpp and the
+    # Ollama CLI are all BAKED IN — so the host needs NO ~/.transformerlab and no
+    # checkout of this repo. That is the whole point of it.
+    #
+    # Contrast: ghcr.io/rantai-dev/rantai-llmops (docker/Dockerfile) is the THIN
+    # container — it bind-mounts a host TL install you must build by hand first.
+    #
+    # NOTE: this image is ~41 GB and cannot be built on a GitHub-hosted runner
+    # (14 GB disk). Build it on the GPU host itself — see the header.
+    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend:latest}
     container_name: transformerlab
     environment:
-      - HOME=${TL_HOME}
-      - PATH=${TL_HOME}/miniforge3/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - PYTHONUNBUFFERED=1
+      # REQUIRED — see the header. Unset = TL serves `/` but every login 500s.
+      - TRANSFORMERLAB_JWT_SECRET=${TRANSFORMERLAB_JWT_SECRET:?set it — openssl rand -hex 32}
+      - TRANSFORMERLAB_REFRESH_SECRET=${TRANSFORMERLAB_REFRESH_SECRET:?set it — openssl rand -hex 32, different from JWT_SECRET}
+      # `ollama create` (the export pipeline) targets the ollama service below.
+      - OLLAMA_HOST=http://ollama:11434
     volumes:
-      # TL home: src, conda envs, models, jobs, orgs data
-      - ${TL_HOME}:${TL_HOME}
-      # Serve/merge/export pipeline scripts
-      - ${REPO_PATH}/scripts/serve/rantai_serve_finetune.sh:${TL_HOME}/../rantai_serve_finetune.sh:ro
-      - ${REPO_PATH}/scripts/serve/rantai_merge.sh:${TL_HOME}/../rantai_merge.sh:ro
-      - ${REPO_PATH}/scripts/serve/rantai_export_gguf.sh:${TL_HOME}/../rantai_export_gguf.sh:ro
-    working_dir: ${TL_HOME}/src
-    command: >
-      bash -lc 'until [ -x "$$HOME/.transformerlab/miniforge3/bin/conda" ] && [ -f "$$HOME/.transformerlab/src/run.sh" ]; do echo "waiting for mount"; sleep 2; done &&
-      eval "$$(conda shell.bash hook)" &&
-      conda activate "$$HOME/.transformerlab/envs/transformerlab" &&
-      exec ./run.sh -c -p 8339'
+      # Named volume, seeded from the image on first run, then holds the mutable
+      # state: models, adapters, jobs, orgs data. No host path to prepare.
+      - tl_data:/root/.transformerlab
     ports:
       - "8339:8339"
+    # bwrap (the compute-provider sandbox) needs elevated privileges to nest.
     privileged: true
     deploy:
       resources:
@@ -49,8 +72,6 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     networks:
       - llmops
@@ -76,11 +97,16 @@ services:
 
   # ─── Frontend (Next.js) ──────────────────────────────────────────────────────
   frontend:
-    image: ghcr.io/rantai-dev/rantai-llmops-fe:latest
+    # Override to test a locally built image: FRONTEND_IMAGE=rantai-llmops-fe:test
+    image: ${FRONTEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-fe:latest}
     container_name: rantai-frontend
     environment:
       - INFERENCE_BASE_URL=http://transformerlab:8339/v1
+      # Mint both with scripts/bootstrap-tl-auth.sh against a running backend.
       - INFERENCE_API_KEY=${INFERENCE_API_KEY:-}
+      # Optional: if left empty the API key falls back to the admin's personal
+      # team (TL resolves it server-side), which is what a fresh install wants.
+      - INFERENCE_TEAM_ID=${INFERENCE_TEAM_ID:-}
       - OLLAMA_BASE_URL=http://ollama:11434
       - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:0.5b}
       - HOST_RUNNER=docker
@@ -88,6 +114,17 @@ services:
       - APP_PASSWORD=${APP_PASSWORD:-}
       - AUTH_SECRET=${AUTH_SECRET}
       - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      # Server-side stores (deployments, settings, job logs, inference log).
+      # Matches RANTAI_DATA_DIR=/data in Dockerfile.frontend — without this the
+      # data is lost on every container replace.
+      - ui_data:/data
+      # HOST_RUNNER=docker makes the BFF run `docker exec transformerlab …` for the
+      # serve/merge/export pipeline, which needs the daemon socket. SECURITY: this
+      # grants the frontend control of the host Docker — drop it (and HOST_RUNNER)
+      # if you don't need in-app GGUF export, or move that pipeline into the
+      # backend behind a TL endpoint.
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "3000:3000"
     depends_on:
@@ -99,6 +136,10 @@ services:
 
 volumes:
   ollama_data:
+  # Seeded from the backend image on first run (~41 GB) — do not point this at a
+  # small disk.
+  tl_data:
+  ui_data:
 
 networks:
   llmops:

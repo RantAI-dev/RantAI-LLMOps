@@ -1,0 +1,37 @@
+# Per-Dockerfile ignore (BuildKit uses this instead of the root .dockerignore for
+# the backend build). The backend image NEEDS backend/ + scripts/ — which the root
+# .dockerignore excludes for the UI build — so this file re-defines the context:
+# keep backend/ + scripts/, drop only the UI/runtime cruft + secrets.
+
+# UI-only + regenerated
+node_modules
+.next
+out
+build
+coverage
+src
+public
+components.json
+*.tsbuildinfo
+
+# git + CI
+.git
+.github
+.gitignore
+.gitattributes
+
+# env + secrets — NEVER copy into an image
+.env*
+
+# runtime app data (may hold the HF token)
+.rantai-data
+.nqr-data
+
+# the knowledge log holds live credentials
+AI_KNOWLEDGE_LOG.md
+
+# docs + misc
+docs
+*.md
+.DS_Store
+*.pem

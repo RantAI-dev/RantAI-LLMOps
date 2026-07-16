@@ -1,0 +1,42 @@
+# Build context for the frontend image (ghcr.yml builds it with `context: .`).
+# The FE only needs package*.json, the Next/TS config, src/ and public/ — everything
+# below is reinstalled in the image, is runtime state, is a secret, or is the
+# (vendored, Python) backend. Without this file the whole repo — including
+# node_modules, .env.local and AI_KNOWLEDGE_LOG.md — is uploaded to the daemon.
+#
+# NOTE: the backend CI job uses `context: ./docker`, so this file does not apply
+# to it; a context rooted at ./docker needs its own ./docker/.dockerignore.
+
+# deps + build output (regenerated inside the image)
+node_modules
+.next
+out
+build
+coverage
+
+# the vendored Transformer Lab backend — Python, not part of the FE build
+backend
+
+# git + CI
+.git
+.github
+
+# env + secrets — NEVER upload these into a build context
+.env*
+
+# runtime app data (may hold the HF token)
+.rantai-data
+.nqr-data
+
+# the knowledge log carries live credentials
+AI_KNOWLEDGE_LOG.md
+
+# docker / docs / host scripts — not needed to build the FE
+docker
+docs
+scripts
+*.md
+.DS_Store
+*.pem
+*.tsbuildinfo
+npm-debug.log*
