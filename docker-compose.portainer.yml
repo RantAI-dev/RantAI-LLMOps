@@ -75,18 +75,8 @@ services:
       - llmops
 
   # ─── Frontend (Next.js) ──────────────────────────────────────────────────────
-  # Option A (Git deployment): build from source — works if Portainer has access to repo files
-  # Option B: comment out "build:", set "image: ghcr.io/rantai-dev/rantai-llmops-fe:latest"
-  #           after running: docker build -f Dockerfile.frontend -t ghcr.io/rantai-dev/rantai-llmops-fe:latest . && docker push ...
   frontend:
-    build:
-      context: ${REPO_PATH}
-      dockerfile: Dockerfile.frontend
-      args:
-        INFERENCE_BASE_URL: http://transformerlab:8339/v1
-        OLLAMA_BASE_URL: http://ollama:11434
-        HOST_RUNNER: docker
-        DOCKER_CONTAINER: transformerlab
+    image: ghcr.io/rantai-dev/rantai-llmops-fe:latest
     container_name: rantai-frontend
     environment:
       - INFERENCE_BASE_URL=http://transformerlab:8339/v1
