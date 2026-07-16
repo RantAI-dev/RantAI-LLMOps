@@ -119,12 +119,14 @@ services:
       # Matches RANTAI_DATA_DIR=/data in Dockerfile.frontend — without this the
       # data is lost on every container replace.
       - ui_data:/data
-      # HOST_RUNNER=docker makes the BFF run `docker exec transformerlab …` for the
-      # serve/merge/export pipeline, which needs the daemon socket. SECURITY: this
-      # grants the frontend control of the host Docker — drop it (and HOST_RUNNER)
-      # if you don't need in-app GGUF export, or move that pipeline into the
-      # backend behind a TL endpoint.
-      - /var/run/docker.sock:/var/run/docker.sock
+      # ── OPTIONAL: in-app GGUF export ────────────────────────────────────────
+      # HOST_RUNNER=docker makes the UI run `docker exec transformerlab …` for the
+      # merge → GGUF → ollama-create pipeline, which needs the Docker socket. That
+      # is a BIND MOUNT granting the UI control of host Docker, and Portainer must
+      # allow bind mounts for it — so it's OFF by default, keeping the whole stack
+      # bind-mount-free (matches what we told DTI). Training, chat, live monitor and
+      # eval ALL work without it. To enable export, uncomment the line below:
+      # - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "3000:3000"
     depends_on:
