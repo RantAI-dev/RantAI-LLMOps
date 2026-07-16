@@ -1,0 +1,30 @@
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+# Build args jadi env vars saat build time
+ARG INFERENCE_BASE_URL=http://transformerlab:8339/v1
+ARG OLLAMA_BASE_URL=http://ollama:11434
+ARG HOST_RUNNER=docker
+ARG DOCKER_CONTAINER=transformerlab
+ENV INFERENCE_BASE_URL=$INFERENCE_BASE_URL
+ENV OLLAMA_BASE_URL=$OLLAMA_BASE_URL
+ENV HOST_RUNNER=$HOST_RUNNER
+ENV DOCKER_CONTAINER=$DOCKER_CONTAINER
+RUN npm run build
+
+FROM node:20-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+USER appuser
+EXPOSE 3000
+CMD ["node", "server.js"]
