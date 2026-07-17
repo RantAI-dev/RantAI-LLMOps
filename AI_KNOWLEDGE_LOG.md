@@ -1930,3 +1930,14 @@ Release v0.40.20 (gateway Tier1+2, VRAM fix, scroll fix). Recreate stack via API
 **Catatan:** user sempat paste 1 gateway key ke chat -> saran revoke+recreate setelah copy jalan.
 **Verifikasi:** tsc exit 0.
 **Next:** release v0.40.21 -> recreate (pull FRONTEND) -> copy jalan + UI nampilin :11435. GATEWAY_PUBLIC_URL boleh kosong (fallback hostname:11435 udah bener).
+
+## CLEANUP: buang fitur Deployments lama (bookkeeping) - biar gak 2 konsep "deploy" (2026-07-17 11:38 WIB)
+**Konteks:** user bingung - gateway jalan padahal "Deployments (0)". Akar: halaman Deployments punya 2 hal terpisah - (a) fitur LAMA "Buat deployment/serve config" (bookkeeping, gak ngontrol akses; Ollama sajiin semua), (b) "Akses Gateway" (gerbang beneral). User minta buang yang lama.
+**Dihapus (yatim, udah diverif gak ada import/fetch lain):** src/modules/serve/hooks/use-serve.ts, src/modules/serve/lib/deployment.ts, src/lib/deployment-store.ts, src/app/api/serve/{deployments,stop,test}/. generate.ts DIPERTAHANKAN (dipakai generations juga).
+**Diubah:** serve-page.tsx -> rewrite jadi header + <GatewayAccess/> aja (deskripsi baru: atur akses klien via gateway). gateway-access.tsx -> mandiri (fetch model dari /api/serve/info sendiri, hapus prop models).
+**Sisa api/serve/:** gateway + info (dipakai). Verifikasi: tsc exit 0 (error di .next/types cuma cache basi, hilang setelah rm .next).
+**Next:** release v0.40.22 -> recreate (pull frontend) -> halaman Deployments cuma "Akses Gateway", gak bingung lagi.
+
+## UI: hapus chevron "Interact" + keputusan HF token (2026-07-17 12:16 WIB)
+**Chevron:** app-shell.tsx baris 124-126 ChevronUp hardcoded khusus item "Interact" (hiasan, nav flat gak collapse apa-apa) -> dihapus + import ChevronUp dibuang. tsc exit 0. Bundle ke v0.40.22.
+**HF token (KEEP, jangan dibuang):** hf-hub.ts - public repo GAK butuh auth (makanya search/download SEA-LION GGUF jalan tanpa token). Token DIBUTUHIN utk: (1) model GATED (Llama/Gemma family) - accept license + token, (2) repo PRIVATE, (3) rate limit lebih tinggi. Dipakai di finetune/submit + evals (env HF_TOKEN buat download base model gated saat training). Jadi fitur bener + berguna, cuma opsional utk public. Copy finetune-form udah jelas ("Model gated Llama/Gemma? Set HF token"). Gak ada perubahan kode.

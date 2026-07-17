@@ -71,7 +71,8 @@ function Copyable({ value, className }: { value: string; className?: string }) {
  * and create/revoke those keys. Backed by /api/serve/gateway; the gateway enforces
  * it live (no restart).
  */
-export function GatewayAccess({ models }: { models: ServeModel[] }) {
+export function GatewayAccess() {
+  const [models, setModels] = useState<ServeModel[]>([]);
   const [deployed, setDeployed] = useState<string[]>([]);
   const [keys, setKeys] = useState<PublicKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,14 +83,19 @@ export function GatewayAccess({ models }: { models: ServeModel[] }) {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/serve/gateway", { cache: "no-store" });
-      const d = await r.json();
+      // The gateway config (exposed models + keys) and the list of pulled models
+      // (to offer as expose toggles) come from two endpoints — fetch in parallel.
+      const [d, info] = await Promise.all([
+        fetch("/api/serve/gateway", { cache: "no-store" }).then((r) => r.json()),
+        fetch("/api/serve/info", { cache: "no-store" }).then((r) => r.json()),
+      ]);
       setDeployed(Array.isArray(d.deployedModels) ? d.deployedModels : []);
       setKeys(Array.isArray(d.apiKeys) ? d.apiKeys : []);
       setBaseUrl(
         d.baseUrl ||
           (typeof window !== "undefined" ? `http://${window.location.hostname}:11435/v1` : "http://<host>:11435/v1")
       );
+      setModels(Array.isArray(info.models) ? info.models : []);
     } catch {
       /* leave as-is */
     } finally {

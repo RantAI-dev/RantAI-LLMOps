@@ -10,7 +10,6 @@ import {
   BrainCog,
   Columns2,
   Compass,
-  ChevronUp,
   Database,
   FlaskConical,
   House,
@@ -120,9 +119,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 title="Belum terhubung ke backend (mock)"
                 aria-hidden
               />
-            ) : null}
-            {isSidebarOpen && item.label === "Interact" ? (
-              <ChevronUp className="size-4 shrink-0" aria-hidden />
             ) : null}
           </Link>
         );
