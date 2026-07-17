@@ -7,6 +7,12 @@ import { OLLAMA_V1, loadedOllamaModel } from "@/lib/ollama";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Default cap on output tokens per reply. The old 1024 truncated long answers
+ *  ("terpotong") — especially reasoning models (which spend tokens "thinking")
+ *  and step-by-step/recipe replies. Tunable per deployment via CHAT_MAX_TOKENS
+ *  (e.g. 8192) with no rebuild. A per-request body.max_tokens still overrides. */
+const DEFAULT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS) || 4096;
+
 type ChatBody = {
   messages?: Array<{ role: string; content: string }>;
   model?: string;
@@ -57,7 +63,7 @@ export async function POST(req: NextRequest) {
         // Ask the engine for token usage on the final chunk (per-response metrics).
         stream_options: { include_usage: true },
         temperature: body.temperature ?? 0.7,
-        max_tokens: body.max_tokens ?? 1024,
+        max_tokens: body.max_tokens ?? DEFAULT_MAX_TOKENS,
         // Small repetition penalties keep small quantized models from getting
         // stuck in "…1 kg sawi hijau, 1 kg sawi hijau…" degeneration loops.
         frequency_penalty: body.frequency_penalty ?? 0.4,

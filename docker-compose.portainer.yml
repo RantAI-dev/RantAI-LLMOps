@@ -122,6 +122,9 @@ services:
       # docker/backend/gpu-server.py).
       - GPU_STATS_URL=http://rantai-backend:8341
       - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:0.5b}
+      # Max output tokens per chat reply. Bump to e.g. 8192 for long/reasoning
+      # answers that would otherwise get cut off ("terpotong"). Default 4096.
+      - CHAT_MAX_TOKENS=${CHAT_MAX_TOKENS:-4096}
       # In-app export (merge → GGUF → `ollama create`) runs its pipeline scripts
       # INSIDE the backend via the backend's export sidecar over HTTP — so the UI
       # needs NO Docker socket / bind mount (see docker/backend/export-server.py).
