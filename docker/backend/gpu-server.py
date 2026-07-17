@@ -21,6 +21,43 @@ QUERY = [
     "--format=csv,noheader,nounits",
 ]
 
+_NA = ("[n/a]", "n/a", "")
+
+
+def _system_mem_mb():
+    """(total, used) system memory in MB — the UNIFIED pool that a GB10 / DGX Spark
+    GPU shares with the CPU. Used when nvidia-smi can't report dedicated VRAM."""
+    info = {}
+    with open("/proc/meminfo", encoding="utf-8") as f:
+        for line in f:
+            k, _, v = line.partition(":")
+            info[k.strip()] = int(v.strip().split()[0])  # kB
+    total = info.get("MemTotal", 0) // 1024
+    avail = info.get("MemAvailable", info.get("MemFree", 0)) // 1024
+    return total, max(0, total - avail)
+
+
+def _patch_unified_memory(csv):
+    """On unified-memory GPUs (GB10 / DGX Spark) nvidia-smi returns memory as
+    "[N/A]" because the GPU has no dedicated VRAM — it shares system RAM. Swap in
+    the system memory so the UI shows the real (unified) pool instead of 0. Normal
+    dedicated-VRAM GPUs report real numbers and are left untouched."""
+    total_mb = used_mb = None
+    out = []
+    for line in csv.strip().splitlines():
+        parts = [p.strip() for p in line.split(",")]
+        # fields: index, name, util, mem.used, mem.total, temp, power
+        if len(parts) >= 5 and (parts[3].lower() in _NA or parts[4].lower() in _NA):
+            if total_mb is None:
+                try:
+                    total_mb, used_mb = _system_mem_mb()
+                except Exception:
+                    total_mb, used_mb = 0, 0
+            parts[3], parts[4] = str(used_mb), str(total_mb)
+            line = ", ".join(parts)
+        out.append(line)
+    return "\n".join(out) + ("\n" if out else "")
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -28,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
             out = subprocess.run(QUERY, capture_output=True, text=True, timeout=5)
             payload = {
                 "available": out.returncode == 0,
-                "csv": out.stdout if out.returncode == 0 else "",
+                "csv": _patch_unified_memory(out.stdout) if out.returncode == 0 else "",
             }
         except Exception:
             payload = {"available": False, "csv": ""}

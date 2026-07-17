@@ -1908,3 +1908,10 @@ Native arm64 runner (ubuntu-24.04-arm) BUILD SUKSES ijo -> QEMU libc-bin segfaul
 **Flow user (jauh lebih enak dari Tier 1):** setelah deploy -> buka Deployments -> centang model diekspos + Buat key (copy) -> Agents pakai :8080/v1 + key. GAK perlu edit env Portainer lagi.
 **Verifikasi:** tsc --noEmit exit 0.
 **Next:** release (backend img=gateway.py, frontend img=semua TS baru+scroll fix) -> aku recreate (add gateway service+shared volume+tutup ollama+pull) -> user atur di UI.
+
+## FIX: VRAM GB10 gak muncul (0GB) - unified memory (2026-07-17 07:49 WIB)
+**Gejala:** UI Compute - GPU realtime VRAM 0.0/0.0 GB, "Detected accelerators 1x NVIDIA GB10 (0GB)".
+**Akar:** GB10/DGX Spark = UNIFIED memory (RAM sistem dibagi CPU+GPU, gak ada VRAM terpisah). nvidia-smi --query-gpu=memory.total/used/free -> [N/A] (FB & BAR1 juga N/A). Parser -> null -> 0. Sistem: /proc/meminfo MemTotal ~121.6GB.
+**Fix:** (1) gpu-server.py: _patch_unified_memory() - kalau field memory [N/A], substitusi MemTotal + (MemTotal-MemAvailable) dari /proc/meminfo (MB). GPU VRAM-dedicated normal gak disentuh. Terbukti: GB10 -> 5200,121600; RTX3060 -> tetap. (2) compute-server.ts detectGpus: reuse getGpuMetrics() (data gpu-server tersubstitusi) ganti nvidia-smi sendiri -> Detected accelerators ikut bener + konsisten sama widget. runHostScript import dihapus (gak dipakai lagi).
+**Verifikasi:** py_compile OK, tsc exit 0.
+**Bundle ke v0.40.18** (gpu-server.py di backend img, compute-server.ts di frontend img) bareng gateway + scroll fix.

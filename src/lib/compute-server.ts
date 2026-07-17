@@ -4,7 +4,7 @@
  * ComputeProvider shape. v0.40.0 runs ALL execution through these providers; on
  * a local self-host there's a single built-in "Local" provider.
  */
-import { runHostScript } from "@/lib/host-runner";
+import { getGpuMetrics } from "@/lib/gpu-metrics";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import {
   PROVIDER_TYPES,
@@ -20,18 +20,15 @@ import {
  */
 async function detectGpus(): Promise<Accelerator[]> {
   try {
-    const { stdout } = await runHostScript(
-      "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits",
-      [],
-      { timeoutMs: 8000 }
-    );
+    // Reuse the realtime GPU source (backend sidecar in a split deploy), which
+    // already substitutes system memory for unified-memory GPUs like the GB10
+    // where nvidia-smi reports VRAM as "[N/A]" — so the count/VRAM match the widget.
+    const metrics = await getGpuMetrics();
     const byModel = new Map<string, { count: number; vramGb: number }>();
-    for (const line of stdout.split("\n")) {
-      const [name, mem] = line.split(",").map((s) => s.trim());
-      if (!name) continue;
-      const vramGb = Math.round((Number(mem) || 0) / 1024);
-      const cur = byModel.get(name) ?? { count: 0, vramGb };
-      byModel.set(name, { count: cur.count + 1, vramGb });
+    for (const g of metrics) {
+      const vramGb = Math.round((g.memTotalMb || 0) / 1024);
+      const cur = byModel.get(g.name) ?? { count: 0, vramGb };
+      byModel.set(g.name, { count: cur.count + 1, vramGb });
     }
     return [...byModel].map(([name, v]) => ({ name, count: v.count, vramGb: v.vramGb }));
   } catch {
