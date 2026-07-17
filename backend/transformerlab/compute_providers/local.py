@@ -82,7 +82,16 @@ def _check_amd_gpu() -> bool:
 
 
 def _is_dgx_spark() -> bool:
-    """Return True if running on NVIDIA DGX Spark (use cu130 PyTorch index)."""
+    """Return True if running on NVIDIA DGX Spark (use cu130 PyTorch index).
+
+    In a container the host's /etc/dgx-release is not visible, so DGX Spark
+    (the GX10 / GB10 Grace-Blackwell) can't be auto-detected — the per-job venv
+    would then fall back to the cu128 index and pull CPU-only torch on arm64.
+    Allow forcing the cu130 path via TLAB_FORCE_CUDA13=1 (same env var install.sh
+    already honours for the base conda env), so both envs stay consistent.
+    """
+    if os.environ.get("TLAB_FORCE_CUDA13", "").strip().lower() in ("1", "true"):
+        return True
     try:
         with open("/etc/dgx-release", encoding="utf-8") as f:
             return "dgx spark" in f.read().lower()

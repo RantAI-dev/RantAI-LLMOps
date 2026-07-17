@@ -52,6 +52,13 @@ services:
     container_name: rantai-backend
     environment:
       - PYTHONUNBUFFERED=1
+      # GB10 / DGX Spark (the GX10): force the CUDA 13 (cu130) PyTorch index for
+      # BOTH the base conda env (install.sh) AND every per-job training venv
+      # (local.py). Inside a container the host's /etc/dgx-release is invisible,
+      # so TL can't auto-detect the Spark and would otherwise fall back to cu128 /
+      # default → CPU-only torch on arm64 → "Unsloth cannot find any torch
+      # accelerator". Set to 1 on any GB10 host. Harmless (ignored) elsewhere.
+      - TLAB_FORCE_CUDA13=1
       # REQUIRED — see the header. Unset = TL serves `/` but every login 500s.
       - TRANSFORMERLAB_JWT_SECRET=${TRANSFORMERLAB_JWT_SECRET:?set it — openssl rand -hex 32}
       - TRANSFORMERLAB_REFRESH_SECRET=${TRANSFORMERLAB_REFRESH_SECRET:?set it — openssl rand -hex 32, different from JWT_SECRET}

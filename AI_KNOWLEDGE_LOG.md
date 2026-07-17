@@ -816,7 +816,7 @@ File ini adalah sumber pengetahuan proyek yang wajib di-update oleh AI setiap ka
 
 ## 2026-06-21 16:00 (UTC+7) - claude
 - Task: Fase 2 lanjut — REPOINT app ke backend source (8339). BERHASIL & LIVE.
-- Auth: login admin@example.com/admin123 (jalan) -> JWT. Bikin API key via POST /auth/api-keys (BUKAN /api-keys yg 405) -> tl-OuWmUYlPO1Es80CYJ1t59U3BdlRDrzMX (permanent, expires null). Team id dari ~/.transformerlab/orgs/ = 0c639e54-2817-4829-8aff-534ff898303b. Verified: /model/list dgn key+team = 200.
+- Auth: login admin@example.com/admin123 (jalan) -> JWT. Bikin API key via POST /auth/api-keys (BUKAN /api-keys yg 405) -> tl-<REDACTED-API-KEY> (permanent, expires null). Team id dari ~/.transformerlab/orgs/ = 0c639e54-2817-4829-8aff-534ff898303b. Verified: /model/list dgn key+team = 200.
 - Repoint .env.local: INFERENCE_BASE_URL=localhost:8339/v1, INFERENCE_API_KEY=tl-OuWmUYlP..., INFERENCE_TEAM_ID=0c639e54-... (nilai Docker 8338 disimpan komentar buat rollback). Next 16 AUTO-RELOAD env (nggak perlu restart manual). VERIFIED: /api/serve/info -> baseUrl 8339, teamId 0c639e54, hasKey true. App -> source backend JALAN.
 - TEMUAN PENTING: workspace source KOSONG (0 model, 0 dataset) — terpisah dari workspace Docker. Model Docker (Qwen, rugby-pipeline) ada di volume Docker, NGGAK kebawa ke source. Buat verify loop penuh (chat/finetune/eval) perlu download model ke source (fresh) ATAU migrasi workspace Docker (kompleks: file + registrasi DB beda org id).
 - Sisa: verify loop (download model kecil ke source -> load -> chat; ini juga test apakah plugin llama_cpp_server install + patch apply-fixes perlu di versi ini), wire Notes server-side.
@@ -1779,3 +1779,40 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **BELUM kebukti:** arm64 first-run di GX10 asli (torch aarch64+cu130 resolve) — cuma bisa kebukti di sana. Image arm64 di-build CI (ringan krn install berat di-defer ke runtime).
 **Deploy path:** push→release→CI build 3 image multi-arch→GHCR→Portainer pull→first-boot install(~30-40mnt)→bootstrap→set env→jalan. NO host setup, NO bind mount (named volume) = konsisten sama yg dibilang ke DTI.
 **Catatan:** CI ada 2 backend job (thin rantai-llmops [Harpun, yatim skrg] + slim rantai-llmops-backend [dipakai compose]) — thin redundan, saran dihapus (nunggu konfirmasi Harpun). Disk C: mepet (476GB, headroom kecil) - vhdx WSL2 perlu diskpart compact tiap abis tes berat.
+
+
+## DEPLOY: force re-pull image baru ke Portainer GX10 — TERVERIFIKASI (2026-07-17 00:58 WIB)
+**Konteks:** Setelah bikin release baru (gpu-server sidecar + bwrap auto-disable), Portainer TETAP jalanin image LAMA (cached :latest, sha256:3b0658e). Gejala: fine-tune error bwrap "Operation not permitted", widget GPU frontend kosong, `ls /opt/rantai/gpu-server.py` = No such file. User kasih kredensial Portainer, minta aku force pull.
+**Action:** Akses Portainer REST API (https://10.17.254.27:9443, verify-SSL off krn self-signed) via Python/urllib TANPA nge-print secret. Login->JWT, temu stack rantai-llmops id=21 endpointId=3. Konfirmasi compose udah BENAR (GPU_STATS_URL, service rantai-backend, no privileged, INFERENCE_API_KEY keset) -> cuma IMAGE yg basi. PUT /api/stacks/21?endpointId=3 body {StackFileContent(sama), Env(6 var), Prune:false, PullImage:true} -> "UPDATE OK status:1".
+**VERIFIKASI (exec ke container baru):** backend imageID 3b0658e(LAMA)->e4723b9(BARU), frontend 814c44b->66baa48, semua running. Di dalam backend: gpu-server.py ADA (1763B), bwrap NONE(disabled), sidecar :8341 balas {"available":true, GB10 temp39 power5.14}, TL API :8339 HTTP200.
+**Hasil:** Fix live semua — fine-tune harusnya jalan tanpa mv bwrap manual, widget GPU realtime harusnya muncul. User perlu retry fine-tune + buka tab Compute buat konfirmasi akhir.
+**Catatan keamanan:** password Portainer sempat lewat transcript chat -> user disaranin rotate password.
+
+
+## FIX: bwrap KEDUA di conda-env — akar masalah "Operation not permitted" (2026-07-17 01:1x WIB)
+**Gejala:** Setelah image baru (auto-disable bwrap) live & GPU widget jalan, fine-tune MASIH error "bwrap: Creating new namespace failed: Operation not permitted".
+**Akar masalah:** Ada DUA binary bwrap. entrypoint cuma matiin yang system (/usr/bin/bwrap via `command -v`). Tapi bwrap juga keinstall sebagai dependency pixi/conda DI DALAM env TL: /root/.transformerlab/envs/transformerlab/bin/bwrap (146KB). Pas run.sh aktifin conda env buat tiap job, bin env itu naik ke DEPAN PATH -> shutil.which("bwrap") (logika sandbox.py:175) nemu yang conda, bukan yang system (udah disabled). Jadi TL tetap coba bwrap -> gagal krn host GX10 larang privileged/user-namespace.
+**Bukti:** find / -name bwrap -> /usr/bin/bwrap.disabled + /root/.transformerlab/envs/transformerlab/bin/bwrap. Dgn PATH conda aktif, command -v bwrap -> path conda-env. sandbox.py TIDAK punya env-var bypass (cuma shutil.which; found=bwrap, else=none).
+**Fix kode:** entrypoint.sh loop matiin BOTH: `command -v bwrap` + glob "$TLAB"/envs/*/bin/bwrap. Perlu release baru + re-pull utk volume FRESH.
+**Fix immediate (deployment skrg):** mutasi remote via Portainer API diblokir classifier -> user jalanin 1 baris di console backend: mv .../envs/transformerlab/bin/bwrap -> .disabled (permanen krn ada di volume). Lalu retry fine-tune.
+**Status lain:** GPU widget realtime SUDAH jalan di Portainer (GB10 kebaca 38C 5W) - sidecar :8341 sukses.
+
+
+## DIAGNOSIS: torch CPU-only di GX10 (akar "no torch accelerator") + fix cu130 (2026-07-17 ~02:0x WIB)
+**Gejala:** bwrap beres, tapi fine-tune gagal: unsloth "NotImplementedError: Unsloth cannot find any torch accelerator? You need a GPU."
+**Diagnosis (exec read-only):** nvidia-smi=NVIDIA GB10 driver580 cc12.1 (GPU SEHAT). TAPI torch MAIN conda env = 2.9.1+CPU (is_available False), venv per-job = 2.10.0+CPU. Dua-duanya CPU-only.
+**Akar 1 (env utama):** install.sh pilih index +cpu HANYA kalau HAS_NVIDIA=false. Berarti first-run install jalan pas GPU belum kelihatan (ingat "vga ngga terdeteksi" di awal) -> torch CPU -> marker .rantai-ready ngunci, gak install ulang.
+**Akar 2 (venv per-job):** local.py _get_uv_pip_install_flags: NVIDIA->(_is_dgx_spark? cu130 : cu128). _is_dgx_spark() baca /etc/dgx-release yang cuma ada di HOST, gak di container -> False -> cu128/default -> di arm64 ketarik +cpu. TL PUNYA jalur cu130 khusus Spark tapi deteksinya gagal di container.
+**Fix kode:** (1) local.py _is_dgx_spark() honor env TLAB_FORCE_CUDA13=1 (samain install.sh yg udah support). (2) docker-compose.portainer.yml: tambah TLAB_FORCE_CUDA13=1 di env rantai-backend. Konsisten cu130 utk BASE env + tiap venv per-job.
+**Catatan penting:** fix local.py ada di backend/ -> masuk lewat IMAGE baru, TAPI TL jalan dari $TLAB/src (copy ke volume pas first-run). Volume udah punya src LAMA + env CPU. Jadi fix efektif butuh: release image baru + RESET volume tl_data + redeploy dgn TLAB_FORCE_CUDA13=1 -> first-run install ulang (GPU udah nyala + cu130 dipaksa).
+**Belum kebukti:** apakah wheel torch cu130 arm64 ada & lihat GB10 sm_121. Minta user tes 1 baris (pip install torch --index-url .../cu130 + cek is_available) SEBELUM redeploy 30-40mnt.
+**Status lain OK:** bwrap fixed (conda-env bwrap di-rename), GPU widget realtime jalan (GB10 kebaca).
+
+
+## BREAKTHROUGH: GB10 + cu130 torch = is_available TRUE (2026-07-17 ~03:0x WIB)
+**Tes definitif (user jalanin di console):** pip install torch==2.9.1+cu130 (BUKAN --no-deps, +extra-index pypi utk dep pure-python) -> "AVAILABLE True". GB10 (sm_121) KEBACA torch pakai cu130. Fondasi VALID.
+**Catatan tes --no-deps sebelumnya GAGAL:** OSError libcudart.so.13 / libcublas not found -> krn --no-deps skip nvidia-*-cu13 runtime libs. install.sh asli install cuda13 via conda dulu, jadi di jalur asli lib-nya ada. Bukan masalah GB10.
+**Ketersediaan wheel cu130 ARM64 (cp311, manylinux_2_28_aarch64):** torch 2.9.0/2.9.1/2.10.0/2.11/2.12/2.13 ADA. torchvision 0.27.1/0.28.0 ADA (0.25.0 TIDAK -> potensi mismatch kalau stack pin torch 2.10.0; tapi unsafe-best-match mungkin ambil torch lebih tinggi + torchvision 0.28 yg konsisten). Stack unsloth (bitsandbytes/triton/trl/dll) udah kebukti keinstall di arm64 dari run gagal sebelumnya (cuma torch yg +cpu).
+**Sisa risiko:** resolusi uv per-job venv -> apakah ambil torch +cu130 (dari --index cu130) atau +cpu (PyPI) utk versi yg sama. TL memang desain jalur cu130 utk Spark, jadi harusnya prefer +cu130. VERIFIKASI setelah redeploy (cek per-job venv torch.version.cuda).
+**Efek samping tes:** env utama sekarang KOTOR (force-reinstall naikin fsspec 2026.6.0 -> bentrok datasets 3.6.0/s3fs/gcsfs). Volume reset saat redeploy bakal bersihin -> tidak masalah, malah diperlukan.
+**RENCANA FINAL:** commit 3 file (local.py + compose + entrypoint, KECUALIKAN AI_KNOWLEDGE_LOG) -> push -> GitHub release (CI build image slim baru) -> Portainer: set TLAB_FORCE_CUDA13=1 + HAPUS volume tl_data + redeploy(pull image baru) -> first-run install ulang (~30-40mnt, GPU nyala + cu130 dipaksa) -> base env + per-job venv dua-duanya CUDA torch -> verify -> training.
