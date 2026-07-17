@@ -58,6 +58,11 @@ else
   find "$TLAB/src" -name '*.sh' -exec sed -i 's/\r$//' {} +
   chmod +x "$TLAB/src/install.sh" "$TLAB/src/run.sh" 2>/dev/null || true
   cp /opt/rantai/serve/rantai_*.sh /root/ 2>/dev/null && chmod +x /root/rantai_*.sh 2>/dev/null || true
+  # The re-sync above overwrote $TLAB/src with the pristine image source, which
+  # WIPES the chat `conversations` router (it's applied at runtime, not baked into
+  # the image). Re-apply it every start or the UI's "save conversation" API 404s
+  # ("Gagal menyimpan chat ke server"). apply-conversations.sh is idempotent.
+  PY="$TLAB/envs/transformerlab/bin/python" bash /opt/rantai/apply-conversations.sh || true
 fi
 
 # TL sandboxes each training job with bwrap (bubblewrap), which must create a new

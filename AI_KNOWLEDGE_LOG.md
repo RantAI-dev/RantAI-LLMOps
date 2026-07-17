@@ -1858,3 +1858,13 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Bonus:** compute-server.ts detectGpus (nvidia-smi) juga lewat sidecar -> "Detected accelerators" di Compute page bakal keisi asli.
 **Verifikasi:** tsc --noEmit exit 0. Perlu release v0.40.13 (backend image utk export-server + frontend image utk host-runner) -> recreate.
 **Next:** push -> release v0.40.13 -> recreate (pull FE+BE) -> test export dari UI.
+
+## SOLVED: export sidecar LIVE E2E (2026-07-17 04:10 WIB)
+Deploy v0.40.13 (FE a0a8f33 + BE cddf87f... backend a0a8f33/frontend cddf87f). Verifikasi: export-server.py jalan (pid), tes ALLOWED nvidia-smi -> output + __RANTAI_EXIT__:0, tes FORBIDDEN echo -> "forbidden" + exit 126 (whitelist OK). Frontend: HOST_RUNNER=sidecar, EXPORT_SIDECAR_URL=http://rantai-backend:8342, dan frontend BERHASIL POST ke rantai-backend:8342 (balas GPU GB10). Rantai frontend->sidecar->backend script E2E kebukti. TANPA docker.sock/bind-mount.
+**Next:** user test export beneran dari UI (pastikan fine-tune udah kelar -> ada adapter). Pipeline merge->GGUF->ollama bakal jalan via sidecar dgn progress streaming.
+
+## FIX: re-sync nimpa patch conversations -> "Gagal menyimpan chat" (2026-07-17 04:15 WIB)
+**WIN dulu:** export SUKSES E2E. Model rantai-qwen2-5-0-5b-instruct-touch-rugby masuk Ollama, chat jalan (49.9 tok/s), jawaban NYAMBUNG ke topik fine-tune (Touch Rugby rules 2020) -> fine-tuning KENA. Full pipeline train->export->inference SOLVED.
+**Bug baru (ku-introduce):** chat inference OK tapi "Gagal menyimpan chat ke server". Akar: entrypoint re-sync (cp -a /opt/rantai/tl-src -> $TLAB/src tiap start, ditambah utk fix local.py) NIMPA experiment.py pristine -> buang registrasi router 'conversations' (patch runtime dari apply-conversations.sh, gak di-bake image). conversations.py tetap ada (cp -a gak delete) TAPI experiment.py gak keregister -> GET /experiment/rantai-ft/conversations = 404. Verifikasi: grep 'router=conversations.router' experiment.py = 0, endpoint 404.
+**Fix:** entrypoint.sh else-branch (re-sync) tambah re-apply: PY=... bash /opt/rantai/apply-conversations.sh (idempotent) setelah cp -a. Router keregister ulang tiap start.
+**Next:** release v0.40.14 (backend/entrypoint) -> recreate -> save chat jalan. Bukan urgent (chat inference OK, cuma history yg gak kesimpan).
