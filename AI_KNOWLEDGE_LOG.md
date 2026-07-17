@@ -1816,3 +1816,19 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Sisa risiko:** resolusi uv per-job venv -> apakah ambil torch +cu130 (dari --index cu130) atau +cpu (PyPI) utk versi yg sama. TL memang desain jalur cu130 utk Spark, jadi harusnya prefer +cu130. VERIFIKASI setelah redeploy (cek per-job venv torch.version.cuda).
 **Efek samping tes:** env utama sekarang KOTOR (force-reinstall naikin fsspec 2026.6.0 -> bentrok datasets 3.6.0/s3fs/gcsfs). Volume reset saat redeploy bakal bersihin -> tidak masalah, malah diperlukan.
 **RENCANA FINAL:** commit 3 file (local.py + compose + entrypoint, KECUALIKAN AI_KNOWLEDGE_LOG) -> push -> GitHub release (CI build image slim baru) -> Portainer: set TLAB_FORCE_CUDA13=1 + HAPUS volume tl_data + redeploy(pull image baru) -> first-run install ulang (~30-40mnt, GPU nyala + cu130 dipaksa) -> base env + per-job venv dua-duanya CUDA torch -> verify -> training.
+
+
+## DEPLOY v0.40.10: TLAB_FORCE_CUDA13 wired + per-job venv pakai cu130 (2026-07-17 02:34 WIB)
+**Action:** Push 3 file (local.py honor TLAB_FORCE_CUDA13, entrypoint re-sync src tiap start, compose) -> release v0.40.10 -> CI build image slim baru. Portainer stack id21: sisipkan env var "- TLAB_FORCE_CUDA13=1" di service rantai-backend (indent 6, setelah PYTHONUNBUFFERED) + recreate.
+**Bug ketemu & dibenerin:** deteksi awal TLAB_FORCE_CUDA13 "sudah ada" itu FALSE POSITIVE - ternyata match ke KOMENTAR di compose (# ...--build-arg TLAB_FORCE_CUDA13...), bukan env var. Fix logika: cek regex baris env var (^ *- *TLAB_FORCE_CUDA13 *=), bukan string mentah.
+**Verifikasi (exec container image ea0edd4=v0.40.10):** printenv TLAB_FORCE_CUDA13=1; patch local.py ter-resync ke /root/.transformerlab/src (grep count=2, mekanisme entrypoint re-sync JALAN, volume TIDAK direset -> API key aman); _is_dgx_spark()=True; _get_uv_pip_install_flags()="--index https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match"; bwrap none; TL API 200.
+**Artinya:** venv per-job sekarang maksa index cu130 -> harusnya torch+cu130 -> is_available True (udah kebukti manual di env utama sebelumnya). 
+**Next:** user retry fine-tune. Verifikasi torch.version.cuda di venv per-job (risiko: uv unsafe-best-match ambil +cu130 vs +cpu utk versi sama). Kalau +cpu, fallback pin torch.
+
+
+## FIX RESOLUSI uv: cu130 primary index (torch +cu130, bukan +cpu) (2026-07-17 02:41 WIB)
+**Gejala:** setelah TLAB_FORCE_CUDA13 aktif & uv_flags cu130 benar, venv per-job AWALNYA install torch 2.9.1+cu130, TAPI uv re-resolve krn unsloth pin torch==2.10.0 -> log: "- torch==2.9.1+cu130 / + torch==2.10.0" -> ambil 2.10.0 POLOS dari PyPI (arm64=CPU) -> is_available False lagi.
+**Akar:** "--index <cu130> --index-strategy unsafe-best-match" -> utk versi exact-pinned (torch==2.10.0), unsafe-best-match pilih PyPI 2.10.0 (cpu) di atas cu130 2.10.0+cu130. cu130 SEBENARNYA punya 2.10.0+cu130 (udah kuprobe), tapi kalah pilih.
+**Fix:** ganti ke pola PyTorch kanonik = "--index-url <cu130> --extra-index-url https://pypi.org/simple" (cu130 PRIMARY + first-match default). torch/torchvision/nvidia-*-cu13 dari cu130, sisanya (unsloth/bitsandbytes/trl) dari PyPI. Ini persis kombinasi tes manual yg sukses. File: local.py _get_uv_pip_install_flags (cabang cu130) + install.sh (cabang cu130).
+**Verifikasi POSITIF sebelum bug ini:** uv MEMANG bisa ambil +cu130 (snapshot pertama 2.9.1+cu130), _is_dgx_spark=True via env, re-sync src jalan, image v0.40.10 (ea0edd4). Jadi tinggal fix resolusi ini.
+**Next:** commit local.py+install.sh -> push -> release -> recreate(pull) -> retry fine-tune -> verify torch.version.cuda keisi di venv per-job.

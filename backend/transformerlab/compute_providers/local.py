@@ -117,7 +117,16 @@ def _get_uv_pip_install_flags() -> str:
     if _check_nvidia_gpu():
         cuda_index = "cu130" if _is_dgx_spark() else "cu128"
         if cuda_index == "cu130":
-            return "--index https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match"
+            # Canonical PyTorch pattern: cu130 as the PRIMARY index (torch,
+            # torchvision, nvidia-*-cu13 come from here) with PyPI as fallback for
+            # everything else (unsloth, bitsandbytes, trl, …). Do NOT use
+            # `--index … --index-strategy unsafe-best-match`: when a plugin pins an
+            # exact version (e.g. unsloth's `torch==2.10.0`), unsafe-best-match
+            # picks PyPI's plain `2.10.0` — which on arm64 is the CPU build — over
+            # cu130's `2.10.0+cu130`, so training dies with "cannot find any torch
+            # accelerator". A primary `--index-url` + default first-match resolves
+            # torch from cu130 first, giving the +cu130 CUDA build on the GB10.
+            return "--index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple"
         else:
             return ""
     if not sys.platform == "darwin":

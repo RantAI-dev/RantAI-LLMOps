@@ -475,7 +475,12 @@ install_dependencies() {
       echo "Installing requirements with NVIDIA support (PyTorch index: $TLAB_CUDA_INDEX):"
       cd "$PROJECT_DIR"
       if [ "$TLAB_CUDA_INDEX" = "cu130" ]; then
-        PIP_WHEEL_FLAGS+="--index https://download.pytorch.org/whl/${TLAB_CUDA_INDEX} --index-strategy unsafe-best-match"
+        # cu130 as PRIMARY index (--index-url) + PyPI fallback (--extra-index-url),
+        # NOT `--index … unsafe-best-match`: the latter picks PyPI's plain torch
+        # (CPU on arm64) over cu130's +cu130 build when a dep pins an exact torch
+        # version, breaking CUDA on the GB10. Primary index + first-match keeps
+        # torch on the cu130 (CUDA) build. See compute_providers/local.py.
+        PIP_WHEEL_FLAGS+="--index-url https://download.pytorch.org/whl/${TLAB_CUDA_INDEX} --extra-index-url https://pypi.org/simple"
       fi
 
       uv pip install ${PIP_WHEEL_FLAGS} .[nvidia]
