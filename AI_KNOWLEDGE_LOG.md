@@ -1875,3 +1875,9 @@ Deploy v0.40.13 (FE a0a8f33 + BE cddf87f... backend a0a8f33/frontend cddf87f). V
 **Fix:** const DEFAULT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS) || 4096; pakai di max_tokens ?? DEFAULT_MAX_TOKENS. Naik 1024->4096 + bisa di-tune lewat env CHAT_MAX_TOKENS tanpa rebuild. compose: tambah CHAT_MAX_TOKENS=${CHAT_MAX_TOKENS:-4096} di frontend.
 **DEPLOY MODEL utk RantAI Agents (info):** model udah "ter-serve" via Ollama (OpenAI-compatible, no auth). Buat Agents pakai baseURL http://10.17.254.27:11434/v1 (IP HOST, bukan ollama:11434 internal), model=hf.co/aisingapore/Llama-SEA-LION-v3.5-8B-R-GGUF:Q8_0. Endpoint /v1 terbuka tanpa key (catatan keamanan di server bersama).
 **Next:** commit chat/route.ts+compose -> release (v0.40.15) -> recreate (pull FE) -> jawaban chat penuh (4096). Sekalian bawa fix conversations kalau server belum di-recreate ke v0.40.14.
+
+## FIX CI: native arm64 runner (buang QEMU) — libc-bin segfault (2026-07-17 06:17 WIB)
+**Masalah:** build backend arm64 via QEMU (di ubuntu-latest amd64) SEGFAULT deterministik di libc-bin postinst ldconfig (glibc 2.35-0ubuntu3.8, exit 139/SIGSEGV). Bukan flake timing: retry 5x + dpkg --configure -a gagal semua. QEMU pin v8.1.5 juga gagal. Frontend (alpine) OK, cuma backend (glibc) kena.
+**Fix:** ghcr.yml -> runs-on ubuntu-24.04-arm (NATIVE arm64, tanpa QEMU), platforms linux/arm64 SAJA (target deploy cuma GX10 arm64; amd64 gak dipakai). Hapus step setup-qemu. Revert retry-loop Dockerfile (gak perlu di native). BONUS: frontend gak 45 menit lagi (native cepat).
+**SYARAT:** ubuntu-24.04-arm runner: GRATIS utk repo PUBLIC; repo PRIVATE butuh plan Team/Enterprise. Kalau release -> error "no runner matching labels" berarti repo private tanpa arm64 runner -> pivot (jadiin repo public / self-hosted runner di GX10 sendiri / QEMU versi lain).
+**Next:** commit ghcr.yml+Dockerfile -> push -> release v0.40.17. Kalau "no runner" -> kabarin utk pivot.

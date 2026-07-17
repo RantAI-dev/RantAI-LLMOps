@@ -4,14 +4,18 @@
 #   rantai-llmops-fe        (Dockerfile.frontend)              — the Next.js UI
 #   rantai-llmops-backend   (docker/backend/Dockerfile.first-run) — Transformer Lab,
 #       SELF-CONTAINED: the ~15 GB conda/torch env installs into a named volume on
-#       FIRST RUN, so the IMAGE stays ~5 GB (fits a GitHub runner) and needs no host
-#       ~/.transformerlab setup. The heavy, arch-specific install runs natively at
-#       run time on the target — including the GX10's arm64.
+#       FIRST RUN, so the IMAGE stays ~5 GB and needs no host ~/.transformerlab.
 #
-# Both build multi-arch (amd64 + arm64). Triggered on a GitHub release (or manual
-# dispatch). NOTE: docker/Dockerfile (the thin container that bind-mounts a host
-# TL install) is intentionally NOT published — it's kept only for local dev via
-# docker/docker-compose.yml.
+# ARM64-ONLY, on NATIVE arm64 runners (`ubuntu-24.04-arm`). The only deploy target
+# is the GX10 / DGX Spark, which is arm64 — so we don't build amd64. This also
+# ends the QEMU pain: cross-building arm64 via QEMU on an amd64 runner made the
+# backend's `apt-get install` SEGFAULT in libc-bin's `ldconfig` (glibc 2.35 under
+# QEMU, exit 139) and made the frontend build take ~45 min. Native arm64 runners
+# have no emulation → no segfault, and are fast. (If an amd64 image is ever needed
+# for local testing, add a second matrix leg on `ubuntu-latest` + a manifest merge.)
+#
+# Triggered on a GitHub release (or manual dispatch). docker/Dockerfile (the thin
+# bind-mount container) is intentionally NOT published — local dev only.
 name: Publish GHCR Image
 
 on:
@@ -27,19 +31,11 @@ permissions:
 jobs:
   publish-frontend:
     name: Build and push Frontend image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          # Pin a newer QEMU: the default emulator crashes in libc-bin's postinst
-          # (`ldconfig`) on arm64 with recent glibc — the "libc-bin / dpkg error
-          # code 1" that fails the arm64 apt-get install. QEMU 8.x fixes it.
-          image: tonistiigi/binfmt:qemu-v8.1.5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -66,7 +62,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile.frontend
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -74,27 +70,16 @@ jobs:
           cache-to: type=gha,scope=frontend,mode=max
 
   publish-backend-slim:
-    # The SELF-CONTAINED backend (docker/backend/Dockerfile.first-run). Unlike the
-    # thin image above, this one needs NO host ~/.transformerlab: the ~15 GB
-    # conda/torch env is installed into the named volume on the FIRST container
-    # start (see docker/backend/entrypoint.sh). The IMAGE stays ~5 GB, so it fits
-    # a GitHub runner AND cross-builds to arm64 cheaply — the heavy, arch-specific
-    # install happens natively at run time on the target (e.g. the GX10's arm64).
-    # This is the image docker-compose.portainer.yml deploys.
+    # The SELF-CONTAINED backend (docker/backend/Dockerfile.first-run). The ~15 GB
+    # conda/torch env installs into the named volume on the FIRST container start
+    # (see docker/backend/entrypoint.sh), so the IMAGE stays ~5 GB. This is the
+    # image docker-compose.portainer.yml deploys.
     name: Build and push Backend image (self-contained, slim)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        with:
-          # Pin a newer QEMU: the default emulator crashes in libc-bin's postinst
-          # (`ldconfig`) on arm64 with recent glibc — the "libc-bin / dpkg error
-          # code 1" that fails the arm64 apt-get install. QEMU 8.x fixes it.
-          image: tonistiigi/binfmt:qemu-v8.1.5
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -121,7 +106,7 @@ jobs:
         with:
           context: .
           file: ./docker/backend/Dockerfile.first-run
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
