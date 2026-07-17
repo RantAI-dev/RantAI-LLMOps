@@ -137,7 +137,9 @@ services:
       # can never tamper with app data even if compromised.
       - ui_data:/uidata:ro
     ports:
-      - "8080:8080"
+      # Host port for external clients (Agents). 8080 is a common conflict, so it's
+      # configurable — the GX10 deploy uses 11435. Container port stays 8080.
+      - "${GATEWAY_HOST_PORT:-11435}:8080"
     depends_on:
       - ollama
     restart: unless-stopped
@@ -177,6 +179,9 @@ services:
       # (exposed models + API keys) into its OWN data dir (appuser-owned), which the
       # gateway mounts READ-ONLY — avoids the fresh-shared-volume ownership race.
       - GATEWAY_CONFIG_PATH=/data/gateway-config.json
+      # Optional: explicit gateway URL shown to clients in the Deployments UI. Leave
+      # empty and the UI derives http://<this-host>:<GATEWAY_HOST_PORT>/v1 itself.
+      - GATEWAY_PUBLIC_URL=${GATEWAY_PUBLIC_URL:-}
     volumes:
       # Server-side stores (deployments, settings, job logs, inference log).
       # Matches RANTAI_DATA_DIR=/data in Dockerfile.frontend — without this the

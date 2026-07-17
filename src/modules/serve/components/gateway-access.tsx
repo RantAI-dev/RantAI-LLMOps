@@ -12,16 +12,46 @@ type ServeModel = { id: string; name: string };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
+/** Copy that also works over plain HTTP: navigator.clipboard is only available in
+ *  a secure context (HTTPS / localhost), and this app is often served over HTTP on
+ *  a LAN IP — there it's undefined, so fall back to the legacy execCommand path. */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to the legacy path */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 function Copyable({ value, className }: { value: string; className?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      onClick={() => {
-        navigator.clipboard.writeText(value).then(() => {
+      onClick={async () => {
+        if (await copyText(value)) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
-        });
+        } else {
+          toast.error("Gagal menyalin — pilih teksnya manual lalu Ctrl+C");
+        }
       }}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[12px] text-ink hover:bg-surface-soft",
@@ -48,6 +78,7 @@ export function GatewayAccess({ models }: { models: ServeModel[] }) {
   const [newKeyName, setNewKeyName] = useState("");
   const [justCreated, setJustCreated] = useState<{ name: string; key: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [baseUrl, setBaseUrl] = useState("http://<host>:11435/v1");
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +86,10 @@ export function GatewayAccess({ models }: { models: ServeModel[] }) {
       const d = await r.json();
       setDeployed(Array.isArray(d.deployedModels) ? d.deployedModels : []);
       setKeys(Array.isArray(d.apiKeys) ? d.apiKeys : []);
+      setBaseUrl(
+        d.baseUrl ||
+          (typeof window !== "undefined" ? `http://${window.location.hostname}:11435/v1` : "http://<host>:11435/v1")
+      );
     } catch {
       /* leave as-is */
     } finally {
@@ -114,8 +149,6 @@ export function GatewayAccess({ models }: { models: ServeModel[] }) {
       toast.error("Gagal menghapus key");
     }
   };
-
-  const baseUrl = typeof window !== "undefined" ? `http://${window.location.hostname}:8080/v1` : "http://<host>:8080/v1";
 
   return (
     <section className="rounded-xl border bg-surface p-5">

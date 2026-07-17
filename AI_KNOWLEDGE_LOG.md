@@ -1915,3 +1915,18 @@ Native arm64 runner (ubuntu-24.04-arm) BUILD SUKSES ijo -> QEMU libc-bin segfaul
 **Fix:** (1) gpu-server.py: _patch_unified_memory() - kalau field memory [N/A], substitusi MemTotal + (MemTotal-MemAvailable) dari /proc/meminfo (MB). GPU VRAM-dedicated normal gak disentuh. Terbukti: GB10 -> 5200,121600; RTX3060 -> tetap. (2) compute-server.ts detectGpus: reuse getGpuMetrics() (data gpu-server tersubstitusi) ganti nvidia-smi sendiri -> Detected accelerators ikut bener + konsisten sama widget. runHostScript import dihapus (gak dipakai lagi).
 **Verifikasi:** py_compile OK, tsc exit 0.
 **Bundle ke v0.40.18** (gpu-server.py di backend img, compute-server.ts di frontend img) bareng gateway + scroll fix.
+
+## DEPLOY v0.40.20: gateway + VRAM fix LIVE (2026-07-17 08:23 WIB)
+Release v0.40.20 (gateway Tier1+2, VRAM fix, scroll fix). Recreate stack via API: sisip service rantai-gateway + hapus ollama host port + frontend GATEWAY_CONFIG_PATH + pull.
+**Masalah pas deploy:** PUT 500 "Bind for 0.0.0.0:8080 failed: port is already allocated" - port 8080 kepakai di host GX10 (ada rantai-enterprise-app-1 di 8090 + sesuatu di 8080). SOLUSI: gateway host port -> 11435 (bebas). PUT 200.
+**Verifikasi:** 4 container running (gateway 11435, ollama hostports=[] KETUTUP, backend/frontend v0.40.20). Gateway health OK, tanpa key->401 (fail-closed), /api/pull diblok, VRAM gpu-server "5342,124546" (~5.3/121.6GB, N/A fixed).
+**CAVEAT UI:** gateway-access.tsx hardcode base URL :8080, padahal real 11435. Perlu fix display (jadiin configurable / GATEWAY_PUBLIC_URL runtime). Repo compose masih "8080:8080" - deployed pakai 11435. Follow-up: samain port configurable + UI display.
+**User next:** Deployments UI -> ekspos model + buat key -> Agents baseURL http://10.17.254.27:11435/v1 + key.
+
+## FIX UX: copy button HTTP-safe + display port gateway (2026-07-17 08:41 WIB)
+**Gejala:** tombol copy (base URL + API key) di UI gateway gak jalan. Akar: navigator.clipboard cuma jalan di secure context (HTTPS/localhost); app diakses via http://10.17.254.27:3000 (HTTP LAN) -> clipboard API keblok/undefined. Kena SEMUA copy button di app.
+**Fix:** gateway-access.tsx copyText() - coba navigator.clipboard kalau isSecureContext, else fallback document.execCommand('copy') via textarea temp (jalan di HTTP). Copyable pakai copyText + toast kalau gagal.
+**Fix 2 (port display):** UI hardcode :8080, padahal gateway di 11435. Ganti: baseUrl jadi state, di-set dari GET /api/serve/gateway (baseUrl=env GATEWAY_PUBLIC_URL) atau fallback http://<hostname>:11435/v1. route.ts return baseUrl. compose: frontend +GATEWAY_PUBLIC_URL(:-empty), gateway port jadi ${GATEWAY_HOST_PORT:-11435}:8080 (configurable, default 11435 = realita deploy). Backend image gak berubah (fix frontend only).
+**Catatan:** user sempat paste 1 gateway key ke chat -> saran revoke+recreate setelah copy jalan.
+**Verifikasi:** tsc exit 0.
+**Next:** release v0.40.21 -> recreate (pull FRONTEND) -> copy jalan + UI nampilin :11435. GATEWAY_PUBLIC_URL boleh kosong (fallback hostname:11435 udah bener).

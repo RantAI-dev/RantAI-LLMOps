@@ -28,6 +28,9 @@ export async function GET() {
   return Response.json({
     deployedModels: store.deployedModels,
     apiKeys: store.apiKeys.map(publicKey),
+    // Explicit external URL when set (e.g. behind a reverse proxy); the UI
+    // otherwise derives it from the current host + the gateway's published port.
+    baseUrl: process.env.GATEWAY_PUBLIC_URL || null,
   });
 }
 
