@@ -91,5 +91,11 @@ fi
 # affected, never training. Uses the system python3 (stdlib only).
 python3 /opt/rantai/gpu-server.py >/tmp/rantai-gpu-server.log 2>&1 &
 
+# Export sidecar: runs the merge -> GGUF -> `ollama create` pipeline scripts on
+# request from the UI (POST :8342), so the frontend needs NO Docker socket /
+# `docker exec`. Internal network only. Best-effort — if it dies only in-app
+# export is affected, never training. See docker/backend/export-server.py.
+python3 /opt/rantai/export-server.py >/tmp/rantai-export-server.log 2>&1 &
+
 cd "$TLAB/src"
 exec ./run.sh -p 8339 -h 0.0.0.0

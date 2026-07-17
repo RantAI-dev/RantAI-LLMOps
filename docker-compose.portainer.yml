@@ -122,8 +122,11 @@ services:
       # docker/backend/gpu-server.py).
       - GPU_STATS_URL=http://rantai-backend:8341
       - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:0.5b}
-      - HOST_RUNNER=docker
-      - DOCKER_CONTAINER=rantai-backend
+      # In-app export (merge → GGUF → `ollama create`) runs its pipeline scripts
+      # INSIDE the backend via the backend's export sidecar over HTTP — so the UI
+      # needs NO Docker socket / bind mount (see docker/backend/export-server.py).
+      - HOST_RUNNER=sidecar
+      - EXPORT_SIDECAR_URL=http://rantai-backend:8342
       - APP_PASSWORD=${APP_PASSWORD:-}
       - AUTH_SECRET=${AUTH_SECRET}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -132,14 +135,11 @@ services:
       # Matches RANTAI_DATA_DIR=/data in Dockerfile.frontend — without this the
       # data is lost on every container replace.
       - ui_data:/data
-      # ── OPTIONAL: in-app GGUF export ────────────────────────────────────────
-      # HOST_RUNNER=docker makes the UI run `docker exec rantai-backend …` for the
-      # merge → GGUF → ollama-create pipeline, which needs the Docker socket. That
-      # is a BIND MOUNT granting the UI control of host Docker, and Portainer must
-      # allow bind mounts for it — so it's OFF by default, keeping the whole stack
-      # bind-mount-free (matches what we told DTI). Training, chat, live monitor and
-      # eval ALL work without it. To enable export, uncomment the line below:
-      # - /var/run/docker.sock:/var/run/docker.sock
+      # NOTE: in-app GGUF export needs NO Docker socket anymore. The merge → GGUF →
+      # `ollama create` pipeline runs inside the backend via its export sidecar
+      # (HOST_RUNNER=sidecar + EXPORT_SIDECAR_URL above), so the whole stack stays
+      # bind-mount-free (matches what we told DTI). Training, chat, live monitor,
+      # eval AND export all work without any host bind mount.
     ports:
       - "3000:3000"
     depends_on:

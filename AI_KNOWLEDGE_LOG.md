@@ -1840,3 +1840,21 @@ Kesimpulan: area palsu utama udah kelar dibersihin sebelumnya. Sisa yang masih m
 **Implementasi:** local.py: (a) revert _get_uv_pip_install_flags cu130 ke "--index cu130 unsafe-best-match" (biar torchao dari pypi jalan di base install), (b) NEW konstanta _CU130_TORCH_FIXUP + suntik ke strict_setup_script di launch_cluster kalau _is_dgx_spark(). install.sh: revert ke original juga.
 **Cleanup:** env var UV_INDEX_URL/UV_EXTRA_INDEX_URL yg sempat kupasang di stack itu SALAH (extra-index prioritas lebih tinggi, malah bikin torch pypi) -> bakal kuhapus pas recreate.
 **Next:** push local.py+install.sh -> release v0.40.12 -> recreate(hapus env UV_*, pull image) -> retry fine-tune -> verify.
+
+
+## SOLVED: fine-tune JALAN di GPU GB10 (2026-07-17 03:39 WIB)
+**Deploy v0.40.12 + fixup terbukti E2E.** Alur pas fine-tune: (1) base .[nvidia] -> torch 2.9.1+cu130. (2) plugin setup task.yaml -> torch 2.10.0 (CPU pypi). (3) _CU130_TORCH_FIXUP jalan (log: "[rantai] re-pinning torch==2.10.0+cu130 (plugin left a CPU build)") -> reinstall torch 2.10.0+cu130 + nvidia-*-cu13 (cublas/cudnn/cuda-runtime/nccl dll) + triton 3.6.0, torchvision/torchao aman. (4) train.py: torch 2.10.0+cu130, is_available=True, device=NVIDIA GB10.
+**BUKTI TRAINING JALAN:** stdout.log nunjukin progress trainer: step 21/60 (35
+## SOLVED: fine-tune JALAN di GPU GB10 (2026-07-17 03:39 WIB)
+**Deploy v0.40.12 + fixup terbukti E2E.** Alur pas fine-tune: (1) base .[nvidia] -> torch 2.9.1+cu130. (2) plugin setup task.yaml -> torch 2.10.0 (CPU pypi). (3) _CU130_TORCH_FIXUP jalan (log: "[rantai] re-pinning torch==2.10.0+cu130 (plugin left a CPU build)") -> reinstall torch 2.10.0+cu130 + nvidia-*-cu13 (cublas/cudnn/cuda-runtime/nccl dll) + triton 3.6.0; torchvision/torchao aman. (4) train.py: torch 2.10.0+cu130, is_available=True, device=NVIDIA GB10.
+**BUKTI TRAINING JALAN:** stdout.log progress trainer: step 21/60 (35 persen), loss ~1.1-1.6 turun, ~2 it/s, GPU util 35 persen, proses train.py pid hidup.
+**Rantai fix lengkap:** bwrap disabled (system+conda-env) -> image slim v0.40.x + entrypoint re-sync src -> TLAB_FORCE_CUDA13=1 (deteksi DGX Spark dari container) -> local.py honor env + _CU130_TORCH_FIXUP post-plugin-setup. Permanen (image + re-sync volume, tanpa reset volume, API key aman).
+**Sisa (keamanan, belum): rotate API key TL + password Portainer (keduanya sempat kepapar transcript).**
+
+## FITUR: export sidecar (merge->GGUF->ollama tanpa docker.sock) (2026-07-17 03:51 WIB)
+**Masalah:** export dari UI gagal "spawn docker ENOENT". host-runner.ts HOST_RUNNER=docker -> frontend jalanin "docker exec rantai-backend ...", tapi container frontend gak punya CLI docker + docker.sock gak di-mount (sengaja, demi bebas bind-mount / pesan DTI).
+**Keputusan user:** sidecar di backend (bukan mount docker.sock).
+**Implementasi:** (1) NEW docker/backend/export-server.py: HTTP server stdlib :8342, POST {cmd} -> jalanin "bash -lc cmd" di backend, stream stdout+stderr line-by-line + trailer __RANTAI_EXIT__:code. Whitelist: rantai_merge/export_gguf/serve_finetune.sh + nvidia-smi. Internal network only (no host port). (2) entrypoint.sh: launch export-server sebelah gpu-server. (3) Dockerfile.first-run: COPY export-server.py. (4) src/lib/host-runner.ts: HOST_RUNNER=sidecar -> runViaSidecar() fetch+stream (dukung runHostScript one-shot & runHostScriptStream progress). (5) compose: frontend HOST_RUNNER=sidecar + EXPORT_SIDECAR_URL=http://rantai-backend:8342, hapus HOST_RUNNER=docker/DOCKER_CONTAINER + komentar docker.sock.
+**Bonus:** compute-server.ts detectGpus (nvidia-smi) juga lewat sidecar -> "Detected accelerators" di Compute page bakal keisi asli.
+**Verifikasi:** tsc --noEmit exit 0. Perlu release v0.40.13 (backend image utk export-server + frontend image utk host-runner) -> recreate.
+**Next:** push -> release v0.40.13 -> recreate (pull FE+BE) -> test export dari UI.

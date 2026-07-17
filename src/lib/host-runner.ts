@@ -20,10 +20,15 @@ import { execFile, spawn } from "node:child_process";
 
 import { redactSecrets } from "@/lib/redact";
 
-/** "wsl" (default), "docker", or "local". */
+/** "wsl" (default), "docker", "sidecar", or "local". */
 const HOST_RUNNER = process.env.HOST_RUNNER ?? "wsl";
 const WSL_DISTRO = process.env.WSL_DISTRO ?? "Ubuntu";
 const DOCKER_CONTAINER = process.env.DOCKER_CONTAINER ?? "transformerlab";
+/** HOST_RUNNER=sidecar: instead of `docker exec`, POST the built command to the
+ *  backend's export sidecar (docker/backend/export-server.py) which runs it in the
+ *  backend and streams output back — so the UI needs no Docker socket. Points at
+ *  the backend service, e.g. http://rantai-backend:8342. */
+const EXPORT_SIDECAR_URL = process.env.EXPORT_SIDECAR_URL ?? "";
 
 /** Single-quote a value for safe shell interpolation (escapes embedded quotes). */
 function shQuote(s: string): string {
@@ -75,6 +80,68 @@ function buildCommand(scriptCmd: string, args: string[]): string {
 }
 
 /**
+ * HOST_RUNNER=sidecar path: run a fully-built command in the backend via its
+ * export sidecar (docker/backend/export-server.py), streaming the merged
+ * stdout/stderr. Each line is delivered to `onLine` as it arrives; the trailing
+ * `__RANTAI_EXIT__:<code>` sentinel carries the exit status (non-zero -> reject).
+ */
+async function runViaSidecar(
+  fullCmd: string,
+  onLine: ((line: string) => void) | undefined,
+  opts: { timeoutMs?: number; redact?: string[] }
+): Promise<HostRunResult> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 9 * 60_000);
+  let exitCode: number | null = null;
+  let stdout = "";
+  try {
+    const res = await fetch(EXPORT_SIDECAR_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cmd: fullCmd }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`export sidecar HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    const handle = (raw: string) => {
+      const line = raw.trim();
+      if (!line) return;
+      const m = /^__RANTAI_EXIT__:(\d+)$/.exec(line);
+      if (m) exitCode = Number(m[1]);
+      else onLine?.(line);
+    };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = dec.decode(value, { stream: true });
+      stdout += chunk;
+      buf += chunk;
+      let nl: number;
+      while ((nl = buf.search(/[\r\n]/)) >= 0) {
+        handle(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+      }
+    }
+    if (buf) handle(buf);
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("export sidecar timed out");
+    }
+    throw err instanceof Error ? err : new Error(String(err));
+  } finally {
+    clearTimeout(timer);
+  }
+  const clean = stdout.replace(/\n?__RANTAI_EXIT__:\d+\s*$/g, "");
+  if (exitCode !== 0) {
+    const detail = extractError(clean) || `export sidecar exited with code ${exitCode ?? "?"}`;
+    throw new Error(redactSecrets(detail, opts.redact ?? []));
+  }
+  return { stdout: clean, stderr: "" };
+}
+
+/**
  * Execute a host script. `scriptCmd` is a fixed template; its `"$@"` placeholder
  * (or, if absent, a trailing append) is replaced by the `args`, each single-quoted
  * and escaped. Resolves with stdout/stderr on success; rejects with the trailing
@@ -85,7 +152,9 @@ export function runHostScript(
   args: string[],
   opts: { timeoutMs?: number; redact?: string[] } = {}
 ): Promise<HostRunResult> {
-  const { file, argv } = hostArgv(buildCommand(scriptCmd, args));
+  const fullCmd = buildCommand(scriptCmd, args);
+  if (HOST_RUNNER === "sidecar") return runViaSidecar(fullCmd, undefined, opts);
+  const { file, argv } = hostArgv(fullCmd);
   return new Promise((resolve, reject) => {
     execFile(
       file,
@@ -115,7 +184,9 @@ export function runHostScriptStream(
   onLine: (line: string) => void,
   opts: { timeoutMs?: number; redact?: string[] } = {}
 ): Promise<HostRunResult> {
-  const { file, argv } = hostArgv(buildCommand(scriptCmd, args));
+  const fullCmd = buildCommand(scriptCmd, args);
+  if (HOST_RUNNER === "sidecar") return runViaSidecar(fullCmd, onLine, opts);
+  const { file, argv } = hostArgv(fullCmd);
   return new Promise((resolve, reject) => {
     const child = spawn(file, argv, { windowsHide: true });
     let stdout = "";

@@ -54,7 +54,8 @@ RUN curl -LsSf https://astral.sh/uv/0.11.21/install.sh | env INSTALLER_NO_MODIFY
 # Stage the vendored source + patches in the image (small). NOT installed here —
 # entrypoint.sh copies them into the volume and installs on first run.
 COPY backend/ /opt/rantai/tl-src/
-COPY scripts/setup/conversations.py scripts/setup/apply-conversations.sh docker/backend/gpu-server.py /opt/rantai/
+COPY scripts/setup/conversations.py scripts/setup/apply-conversations.sh \
+     docker/backend/gpu-server.py docker/backend/export-server.py /opt/rantai/
 COPY scripts/serve/rantai_serve_finetune.sh \
      scripts/serve/rantai_merge.sh \
      scripts/serve/rantai_export_gguf.sh /opt/rantai/serve/
