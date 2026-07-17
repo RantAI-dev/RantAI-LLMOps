@@ -89,8 +89,11 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    ports:
-      - "11434:11434"
+    # NO host port published: Ollama is auth-less and serves every pulled model,
+    # so it must NOT be reachable from the network directly. Internal clients
+    # (frontend, backend export, gateway) reach it as `ollama:11434` over the
+    # llmops network. External clients (e.g. RantAI Agents) go through the gateway
+    # below, which enforces an API key + a deployed-model allowlist.
     volumes:
       - ollama_data:/root/.ollama
     deploy:
@@ -100,6 +103,43 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - llmops
+
+  # ─── Gateway (auth + model allowlist in front of Ollama) ─────────────────────
+  # The ONLY LLM endpoint exposed to the network. Reuses the backend image purely
+  # to run docker/backend/gateway.py (no volume, no install) — every request needs
+  # `Authorization: Bearer <key>` and chat/completions are refused unless the model
+  # is in the allowlist. Point external clients (Agents) at http://<host>:8080/v1.
+  #
+  # TIER 1 (now): configure via the two env vars below (set them in Portainer):
+  #   GATEWAY_API_KEYS        comma-separated keys clients must send. EMPTY=deny all.
+  #   GATEWAY_ALLOWED_MODELS  comma-separated model tags to expose. EMPTY=allow all.
+  # TIER 2 (later): set GATEWAY_CONFIG_FILE to a JSON file on a shared volume that
+  #   the Deployments UI writes — access then changes live, no restart.
+  rantai-gateway:
+    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend:latest}
+    container_name: rantai-gateway
+    entrypoint: ["python3", "/opt/rantai/gateway.py"]
+    environment:
+      - GATEWAY_UPSTREAM=http://ollama:11434
+      - GATEWAY_PORT=8080
+      # TIER 2: the Deployments UI writes this shared file; the gateway re-reads it
+      # per request (models + keys change live, no restart). The two env vars below
+      # are only the Tier-1 fallback, used until the UI writes the file.
+      - GATEWAY_CONFIG_FILE=/uidata/gateway-config.json
+      - GATEWAY_API_KEYS=${GATEWAY_API_KEYS:-}
+      - GATEWAY_ALLOWED_MODELS=${GATEWAY_ALLOWED_MODELS:-}
+    volumes:
+      # Read-only view of the frontend's data dir: the Deployments UI writes
+      # gateway-config.json there; we only read it. RO so the network-facing gateway
+      # can never tamper with app data even if compromised.
+      - ui_data:/uidata:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ollama
     restart: unless-stopped
     networks:
       - llmops
@@ -133,6 +173,10 @@ services:
       - APP_PASSWORD=${APP_PASSWORD:-}
       - AUTH_SECRET=${AUTH_SECRET}
       - HF_TOKEN=${HF_TOKEN:-}
+      # Tier-2 gateway control: the Deployments UI writes the gateway's live config
+      # (exposed models + API keys) into its OWN data dir (appuser-owned), which the
+      # gateway mounts READ-ONLY — avoids the fresh-shared-volume ownership race.
+      - GATEWAY_CONFIG_PATH=/data/gateway-config.json
     volumes:
       # Server-side stores (deployments, settings, job logs, inference log).
       # Matches RANTAI_DATA_DIR=/data in Dockerfile.frontend — without this the

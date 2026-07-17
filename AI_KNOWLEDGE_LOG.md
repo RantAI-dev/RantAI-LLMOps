@@ -1881,3 +1881,30 @@ Deploy v0.40.13 (FE a0a8f33 + BE cddf87f... backend a0a8f33/frontend cddf87f). V
 **Fix:** ghcr.yml -> runs-on ubuntu-24.04-arm (NATIVE arm64, tanpa QEMU), platforms linux/arm64 SAJA (target deploy cuma GX10 arm64; amd64 gak dipakai). Hapus step setup-qemu. Revert retry-loop Dockerfile (gak perlu di native). BONUS: frontend gak 45 menit lagi (native cepat).
 **SYARAT:** ubuntu-24.04-arm runner: GRATIS utk repo PUBLIC; repo PRIVATE butuh plan Team/Enterprise. Kalau release -> error "no runner matching labels" berarti repo private tanpa arm64 runner -> pivot (jadiin repo public / self-hosted runner di GX10 sendiri / QEMU versi lain).
 **Next:** commit ghcr.yml+Dockerfile -> push -> release v0.40.17. Kalau "no runner" -> kabarin utk pivot.
+
+## SOLVED: v0.40.17 live (native arm64 CI + max_tokens + save-chat) (2026-07-17 06:33 WIB)
+Native arm64 runner (ubuntu-24.04-arm) BUILD SUKSES ijo -> QEMU libc-bin segfault kelar permanen + frontend cepat. Recreate stack pull v0.40.17: backend 605521b, frontend df86674 (dua-duanya running). Verifikasi: CHAT_MAX_TOKENS=4096 (jawaban gak terpotong), HOST_RUNNER=sidecar, conversations router keregister=1 (entrypoint re-apply jalan), GET conversations HTTP 401 (router ADA+butuh auth, dulu 404; frontend bawa key -> 200), TL API 200.
+**Status fitur LENGKAP:** fine-tune GPU GB10 OK, export GGUF->Ollama OK, inference SEA-LION OK, export sidecar (no docker.sock) OK, max_tokens 4096 OK, save-chat OK, CI native arm64 reliable.
+**Sisa keamanan (belum): rotate API key TL + password Portainer.**
+
+## FIX UX: chat auto-scroll "stick to bottom" + info SEA-LION v4.5 (2026-07-17 06:43 WIB)
+**Konteks:** chat max_tokens 4096 KEBUKTI (1182 token, gak terpotong, "Selamat mencoba!"). User tanya 2 hal.
+**A) Auto-scroll:** chat-area.tsx baris 34-36 scrollTo(bottom) TANPA SYARAT tiap [messages] -> user gak bisa scroll ke atas baca history pas streaming (ke-yank turun terus). Fix: stickToBottomRef (start true) + handleScroll (set true kalau gap<80px dari bawah) + useEffect scroll HANYA kalau stick + onScroll di div + send() reset stick=true. UX: ikut turun kalau di bawah; freeze kalau scroll ke atas; resume kalau balik ke bawah.
+**B) SEA-LION v4.5 di Hub:** BUKAN bug. Hub = search LIVE ke HF (searchHfModels, filter=gguf, sort trending, limit 30). User search "SEA-LION v3 8B" -> keluar v3. Search "sea-lion v4.5" -> muncul Gemma-SEA-LION-v4.5-E2B-IT-GGUF + Qwen-SEA-LION-v4.5-27B-IT-GGUF. Gak perlu ubah kode.
+**Next:** commit chat-area.tsx -> release v0.40.18 -> recreate (pull FE) -> scroll fix live. Gak urgent.
+
+## FITUR: LLM Gateway (Tingkat 1 - auth + model allowlist di depan Ollama) (2026-07-17 07:18 WIB)
+**Tujuan user:** deployment "proper" - kontrol model mana yg diekspos (bukan semua), API key auth. Sekalian nutup lubang keamanan (Ollama kebuka tanpa auth). User mau lanjut Tingkat 2 (nyatu ke tab Deployments) nanti.
+**Implementasi (Tier-2-ready):** NEW docker/backend/gateway.py - proxy stdlib (sepola gpu-server/export-server). Cek Authorization Bearer key + allowlist model (utk /v1/chat|completions), proxy streaming ke Ollama. Config: env GATEWAY_API_KEYS (empty=deny all/fail-closed) + GATEWAY_ALLOWED_MODELS (empty=allow all) [Tier 1]; ATAU GATEWAY_CONFIG_FILE JSON {keys,models} re-read per-request [Tier 2 hook, dibaca live utk UI nanti]. /v1/models difilter ke allowed. Health GET / tanpa auth.
+**Compose:** service rantai-gateway (REUSE backend image, entrypoint override python3 gateway.py, no volume, port 8080) + HAPUS ports 11434 dari ollama (internal only). Frontend/export tetap akses ollama:11434 via docker network.
+**Effort:** kecil (proxy ~150 baris + compose). Reuse backend image = gak perlu CI job baru.
+**Next:** release (backend image dpt gateway.py) -> redeploy (recreate + pull) -> user set GATEWAY_API_KEYS (openssl rand -hex 24) + GATEWAY_ALLOWED_MODELS di Portainer env -> Agents ganti baseURL ke :8080/v1 + Bearer key. Tingkat 2 nanti: tab Deployments nulis GATEWAY_CONFIG_FILE.
+
+## FITUR: Gateway Tingkat 2 (kelola dari tab Deployments, gateway baca live) (2026-07-17 07:28 WIB)
+**Dibangun di atas Tingkat 1.** UI Deployments sekarang jadi gerbang beneran: pilih model yg diekspos + create/revoke API key, gateway baca live (no restart).
+**Files baru:** src/lib/gateway-store.ts (store {deployedModels, apiKeys} di $RANTAI_DATA_DIR/gateway.json + nulis GATEWAY_CONFIG_PATH={keys,models} ke shared volume; key gen crypto gw-<hex>, maskKey). src/app/api/serve/gateway/route.ts (GET masked, POST setModels/createKey[return raw sekali]/revokeKey). src/modules/serve/components/gateway-access.tsx (UI: base URL, toggle model diekspos, list/create/revoke key, banner "salin sekali").
+**Wiring:** serve-page.tsx import + <GatewayAccess models={info.models}/> di bawah halaman.
+**Compose:** volume gw_config di-share frontend(/gwconfig, +GATEWAY_CONFIG_PATH=/gwconfig/config.json) & gateway(/gwconfig, +GATEWAY_CONFIG_FILE). gateway.py udah baca file itu per-request (dari Tier 1). Env GATEWAY_API_KEYS/ALLOWED_MODELS tinggal fallback.
+**Flow user (jauh lebih enak dari Tier 1):** setelah deploy -> buka Deployments -> centang model diekspos + Buat key (copy) -> Agents pakai :8080/v1 + key. GAK perlu edit env Portainer lagi.
+**Verifikasi:** tsc --noEmit exit 0.
+**Next:** release (backend img=gateway.py, frontend img=semua TS baru+scroll fix) -> aku recreate (add gateway service+shared volume+tutup ollama+pull) -> user atur di UI.

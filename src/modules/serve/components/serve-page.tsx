@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
 import { useServe } from "@/modules/serve/hooks/use-serve";
+import { GatewayAccess } from "@/modules/serve/components/gateway-access";
 
 type Lang = "curl" | "python" | "javascript";
 
@@ -377,6 +378,8 @@ export function ServePage() {
           endpoint API.
         </p>
       )}
+
+      <GatewayAccess models={info.models} />
     </div>
   );
 }

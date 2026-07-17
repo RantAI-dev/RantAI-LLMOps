@@ -30,9 +30,21 @@ export function ChatArea({
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Keep the view pinned to the newest tokens only while the user is at (or near)
+  // the bottom. Once they scroll up to read earlier text, stop auto-following so a
+  // streaming reply doesn't yank them back down. Starts true (fresh view).
+  const stickToBottomRef = useRef(true);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  }
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    if (stickToBottomRef.current) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    }
   }, [messages]);
 
   // Abort any in-flight stream when this session's ChatArea unmounts (it's keyed
@@ -58,6 +70,7 @@ export function ChatArea({
     if (!text || isStreaming) return;
 
     setError(null);
+    stickToBottomRef.current = true; // sending always jumps to the newest message
     const history: ChatMessage[] = [...messages, { role: "user", content: text }];
     setMessages(() => [...history, { role: "assistant", content: "" }]);
     setInput("");
@@ -123,7 +136,7 @@ export function ChatArea({
         <ModelPicker value={model} onChange={setModel} />
       </div>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4">
+      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto px-4">
         <div className="mx-auto w-full max-w-3xl space-y-5 py-4">
           {messages.length === 0 ? (
             <div className="flex min-h-[55vh] flex-col items-center justify-center gap-3 text-center">
