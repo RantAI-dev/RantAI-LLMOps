@@ -117,21 +117,39 @@ def _get_uv_pip_install_flags() -> str:
     if _check_nvidia_gpu():
         cuda_index = "cu130" if _is_dgx_spark() else "cu128"
         if cuda_index == "cu130":
-            # Canonical PyTorch pattern: cu130 as the PRIMARY index (torch,
-            # torchvision, nvidia-*-cu13 come from here) with PyPI as fallback for
-            # everything else (unsloth, bitsandbytes, trl, …). Do NOT use
-            # `--index … --index-strategy unsafe-best-match`: when a plugin pins an
-            # exact version (e.g. unsloth's `torch==2.10.0`), unsafe-best-match
-            # picks PyPI's plain `2.10.0` — which on arm64 is the CPU build — over
-            # cu130's `2.10.0+cu130`, so training dies with "cannot find any torch
-            # accelerator". A primary `--index-url` + default first-match resolves
-            # torch from cu130 first, giving the +cu130 CUDA build on the GB10.
-            return "--index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple"
+            # cu130 added as an extra index; unsafe-best-match lets non-torch
+            # packages that have no arm64 wheel on cu130 (e.g. torchao) still come
+            # from PyPI. This does NOT by itself guarantee the +cu130 torch build —
+            # a plugin can re-pin `torch==X` and pull PyPI's CPU wheel afterwards —
+            # so the GB10 CUDA guarantee is enforced by _CU130_TORCH_FIXUP, applied
+            # after the plugin's own setup runs (see launch_cluster).
+            return "--index https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match"
         else:
             return ""
     if not sys.platform == "darwin":
         return "--index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match"
     return ""
+
+
+# On the GB10 / DGX Spark, torch must be the +cu130 (CUDA 13) build. A training
+# plugin's own `setup` (e.g. `uv pip install ... torch==2.10.0 ...`) resolves torch
+# from PyPI, which on arm64 is the CPU-only wheel — so unsloth dies with "cannot find
+# any torch accelerator". Fix: AFTER the plugin setup, if the installed torch has no
+# CUDA, re-pin it to the +cu130 build of the SAME version from the cu130 index. This
+# leaves torchvision/torchao/etc untouched (torchao has no arm64 wheel on cu130) and
+# pulls torch's own nvidia-*-cu13 runtime deps so torch.cuda.is_available() is True.
+# `--index-strategy unsafe-best-match` is required so uv looks past PyPI (where torch
+# is found first) to the cu130 index that actually carries the exact +cu130 wheel.
+_CU130_TORCH_FIXUP = (
+    "; echo '[rantai] GB10: verifying torch CUDA build';"
+    " _tv=$(python -c 'import importlib.metadata as _m; print(_m.version(\"torch\").split(\"+\")[0])' 2>/dev/null || true);"
+    " if [ -n \"$_tv\" ] && ! python -c 'import torch,sys; sys.exit(0 if torch.version.cuda else 1)' 2>/dev/null; then"
+    " echo \"[rantai] re-pinning torch==${_tv}+cu130 (plugin left a CPU build)\";"
+    " uv pip install --python \"$VIRTUAL_ENV/bin/python\""
+    " --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple"
+    " --index-strategy unsafe-best-match \"torch==${_tv}+cu130\";"
+    " fi"
+)
 
 
 _PYTHON_VERSION = "3.11"
@@ -566,6 +584,10 @@ class LocalProvider(ComputeProvider):
                 _status("Running setup")
                 print(f"[LocalProvider] Running setup in {workspace_home}: {config.setup!r}")
                 strict_setup_script = f"set -e -o pipefail; {config.setup}"
+                # GB10 / DGX Spark: guarantee a CUDA torch even if the plugin's setup
+                # pulled the arm64 CPU wheel from PyPI (see _CU130_TORCH_FIXUP).
+                if _is_dgx_spark():
+                    strict_setup_script += _CU130_TORCH_FIXUP
                 setup_cmd = _wrap(["/bin/bash", "-c", strict_setup_script])
                 if setup_cmd[0] != "/bin/bash":
                     print(f"[LocalProvider] Setup sandboxed via {_sandbox_backend}: {setup_cmd[0]}")
