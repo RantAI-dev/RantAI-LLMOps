@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { Download, ExternalLink, Heart, Loader2, Lock, Search } from "lucide-react";
+import { Download, ExternalLink, Heart, Loader2, Lock, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,7 +31,8 @@ export function HubModels() {
   const [search, setSearch] = useState("");
   const [task, setTask] = useState("text-generation");
   const [sort, setSort] = useState("trending");
-  const { models, loading, error } = useHubModels(search, task, sort);
+  const [includeSafetensors, setIncludeSafetensors] = useState(false);
+  const { models, loading, error } = useHubModels(search, task, sort, includeSafetensors);
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
@@ -50,9 +52,28 @@ export function HubModels() {
             </FilterPill>
           ))}
         </FilterGroup>
+        <FilterGroup label="Format">
+          <label className="flex cursor-pointer items-start gap-2 text-[13px] text-ink">
+            <input
+              type="checkbox"
+              checked={includeSafetensors}
+              onChange={(e) => setIncludeSafetensors(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span>
+              Termasuk <span className="font-medium">safetensors</span>
+              <span className="mt-0.5 block text-[11px] leading-4 text-ink-faint">
+                base model buat fine-tune (gak bisa di-chat langsung)
+              </span>
+            </span>
+          </label>
+        </FilterGroup>
         <p className="text-[11px] leading-4 text-ink-faint">
-          Cuma model <span className="font-medium">GGUF</span> yang ditampilkan — itu yang bisa
-          dijalankan Ollama untuk inference.
+          Default cuma <span className="font-medium">GGUF</span> — itu yang bisa langsung di-chat
+          via Ollama. Repo official yang <span className="font-medium">safetensors</span> (mis.{" "}
+          <span className="font-mono">aisingapore/…</span>) muncul kalau centang di atas: itu buat
+          fine-tune, atau cari versi GGUF-nya (biasanya dari{" "}
+          <span className="font-mono">mradermacher</span>).
         </p>
       </aside>
 
@@ -63,7 +84,7 @@ export function HubModels() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari model GGUF di Hugging Face… (mis. llama, qwen)"
+            placeholder="Cari model di Hugging Face… (mis. llama, qwen, sea-lion)"
             className="pl-9"
           />
         </div>
@@ -80,7 +101,16 @@ export function HubModels() {
           </div>
         ) : models.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
-            Tidak ada model GGUF yang cocok.
+            {includeSafetensors ? (
+              "Tidak ada model yang cocok."
+            ) : (
+              <>
+                Tidak ada model <span className="font-medium">GGUF</span> yang cocok. Yang kamu cari
+                mungkin cuma punya versi <span className="font-medium">safetensors</span> — centang{" "}
+                <span className="font-medium">“Termasuk safetensors”</span> di kiri buat
+                menampilkannya.
+              </>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
@@ -94,7 +124,25 @@ export function HubModels() {
   );
 }
 
+function FormatBadge({ format }: { format: HubModel["format"] }) {
+  const gguf = format === "gguf";
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase",
+        gguf ? "bg-primary-soft text-primary" : "bg-warning/15 text-warning"
+      )}
+      title={
+        gguf ? "Bisa langsung di-chat (Ollama)" : "Base model fine-tune — gak bisa di-chat langsung"
+      }
+    >
+      {gguf ? "GGUF" : "safetensors"}
+    </span>
+  );
+}
+
 function HubModelCard({ model }: { model: HubModel }) {
+  const isGguf = model.format === "gguf";
   const [open, setOpen] = useState(false);
   const [quants, setQuants] = useState<HubQuant[] | null>(null);
   const [quant, setQuant] = useState("");
@@ -150,11 +198,13 @@ function HubModelCard({ model }: { model: HubModel }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium text-primary">{model.id}</span>
+            <FormatBadge format={model.format} />
             {model.gated ? (
               <Lock className="size-3.5 shrink-0 text-warning" aria-label="gated" />
             ) : null}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-ink-soft">
+            {model.params ? <span>{(model.params / 1e9).toFixed(1)}B</span> : null}
             {model.task ? <span>{model.task}</span> : null}
             <span className="inline-flex items-center gap-0.5">
               <Download className="size-3" /> {compact(model.downloads)}
@@ -173,12 +223,27 @@ function HubModelCard({ model }: { model: HubModel }) {
         >
           <ExternalLink className="size-4" />
         </a>
-        <Button type="button" size="sm" variant={open ? "outline" : "default"} onClick={openDownload}>
-          <Download className="size-4" /> Download
-        </Button>
+        {isGguf ? (
+          <Button
+            type="button"
+            size="sm"
+            variant={open ? "outline" : "default"}
+            onClick={openDownload}
+          >
+            <Download className="size-4" /> Download
+          </Button>
+        ) : (
+          <Link
+            href="/finetune"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[13px] font-medium text-ink hover:bg-surface-2"
+            title="Pakai sebagai base model fine-tune"
+          >
+            <Sparkles className="size-4" /> Fine-tune
+          </Link>
+        )}
       </div>
 
-      {open ? (
+      {isGguf && open ? (
         <div className="space-y-2 border-t border-border px-3 py-2.5">
           {loadingQuants ? (
             <p className="flex items-center gap-2 text-[13px] text-ink-soft">
@@ -224,6 +289,17 @@ function HubModelCard({ model }: { model: HubModel }) {
               ) : null}
             </>
           )}
+        </div>
+      ) : null}
+
+      {!isGguf ? (
+        <div className="border-t border-border px-3 py-2 text-[12px] text-ink-soft">
+          Format <span className="font-medium">safetensors</span> — gak bisa di-chat langsung. Pakai
+          buat{" "}
+          <Link href="/finetune" className="text-primary underline underline-offset-2">
+            fine-tune
+          </Link>
+          , atau cari versi GGUF-nya kalau mau langsung chat.
         </div>
       ) : null}
     </div>

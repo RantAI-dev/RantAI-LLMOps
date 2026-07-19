@@ -18,8 +18,10 @@ export function HubPage() {
           <Compass className="size-5" /> Hub
         </h1>
         <p className="mt-1 max-w-2xl text-[13px] text-ink-soft">
-          Cari &amp; download model GGUF langsung dari Hugging Face (via Ollama) lalu pakai buat chat,
-          atau temukan dataset untuk fine-tune.
+          Cari &amp; download model dari Hugging Face. Default menampilkan model{" "}
+          <span className="font-medium">GGUF</span> (siap di-chat via Ollama); centang{" "}
+          <span className="font-medium">“Termasuk safetensors”</span> untuk melihat base model
+          fine-tune juga. Atau temukan dataset untuk fine-tune.
         </p>
       </div>
 

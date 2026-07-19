@@ -1941,3 +1941,31 @@ Release v0.40.20 (gateway Tier1+2, VRAM fix, scroll fix). Recreate stack via API
 ## UI: hapus chevron "Interact" + keputusan HF token (2026-07-17 12:16 WIB)
 **Chevron:** app-shell.tsx baris 124-126 ChevronUp hardcoded khusus item "Interact" (hiasan, nav flat gak collapse apa-apa) -> dihapus + import ChevronUp dibuang. tsc exit 0. Bundle ke v0.40.22.
 **HF token (KEEP, jangan dibuang):** hf-hub.ts - public repo GAK butuh auth (makanya search/download SEA-LION GGUF jalan tanpa token). Token DIBUTUHIN utk: (1) model GATED (Llama/Gemma family) - accept license + token, (2) repo PRIVATE, (3) rate limit lebih tinggi. Dipakai di finetune/submit + evals (env HF_TOKEN buat download base model gated saat training). Jadi fitur bener + berguna, cuma opsional utk public. Copy finetune-form udah jelas ("Model gated Llama/Gemma? Set HF token"). Gak ada perubahan kode.
+
+## DIAGNOSA: inference Apertus turun 27->9 tok/s = GPU jatuh ke CPU (2026-07-18 18:45 WIB)
+**Gejala user:** chat Apertus-SEA-LION-v4-8B-IT Q8 kemarin 26.9 tok/s, skrg 9.4 tok/s (model SAMA).
+**Cek live remote (host 10.17.254.27, semua service kejangkau dari dev PC):**
+- `/api/serve/info`: loaded=Apertus...Q8 (bener kepilih), list nambah `Qwen-SEA-LION-v4-8B-VL-GGUF:Q8_0` -> download VL SUDAH SELESAI (bukan lagi rebutan bandwidth).
+- `/api/compute/gpu-metrics` = `{"gpus":[]}` PERSISTEN (poll 3x) -> nvidia-smi di dalam container gak lihat GPU sama sekali (bukan sekadar VRAM 0).
+**Bukti CPU-fallback:** 9.4 tok/s = kecepatan CPU Grace utk 8B Q8. Pola TTFT menegaskan: kemarin ttft 8.9s (cold load model ~8.5GB) + 27 tok/s (GPU decode); sekarang ttft 0.9s (model WARM di RAM) TAPI 9.4 tok/s (decode lambat) = model residen tapi compute lambat = jalan di CPU.
+**Diagnosis:** container kehilangan akses GPU (khas NVML "unknown error" pasca daemon-reload/reboot, atau lonjakan memori unified pas import VL) -> Ollama fallback ke CPU. BUKAN regresi kode, BUKAN model beda.
+**Belum bisa kupastikan dari remote:** apakah GPU mati di level host atau cuma container yg kehilangan akses (Ollama /api/ps & nvidia-smi host gak keekspos; no Portainer cred di sesi ini).
+**Fix disaranin (user jalankan):** restart container `ollama` (+`rantai-backend` utk monitor) via Portainer. Konfirmasi: `docker exec ollama ollama ps` (kolom PROCESSOR: %CPU=masalah, %GPU=beres) + `nvidia-smi` di host. Kalau host nvidia-smi mati juga -> restart docker/nvidia runtime (koordinasi DTI krn box bersama).
+
+## KONFIRMASI diagnosa GPU->CPU: "Failed to initialize NVML: Unknown Error" (2026-07-18 19:00 WIB)
+User jalanin cek DI DALAM container (hostname 90745a9c0ed4; `docker: command not found` = shell bukan host). `nvidia-smi` -> **"Failed to initialize NVML: Unknown Error"** = KONFIRMASI container kehilangan akses GPU. Bug klasik nvidia+docker: cgroup device ke-reset pasca daemon-reload/reboot/update paket saat container GPU jalan; /dev/nvidia* masih ke-mount tapi izin cgroup ilang. GPU host sehat, container perlu restart.
+**Fix:** Portainer -> Containers -> Restart `ollama` (benerin inference balik ke GPU) + `rantai-backend` (monitor GPU + sidecar). Verifikasi: console ollama -> `nvidia-smi` muncul GB10 lagi; chat balik ~27 tok/s. Prevensi kalau berulang: config nvidia-container-runtime / hindari daemon-reload saat container GPU jalan (ranah DTI, box bersama).
+
+## RESOLVED: GPU balik pasca restart container (2026-07-18 19:10 WIB)
+User restart `ollama` + `rantai-backend` via Portainer. Cek `/api/compute/gpu-metrics` (poll 3x): **NVIDIA GB10 kebaca lagi** (util 5%, mem ~14GB/124.5GB, 39C, 11W) -> NVML "Unknown Error" HILANG, container dpt akses GPU lagi. `loaded=null` (wajar, ollama fresh restart; model ke-load pas chat pertama). Fix restart-container TERBUKTI. Ekspektasi tes: chat pertama cold-load ~9s TTFT lalu balik ~27 tok/s (GPU decode).
+
+## FITUR: Hub transparansi format (GGUF vs safetensors) — no auto-converter (2026-07-18 19:30 WIB)
+**Konteks:** user bingung repo official (safetensors, mis. aisingapore/...) gak muncul di Hub krn Hub di-filter GGUF-only (silent hiding). User usul "munculin semua + label format + export ke gguf". Diputuskan (user pilih A = masalahnya cuma confusion): kerjain transparansi-nya AJA, TAHAN auto-converter safetensors->gguf (berat: download BF16 2x, convert_hf_to_gguf cuma dukung arsitektur tertentu/bisa gagal spt Qwen3-VL, lagian GGUF komunitas biasanya udah ada).
+**Kenapa split:** Ollama cuma jalanin GGUF (chat) — makanya Hub filter=gguf. Fine-tune butuh safetensors — udah ada searchHfTrainableModels (endpoint /api/hub/base-models). Dua tool beda buat dua kebutuhan berlawanan.
+**Perubahan (tsc exit 0):**
+- hf-hub.ts: HubModel + field `format: "gguf"|"safetensors"`; searchHfModels set `"gguf" as const`, searchHfTrainableModels set `"safetensors" as const` (butuh `as const` biar literal gak melebar ke string).
+- use-hub-models.ts: signature + `includeSafetensors`; selalu fetch /api/hub/models (GGUF), kalau toggle ON juga fetch /api/hub/base-models (safetensors, best-effort gagal=[]), merge + dedup by id. Deps nambah includeSafetensors.
+- hub-models.tsx: toggle "Termasuk safetensors" di rail + hint edukatif; badge <FormatBadge> (GGUF=primary "bisa di-chat", safetensors=warning "buat fine-tune"); kartu GGUF = Download->chat (tetap), kartu safetensors = tombol "Fine-tune" (Link /finetune) + strip nota "gak bisa di-chat langsung"; params (size) ditampilkan; empty-state & placeholder ngajarin centang safetensors.
+- hub-page.tsx: deskripsi header disamain.
+**Catatan:** VL (image-text-to-text) tetap gak muncul di toggle safetensors krn searchHfTrainableModels paksa pipeline_tag=text-generation (bener, itu emang buat fine-tune teks) — hint arahin "cari versi GGUF-nya". Frontend-only, gak perlu rebuild backend.
+**Next:** user commit manual (`git add -A`) -> release -> recreate (pull FRONTEND aja).

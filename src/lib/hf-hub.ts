@@ -31,6 +31,10 @@ export type HubModel = {
   task: string | null;
   updatedAt: string | null;
   gated: boolean;
+  /** Which weight format the repo ships: `gguf` = chat-ready (Ollama can run it),
+   *  `safetensors` = a fine-tune base (can't be chatted with directly). Drives the
+   *  Hub badge + whether the card offers Download-for-chat or Fine-tune. */
+  format: "gguf" | "safetensors";
   /** Total parameter count from HF safetensors metadata (null if unpublished). */
   params?: number | null;
 };
@@ -65,6 +69,7 @@ export async function searchHfModels(opts: HubSearch): Promise<HubModel[]> {
       task: (m.pipeline_tag as string | undefined) ?? null,
       updatedAt: (m.lastModified as string | undefined) ?? null,
       gated: Boolean(m.gated),
+      format: "gguf" as const,
     }))
     .filter((m) => m.id);
 }
@@ -103,6 +108,7 @@ export async function searchHfTrainableModels(opts: HubSearch): Promise<HubModel
       task: (m.pipeline_tag as string | undefined) ?? null,
       updatedAt: (m.lastModified as string | undefined) ?? null,
       gated: Boolean(m.gated),
+      format: "safetensors" as const,
       params: Number((m.safetensors as { total?: number } | undefined)?.total) || null,
     }))
     .filter((m) => m.id && !/gguf|awq|gptq/i.test(m.id));
