@@ -6,7 +6,9 @@ github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
 github_repo_dir: trainers/unsloth-llm-train
 resources:
   accelerators: "NVIDIA:1"
-setup: "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb"
+# s3fs lets `dataset` be an s3:// URI pulled straight from MinIO, so an on-premise
+# corpus never has to be published to the Hugging Face Hub to be trainable.
+setup: "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb s3fs"
 run: "python unsloth-llm-train/train.py"
 envs:
   WANDB_PROJECT: "unsloth-llm-training"
@@ -27,7 +29,9 @@ parameters:
   max_seq_length: 2048
   lora_r: 16
   lora_alpha: 16
-  lora_dropout: 0.05
+  # 0 keeps Unsloth on its fast-patching path; above 0 it warns of a performance
+  # hit paid on every step. Raise only if evaluation shows overfitting.
+  lora_dropout: 0.0
   logging_steps: 1
   save_steps: 50
   weight_decay: 0.01

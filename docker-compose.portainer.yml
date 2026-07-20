@@ -172,6 +172,13 @@ services:
       # needs NO Docker socket / bind mount (see docker/backend/export-server.py).
       - HOST_RUNNER=sidecar
       - EXPORT_SIDECAR_URL=http://rantai-backend:8342
+      # Optional S3/MinIO credentials. Set these to train directly from an
+      # `s3://bucket/prefix/` dataset — the corpus then never has to be published
+      # to the Hugging Face Hub to be trainable. Forwarded to each training job.
+      - S3_ENDPOINT_URL=${S3_ENDPOINT_URL:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_REGION=${AWS_REGION:-}
       - APP_PASSWORD=${APP_PASSWORD:-}
       - AUTH_SECRET=${AUTH_SECRET}
       - HF_TOKEN=${HF_TOKEN:-}

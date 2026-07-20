@@ -2021,3 +2021,49 @@ Release v0.40.24 ijo (FE+BE). Redeploy stack id=21 via Portainer API (PUT PullIm
 **Fix:** `step={256}` (grid 256+256n mencakup 2048/4096/8192) + clamp dipindah dari `onChange` ke `onBlur` (onChange cuma set angka mentah). tsc 0, lint 0.
 **Catatan:** 4352 SAH dipakai uji (max_seq_length gak harus pangkat dua; 4352 = 128x34, ramah kernel) — malah lebih meyakinkan sbg bukti karena angkanya khas, bukan default. Fix ini menumpang release berikutnya, tidak memblokir pengujian.
 **Pola serupa masih ada** di field numerik lain form ini (epochs, LoRA r/alpha, learning rate) — `Number(v) || fallback` di onChange bikin susah ngetik. Belum disentuh; tawarkan ke user kalau mengganggu.
+
+## DEPLOY v0.40.25: log penuh + diagnosa model (2026-07-20 11:35 WIB)
+User commit+push sendiri (1a4181d, 8 file) lalu release v0.40.25. Diverifikasi trainer di main GitHub SUDAH memuat baris baru (`Loading model with Unsloth:`, `turn_pairs`) — penting krn TL clone dari sana. Redeploy stack 21 (PullImage=true) -> 200 OK. Sehat: frontend 307 (~4s), GPU GB10 44C, gateway 200, ollama OK.
+**Isi rilis ini:**
+- training-monitor.tsx: log TIDAK lagi dipotong 40 baris terakhir (`slice(-40)` dibuang) -> tampil penuh + header jumlah baris + tombol **Perbesar** (overlay, Esc/klik-luar/X) + **Salin**. Alasan: baris paling menentukan (id model, `⚙️ precision=`, traceback) selalu jauh di atas 40 baris terakhir, jadi persis terpotong saat paling dibutuhkan.
+- hf-search.tsx: baris `✓ {selected}` dari `truncate` -> `break-all`. Sebelumnya id benar & id kurang huruf TAMPAK IDENTIK di layar; digabung tombol "Pakai persis" (memakai ketikan apa adanya) itu bisa mengirim id terpotong tanpa ketahuan. Diduga inilah penyebab error "No config file found" kemarin — belum terbukti.
+- trainers/train.py: log nama model SEBELUM load (Unsloth tidak menyebut id di errornya); formatter kenal `prompt`/`completion` & `question`/`answer` (dulu cuma instruction/output -> dataset touch-rugby [kolom prompt/completion] jatuh ke fallback kasar "prompt: ...\ncompletion: ..." alih-alih chat template).
+- src/lib/copy-text.ts BARU: helper salin (fallback execCommand utk HTTP LAN) diangkat dari gateway-access.tsx, kini dipakai bersama.
+**Catatan:** commit user juga memasukkan `rencana-teknis-asisten-belajar-rag-sft.pdf` -> repo PUBLIC, dokumen rencana Shiro kini publik & permanen di riwayat git.
+**Berikutnya:** ulangi fine-tune; baris `Loading model with Unsloth: <id>` akan memastikan apakah id-nya kurang huruf.
+
+## ✅ FASE A + B TERBUKTI END-TO-END (2026-07-20 11:55 WIB)
+Job `uji-bf16-2` (unsloth/Qwen2.5-0.5B-Instruct + Trelis/touch-rugby-rules, max_steps=10, max_seq_length=4096) -> **COMPLETE**, loss 3.568 -> 1.877, durasi 51s.
+**Semua baris fork kita muncul:** `⚙️ precision=BF16 | optim=adamw_torch | max_seq_length=4096 | max_steps=10 | epochs=1`; `Loading model with Unsloth: unsloth/Qwen2.5-0.5B-Instruct`; `Turn columns detected: prompt -> completion`; `✅ All samples fit within max_seq_length=4096`.
+**Konfirmasi INDEPENDEN dari banner Unsloth:** "NVIDIA GB10 ... Max memory: 121.627 GB / Torch: 2.10.0+cu130 / **Bfloat16 = TRUE**" dan TIDAK ada kata "4bit". Dua sumber terpisah sepakat -> 4-bit benar-benar mati.
+**Misteri kegagalan sebelumnya TERPECAHKAN:** model identik kini sukses dimuat; bedanya cuma id `...Instruc` (kurang "t") vs `...Instruct`. Terbukti id terpotong akibat tombol "Pakai persis" + tampilan `truncate` yang menyembunyikannya. Dua-duanya sudah diperbaiki (break-all + log nama model sebelum load).
+**Temuan baru utk ditindaklanjuti:**
+1. `Warning: Model saved but metadata creation failed: ... models/<job>_unsloth_trained_model/index.json` — model TERSIMPAN tapi metadata TL gagal. Perilaku TL upstream. **Risiko saat export ke GGUF / tampil di registry** — belum diuji.
+2. `bitsandbytes==0.49.2` tetap terpasang (dependensi unsloth) tapi MENGANGGUR — optim=adamw_torch & load_in_4bit=False. Terpasang != terpakai.
+3. Unsloth: "Dropout = 0 is supported for fast patching. You are using dropout = 0.05 ... causing a performance hit." Default kita lora_dropout=0.05 melewatkan optimasi cepat Unsloth. Relevan utk run besar Shiro (2-5rb contoh x 3 epoch). BELUM diubah — itu keputusan kualitas latihan, menunggu keputusan user.
+4. Nit kosmetik: `Step N: loss=` dari LabCallback meleset 1 langkah (loss step 1 dilabeli "Step 2"). Grafik loss UI benar (parseLoss baca output mentah). Warisan upstream.
+**Sisa uji:** fail-loud dataset ngawur (uji 3) belum dijalankan.
+
+## TINDAK LANJUT 3 catatan + hasil uji lanjutan (2026-07-20 12:05 WIB)
+**Catatan #1 (peringatan metadata index.json) TERTUTUP — KOSMETIK.** User berhasil export hasil fine-tune ke GGUF DAN inference-nya jalan (`rantai-uji-bf16-2-b89a5526:latest`, 56,5 tok/s, jawaban wajar). Jadi `Warning: Model saved but metadata creation failed` TIDAK merusak apa pun — alur latih -> export -> sajikan terbukti utuh. Tidak ditambal.
+**Catatan #2 (bitsandbytes terpasang):** tetap dibiarkan, dependensi transitif unsloth, menganggur.
+**Uji dataset ngawur:** user mengetik `ngawur/` -> ditolak frontend `Invalid model id: "ngawur/"` (assertModelId). Itu LAPISAN 1 bekerja (format cacat ditolak sebelum job dibuat), TAPI fail-loud trainer (LAPISAN 2) BELUM teruji — yang relevan buat Shiro adalah id berbentuk sah tapi tidak ada (mis. `ngawur/dataset-tidak-ada-12345`, repo privat, salah ketik). Prioritas rendah krn sudah 2 lapis.
+**Catatan #3 DIKERJAKAN (disetujui user): lora_dropout default 0 + diekspos.** Alasan: Unsloth hanya memakai jalur fast-patching pada dropout 0 ("causing a performance hit" di atas 0) — biaya tiap langkah, tiap run; 0 juga default umum LoRA. train.py `config.get("lora_dropout", 0.0)`, task.yaml 0.0, finetune.ts param `loraDropout?` + `lora_dropout: p.loraDropout ?? 0`, form: field "LoRA dropout" (min 0, max 0.5, step 0.05, clamp di onBlur spy bisa diketik) + hint "naikkan hanya kalau evaluasi menunjukkan overfit".
+**Catatan #4 DIKERJAKAN: label `Step N` meleset 1.** Akar: on_step_end membaca `state.log_history[-1]` PADAHAL global_step sudah maju -> tiap loss dilabeli nomor langkah BERIKUTNYA, dan loss langkah terakhir tidak pernah tercatat. Fix: pindah ke callback `on_log(logs=...)` yang menerima metrik milik langkah yang baru selesai; on_step_end kini hanya mengurus progress.
+**Verifikasi:** py_compile OK, tsc 0, lint 0, 95/95 test.
+**Deploy:** perubahan trainer (dropout default + on_log) cukup `git push` -> aktif di job berikutnya. Perubahan frontend (field dropout) butuh release.
+
+## P0 #5 SELESAI: dataset boleh dari path lokal / HTTP / S3-MinIO (2026-07-20 12:15 WIB)
+**Masalah yang ditemukan saat memeriksa rencana:** trainer memanggil `load_dataset(<id>)` mentah dan `local.py` TIDAK menyiapkan dataset lokal untuk job provider (grep "dataset" di local.py kosong; dia cuma set HF_HOME utk cache unduhan). Artinya dataset WAJIB ada di Hugging Face.
+**KONFLIK dengan rencana Shiro:** ringkasan eksekutifnya menuntut on-premise + "kedaulatan data" dengan MinIO sbg sumber tunggal (`s3://buku-korpus/sft/train.jsonl`), tapi satu-satunya jalur melatih adalah mengunggah dataset turunan 10.000 buku sekolah Indonesia ke cloud pihak ketiga. Bisa diperbaiki JUSTRU karena Fase B (trainer sudah milik kita).
+**Implementasi:**
+- `trainers/.../train.py`: helper `_load_training_dataset(spec)` — mendukung (a) id HF, (b) file/direktori lokal, (c) URL http(s), (d) URI `s3://` (termasuk prefix berakhiran `/`). S3 DIUNDUH ke disk lokal dulu, bukan streaming — sesuai kalimat Shiro sendiri ("menarik data dari S3 ke disk lokal per pekerjaan"). Direktori/prefix otomatis memungut `eval.jsonl` jadi split `validation` (mendukung 95:5 tanpa wiring tambahan). Endpoint MinIO via env `S3_ENDPOINT_URL`/`AWS_ENDPOINT_URL`. Sumber dataset dicatat di log.
+- `TRAINER_SETUP` + task.yaml: tambah `s3fs`.
+- `validate.ts`: `assertDatasetRef` BARU (assertModelId menolak path & URI). Dua bentuk: DATASET_PATH (id HF/path, tanpa trailing slash -> `ngawur/` tetap ditolak dini) dan DATASET_URI (s3/http, trailing slash BOLEH krn menandai prefix). Tiap segmen wajib diawali alfanumerik -> `..` mustahil jadi segmen, traversal tertolak by construction; plus guard eksplisit `includes("..")`.
+- `finetune.ts`: dataset pakai assertDatasetRef (baseModel tetap assertModelId); env S3 diteruskan ke job (S3_ENDPOINT_URL, AWS_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION) — tanpa ini `s3://` tak bisa autentikasi.
+- `docker-compose.portainer.yml`: env S3 opsional di service frontend.
+- `hf-search.tsx`: hint dataset menyebut path lokal / s3://.
+- `validate.test.ts`: +2 test (7 bentuk sah, 8 bentuk ditolak). Total 95 -> 97.
+**Verifikasi:** py_compile OK, tsc 0, lint 0, 97/97.
+**Deploy:** trainer = cukup push; frontend (validator, env passthrough, hint) = butuh release.
+**BELUM diuji end-to-end:** jalur s3:// belum pernah dijalankan sungguhan (butuh MinIO). Jalur path lokal & HF sudah masuk akal secara kode tapi juga belum diuji.

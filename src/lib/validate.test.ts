@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
+import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/validate";
 
 describe("assertJobId", () => {
   it("accepts numeric and UUID-shaped ids", () => {
@@ -25,6 +25,37 @@ describe("assertModelId", () => {
   it("rejects leading dash, extra slashes, and shell metacharacters", () => {
     for (const bad of ["-bad", "a/b/c", "a b", "a;b", "$(whoami)", "../etc/passwd", "`x`", ""]) {
       expect(() => assertModelId(bad), bad).toThrow();
+    }
+  });
+});
+
+describe("assertDatasetRef", () => {
+  it("accepts hub ids, local paths and s3/http URIs", () => {
+    for (const ok of [
+      "Trelis/touch-rugby-rules",
+      "my-local-dataset",
+      "/uidata/sft/train.jsonl",
+      "./data/train.jsonl",
+      "s3://buku-korpus/sft/train.jsonl",
+      "s3://buku-korpus/sft/", // prefix holding train.jsonl + eval.jsonl
+      "https://minio.internal/sft/train.jsonl",
+    ]) {
+      expect(() => assertDatasetRef(ok), ok).not.toThrow();
+    }
+  });
+
+  it("rejects traversal, a bare owner, and shell metacharacters", () => {
+    for (const bad of [
+      "../etc/passwd",
+      "s3://bucket/../secret",
+      "ngawur/", // incomplete hub id — caught before a job is created
+      "a b",
+      "a;rm -rf /",
+      "$(whoami)",
+      "`x`",
+      "",
+    ]) {
+      expect(() => assertDatasetRef(bad), bad).toThrow();
     }
   });
 });

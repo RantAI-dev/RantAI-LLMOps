@@ -25,7 +25,7 @@ const CONFIG: Record<
     url: (q) => `/api/hub/datasets?search=${encodeURIComponent(q)}`,
     key: "datasets",
     placeholder: "Ketik untuk cari dataset, atau pilih dari daftar…",
-    hint: "Dataset lokal/upload di atas; ketik untuk cari di Hugging Face.",
+    hint: "Cari di Hugging Face, atau ketik path lokal / s3://bucket/prefix/ lalu pilih “Pakai persis”.",
   },
 };
 

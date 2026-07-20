@@ -27,7 +27,7 @@ import {
 import { inferenceHeaders } from "@/lib/inference";
 import { listOllamaModels } from "@/lib/ollama";
 import { launchProviderTask } from "@/lib/tl-provider";
-import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
+import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
 import { logServerError } from "@/lib/log";
@@ -57,8 +57,10 @@ const UPSTREAM_GITHUB_URL = "https://github.com/transformerlab/transformerlab-ap
  */
 const TRAINER_GITHUB_URL = "https://github.com/RantAI-dev/RantAI-LLMOps";
 const TRAINER_GITHUB_DIR = "trainers/unsloth-llm-train";
+// s3fs is what lets a dataset be pulled straight from MinIO/S3 (see the trainer's
+// _load_training_dataset) instead of having to be published to the HF Hub first.
 const TRAINER_SETUP =
-  "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb";
+  "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb s3fs";
 const TRAINER_RUN = "python unsloth-llm-train/train.py";
 
 /**
@@ -486,6 +488,10 @@ export type SubmitFinetuneParams = {
    *  of unified memory makes quantization pointless, and bitsandbytes' 4-bit kernels
    *  are reported to stall on sm_121. Enable only for small-VRAM hosts. */
   loadIn4bit?: boolean;
+  /** LoRA dropout. Defaults to 0 because Unsloth only takes its fast-patching path
+   *  at 0 and warns of "a performance hit" otherwise — a cost paid every step. Raise
+   *  it only if evaluation shows the adapter overfitting. */
+  loraDropout?: number;
   /** Optional HF token for gated models/datasets. */
   hfToken?: string;
   /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech. */
@@ -510,7 +516,9 @@ export type SubmitFinetuneParams = {
 export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   // Validate at the edge: HF-resolvable ids, surfaced as a clear early error.
   assertModelId(p.baseModel);
-  assertModelId(p.dataset);
+  // Not assertModelId: the dataset may be a local path or an s3:// URI so the
+  // corpus never has to leave the server to be trainable.
+  assertDatasetRef(p.dataset);
   // All jobs run under one fixed experiment (TL requires an experiment context);
   // the concept is hidden from the UI. Create/reuse it and use TL's id back.
   const experiment = await createTlExperiment(FINETUNE_EXPERIMENT);
@@ -525,6 +533,19 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
     UNSLOTH_DISABLE_STATISTICS: "1",
   };
   if (p.hfToken) env_vars.HF_TOKEN = p.hfToken;
+  // Forward S3/MinIO credentials when the server has them, so an `s3://` dataset
+  // can be pulled straight from the corpus bucket (see the trainer's
+  // _load_training_dataset). Absent vars simply leave S3 unconfigured.
+  for (const key of [
+    "S3_ENDPOINT_URL",
+    "AWS_ENDPOINT_URL",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_REGION",
+  ]) {
+    const value = process.env[key];
+    if (value) env_vars[key] = value;
+  }
 
   if (p.method === "grpo") {
     // GRPO (RL/reasoning) — maps onto the unsloth-grpo-train `lab.get_config()`
@@ -620,7 +641,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       load_in_4bit: p.loadIn4bit ?? false,
       lora_r: p.loraR ?? 16,
       lora_alpha: p.loraAlpha ?? 16,
-      lora_dropout: 0.05,
+      lora_dropout: p.loraDropout ?? 0,
       logging_steps: 1,
       save_steps: 50,
       weight_decay: 0.01,

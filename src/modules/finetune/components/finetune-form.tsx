@@ -46,6 +46,9 @@ export function FinetuneForm({
   const [epochs, setEpochs] = useState(1);
   const [loraR, setLoraR] = useState(8);
   const [loraAlpha, setLoraAlpha] = useState(16);
+  // 0 keeps Unsloth on its fast-patching path (it warns of a performance hit above
+  // 0). Raise only if evaluation shows the adapter overfitting.
+  const [loraDropout, setLoraDropout] = useState(0);
   const [learningRate, setLearningRate] = useState(0.0002);
   // -1 = ikut `epochs`. Angka positif MENIMPA epochs, jadi itu cuma untuk uji cepat.
   const [maxSteps, setMaxSteps] = useState(-1);
@@ -142,6 +145,7 @@ export function FinetuneForm({
       epochs,
       loraR,
       loraAlpha,
+      loraDropout,
       learningRate,
       maxSteps,
       maxSeqLength,
@@ -337,6 +341,22 @@ export function FinetuneForm({
                 value={loraAlpha}
                 onChange={(e) => setLoraAlpha(Math.max(1, Number(e.target.value) || 16))}
               />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">LoRA dropout</span>
+              <Input
+                type="number"
+                min={0}
+                max={0.5}
+                step={0.05}
+                value={loraDropout}
+                onChange={(e) => setLoraDropout(Number(e.target.value))}
+                onBlur={() => setLoraDropout((v) => (Number.isFinite(v) && v >= 0 && v <= 0.5 ? v : 0))}
+              />
+              <span className="mt-1 block text-[11px] text-ink-soft">
+                <code>0</code> (default) = tercepat — Unsloth pakai jalur patching cepatnya. Naikkan
+                (mis. <code>0.05</code>) hanya kalau evaluasi menunjukkan <strong>overfit</strong>.
+              </span>
             </label>
             <label className="block">
               <span className="mb-1 block text-[13px] font-medium text-ink">Learning rate</span>

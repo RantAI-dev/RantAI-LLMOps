@@ -16,6 +16,9 @@ silently trained on the wrong thing:
   4. A dataset that fails to load raises instead of silently falling back to a
      3-row placeholder — upstream's fallback made a wrong dataset id look like a
      successful training run.
+  5. Datasets may come from a local path, an http(s) URL or an S3/MinIO URI, not
+     only the Hugging Face Hub — a corpus that must stay on-premise cannot be
+     required to travel through huggingface.co to be trainable.
 """
 
 from unsloth import FastLanguageModel
@@ -73,11 +76,23 @@ class LabCallback(TrainerCallback):
             progress = min(progress, 95)  # Keep some buffer for final operations
             lab.update_progress(progress)
 
-        # Log training metrics if available
-        if state.log_history:
-            latest_log = state.log_history[-1]
-            if "loss" in latest_log:
-                lab.log(f"Step {state.global_step}: loss={latest_log['loss']:.4f}")
+    def on_log(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        logs=None,
+        **kwargs,
+    ):
+        """Called when the trainer logs metrics.
+
+        Losses are reported from here rather than by reading `state.log_history`
+        in on_step_end: by then global_step has already advanced, so every loss was
+        labelled with the NEXT step's number and the final step's loss was never
+        logged at all. `logs` here belongs to the step that just finished.
+        """
+        if logs and "loss" in logs:
+            lab.log(f"Step {state.global_step}: loss={logs['loss']:.4f}")
 
     def on_save(
         self,
@@ -131,6 +146,92 @@ class LabCallback(TrainerCallback):
         lab.update_progress(95)
 
 
+def _load_training_dataset(spec: str):
+    """Load the training dataset from `spec`, which may be any of:
+
+      - a Hugging Face hub id       "owner/name" or "name"
+      - a local file or directory   "/uidata/sft/train.jsonl", "/uidata/sft"
+      - an http(s) URL              "https://minio.internal/sft/train.jsonl"
+      - an S3 / MinIO URI           "s3://buku-korpus/sft/train.jsonl", or a prefix
+                                    ending in "/" holding train.jsonl (+ eval.jsonl)
+
+    Upstream only understood hub ids, which forced every dataset through
+    huggingface.co — untenable for a corpus that is required to stay on-premise.
+    S3 objects are pulled to local disk before training rather than streamed,
+    matching how the training box is meant to be driven (limited NVMe, one pull
+    per job) and keeping a failed download separate from a failed training step.
+
+    A directory or S3 prefix picks up `eval.jsonl` as a `validation` split when
+    present, so a 95/5 train/eval split needs no extra wiring.
+    """
+    from datasets import load_dataset
+
+    def _from_files(train_file, eval_file=None):
+        data_files = {"train": train_file}
+        if eval_file:
+            data_files["validation"] = eval_file
+        return load_dataset("json", data_files=data_files)
+
+    if spec.startswith("s3://"):
+        try:
+            import s3fs
+        except ImportError as e:  # pragma: no cover - depends on the job venv
+            raise RuntimeError(
+                "An s3:// dataset needs the `s3fs` package — add it to the trainer setup."
+            ) from e
+        # MinIO (or any S3-compatible endpoint) is selected purely by env, so the
+        # dataset reference stays portable across machines.
+        endpoint = os.getenv("S3_ENDPOINT_URL") or os.getenv("AWS_ENDPOINT_URL")
+        fs = s3fs.S3FileSystem(client_kwargs={"endpoint_url": endpoint} if endpoint else {})
+        local_dir = os.path.abspath("_dataset")
+        os.makedirs(local_dir, exist_ok=True)
+
+        def _pull(remote):
+            local = os.path.join(local_dir, os.path.basename(remote))
+            lab.log(f"Pulling {remote} -> {local}")
+            fs.get(remote, local)
+            return local
+
+        if spec.endswith("/"):
+            train_local = _pull(f"{spec}train.jsonl")
+            eval_remote = f"{spec}eval.jsonl"
+            eval_local = _pull(eval_remote) if fs.exists(eval_remote) else None
+        else:
+            train_local, eval_local = _pull(spec), None
+        lab.log(f"Dataset source: S3/MinIO ({endpoint or 'default endpoint'})")
+        return _from_files(train_local, eval_local)
+
+    if spec.startswith("http://") or spec.startswith("https://"):
+        lab.log("Dataset source: HTTP URL")
+        return _from_files(spec)  # `datasets` resolves URLs itself
+
+    if os.path.isdir(spec):
+
+        def _pick(kind):
+            """`<kind>.jsonl`, else the `*_<kind>.jsonl` a Transformer Lab upload
+            leaves behind (it prefixes files with the dataset id)."""
+            exact = os.path.join(spec, f"{kind}.jsonl")
+            if os.path.exists(exact):
+                return exact
+            suffixed = sorted(
+                f for f in os.listdir(spec) if f.endswith(f"_{kind}.jsonl")
+            )
+            return os.path.join(spec, suffixed[0]) if suffixed else None
+
+        train_file = _pick("train")
+        if not train_file:
+            raise RuntimeError(f"Directory dataset '{spec}' has no train.jsonl or *_train.jsonl")
+        lab.log(f"Dataset source: local directory {spec} (train={os.path.basename(train_file)})")
+        return _from_files(train_file, _pick("eval"))
+
+    if os.path.exists(spec):
+        lab.log(f"Dataset source: local file {spec}")
+        return _from_files(spec)
+
+    lab.log("Dataset source: Hugging Face Hub")
+    return load_dataset(spec)
+
+
 def train_with_unsloth():
     """Training function using Unsloth FastLanguageModel with LoRA fine-tuning"""
 
@@ -156,7 +257,11 @@ def train_with_unsloth():
         max_seq_length = config.get("max_seq_length", 2048)
         lora_r = config.get("lora_r", 16)
         lora_alpha = config.get("lora_alpha", 16)
-        lora_dropout = config.get("lora_dropout", 0.05)
+        # 0 by default: Unsloth only takes its fast-patching path at dropout 0 and
+        # warns "causing a performance hit" otherwise — a cost paid on every step of
+        # every run. 0 is also the usual LoRA default. Raise it if evaluation shows
+        # overfitting; the form exposes it.
+        lora_dropout = config.get("lora_dropout", 0.0)
         logging_steps = config.get("logging_steps", 1)
         save_steps = config.get("save_steps", 50)
         weight_decay = config.get("weight_decay", 0.01)
@@ -221,11 +326,9 @@ def train_with_unsloth():
         # Load dataset. NOTE: upstream caught failures here and continued with a
         # 3-row placeholder, so a bad dataset id finished "successfully" having
         # learned nothing from the real data. A wrong dataset must fail loudly.
-        lab.log("Loading dataset...")
-        from datasets import load_dataset
-
+        lab.log(f"Loading dataset: {training_config['dataset']}")
         try:
-            dataset = load_dataset(training_config["dataset"])
+            dataset = _load_training_dataset(training_config["dataset"])
         except Exception as e:
             msg = f"Dataset '{training_config['dataset']}' could not be loaded: {e}"
             lab.log(f"❌ {msg}")

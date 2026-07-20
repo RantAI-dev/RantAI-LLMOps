@@ -24,3 +24,17 @@ export function assertModelId(v: string): void {
 export function assertTag(v: string): void {
   if (!SLUG.test(v)) throw new Error(`Invalid tag: ${JSON.stringify(v)}`);
 }
+
+// A dataset may live somewhere MODEL_ID cannot express: a corpus that has to stay
+// on-premise is addressed by path or bucket, not by hub id. Two shapes are allowed
+// — a hub id / filesystem path (no trailing slash, so "owner/" is still caught at
+// submit time), and an s3/http(s) URI (trailing slash allowed: it names a prefix
+// holding train.jsonl + eval.jsonl). Every segment must start alphanumeric, so
+// ".." can never be a segment; traversal is rejected by construction.
+const DATASET_PATH = /^(?:\.\/|\/)?[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/;
+const DATASET_URI = /^(?:s3|https?):\/\/[A-Za-z0-9][A-Za-z0-9._-]*(?:\/[A-Za-z0-9][A-Za-z0-9._-]*)*\/?$/;
+
+export function assertDatasetRef(v: string): void {
+  const ok = !v.includes("..") && (DATASET_PATH.test(v) || DATASET_URI.test(v));
+  if (!ok) throw new Error(`Invalid dataset ref: ${JSON.stringify(v)}`);
+}
