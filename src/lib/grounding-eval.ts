@@ -11,6 +11,22 @@
  * an answer", and "did it cite the source it was given".
  */
 
+/**
+ * Answer strictly from the passage, refuse otherwise. Lives here rather than in
+ * the route so the UI can offer it as an editable default: the prompt is the
+ * cheapest grounding lever there is and deserves to be measured — a prompt-only
+ * baseline is what tells you whether a fine-tune earned its cost.
+ */
+export const DEFAULT_GROUNDING_PROMPT = [
+  "Kamu adalah tutor untuk siswa sekolah. Jawab HANYA berdasarkan KONTEKS yang diberikan.",
+  "Aturan:",
+  "- Kalau jawabannya ADA di konteks: jawab singkat dan jelas, lalu sebut sumbernya",
+  "  dengan format (Sumber: <judul buku>, <bab>).",
+  '- Kalau jawabannya TIDAK ADA di konteks: jawab persis "Maaf, informasi itu belum ada di materi yang tersedia."',
+  "- JANGAN mengarang, menebak, atau memakai pengetahuan di luar konteks.",
+  "- Sesuaikan bahasa dengan jenjang siswa yang disebutkan.",
+].join("\n");
+
 /** One row of the eval set — same shape as the training data. */
 export type EvalExample = { instruction: string; output: string };
 

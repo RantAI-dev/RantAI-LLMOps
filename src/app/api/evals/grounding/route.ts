@@ -1,4 +1,10 @@
-import { buildReport, parseEvalJsonl, scoreCase, type ScoredCase } from "@/lib/grounding-eval";
+import {
+  DEFAULT_GROUNDING_PROMPT,
+  buildReport,
+  parseEvalJsonl,
+  scoreCase,
+  type ScoredCase,
+} from "@/lib/grounding-eval";
 import { logServerError } from "@/lib/log";
 import { OLLAMA_V1 } from "@/lib/ollama";
 
@@ -16,19 +22,6 @@ export const maxDuration = 600;
  * base model evaluable, which is the point: without a prompt-only baseline there
  * is no way to tell whether a fine-tune earned its cost.
  */
-
-/** Answer strictly from the passage, refuse otherwise. Offered as the default so
- *  a "prompt-only" baseline is one click away — the prompt is the cheapest
- *  grounding lever there is and deserves to be measured before any training. */
-export const DEFAULT_GROUNDING_PROMPT = [
-  "Kamu adalah tutor untuk siswa sekolah. Jawab HANYA berdasarkan KONTEKS yang diberikan.",
-  "Aturan:",
-  "- Kalau jawabannya ADA di konteks: jawab singkat dan jelas, lalu sebut sumbernya",
-  '  dengan format (Sumber: <judul buku>, <bab>).',
-  '- Kalau jawabannya TIDAK ADA di konteks: jawab persis "Maaf, informasi itu belum ada di materi yang tersedia."',
-  "- JANGAN mengarang, menebak, atau memakai pengetahuan di luar konteks.",
-  "- Sesuaikan bahasa dengan jenjang siswa yang disebutkan.",
-].join("\n");
 
 /** Concurrent requests to the model. Enough to keep a run to a couple of minutes
  *  without swamping a box that may also be serving or training. */

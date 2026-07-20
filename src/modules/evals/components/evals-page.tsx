@@ -7,9 +7,10 @@ import { cn } from "@/lib/utils";
 import { EvalCompare } from "@/modules/evals/components/eval-compare";
 import { EvalForm } from "@/modules/evals/components/eval-form";
 import { EvalJobList } from "@/modules/evals/components/eval-job-list";
+import { GroundingEval } from "@/modules/evals/components/grounding-eval";
 import { useEvals } from "@/modules/evals/hooks/use-evals";
 
-type Tab = "single" | "compare";
+type Tab = "single" | "compare" | "grounding";
 
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
@@ -24,6 +25,8 @@ export function EvalsPage() {
         <p className="mt-0.5 text-[13px] text-ink-soft">
           Ukur kualitas model pakai benchmark standar (EleutherAI LM-Eval-Harness), langsung di
           Transformer Lab. Bandingkan base vs hasil <strong>fine-tune</strong> buat lihat efeknya.
+          Tab <strong>Grounding</strong> mengukur hal yang berbeda: apakah model menjawab hanya dari
+          materi yang diberikan, menolak saat jawabannya tidak ada, dan menyebut sumbernya.
         </p>
       </div>
 
@@ -36,6 +39,7 @@ export function EvalsPage() {
               [
                 ["single", "Single run"],
                 ["compare", "Compare"],
+                ["grounding", "Grounding"],
               ] as const
             ).map(([id, lbl]) => (
               <button
@@ -54,7 +58,7 @@ export function EvalsPage() {
 
           {tab === "single" ? (
             <EvalForm options={options} submitting={submitting} error={error} onSubmit={submit} />
-          ) : (
+          ) : tab === "compare" ? (
             <EvalCompare
               options={options}
               jobs={jobs}
@@ -62,12 +66,18 @@ export function EvalsPage() {
               compareProgress={compareProgress}
               onCompare={submitCompare}
             />
+          ) : (
+            <GroundingEval />
           )}
 
-          <div>
-            <h2 className="mb-2 text-sm font-semibold text-primary">Results</h2>
-            <EvalJobList jobs={jobs} />
-          </div>
+          {/* Grounding runs in-request and renders its own result, so the
+              benchmark job list below would only be noise on that tab. */}
+          {tab === "grounding" ? null : (
+            <div>
+              <h2 className="mb-2 text-sm font-semibold text-primary">Results</h2>
+              <EvalJobList jobs={jobs} />
+            </div>
+          )}
         </>
       )}
     </div>
