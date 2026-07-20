@@ -1990,3 +1990,19 @@ Release v0.40.23 (frontend: badge GGUF/safetensors + toggle "Termasuk safetensor
 `git push origin main` -> `0001256..18a14c4 main -> main` (fast-forward, 54 commit). **origin = https://github.com/RantAI-dev/RantAI-LLMOps** (yang dipakai). `nexusquantum` = https://github.com/NexusQuantum/NQRust-LLMOps (repo lama, SENGAJA tidak di-push).
 **Jebakan yang hampir kena:** working directory tool ke-reset ke `d:\Project\unsloth` (repo Unsloth, remote unslothai/unsloth) antar-giliran — `git remote -v` tanpa path sempat nunjukin remote yang SALAH. Mulai sekarang semua perintah git WAJIB pakai `git -C /d/Project/NQRust-LLMOps`.
 **Prasyarat Fase B sekarang TERPENUHI:** repo public + main remote sudah current, jadi TL bisa meng-clone `trainers/unsloth-llm-train/` begitu ditambahkan & di-push ke main.
+
+## FASE B: ambil alih trainer SFT (BF16 + fail-loud) (2026-07-20 10:50 WIB)
+**Akar masalah:** `submitFinetune` mengirim `github_repo_url` = transformerlab/transformerlab-app, jadi train.py yang BENAR-BENAR jalan milik upstream — `load_in_4bit=True` & fallback dataset palsu MUSTAHIL diubah dari sisi kita. Salinan vendored di backend/ cuma cermin, bukan yang dieksekusi.
+**Solusi:** fork trainer ke repo kita (public, jadi TL bisa clone tanpa kredensial).
+**File baru:**
+- `trainers/unsloth-llm-train/train.py` — fork, sengaja dijaga mirip upstream biar diffable. 4 deviasi (didaftar di docstring): (1) `load_in_4bit` jadi config, default **False**; (2) `dtype=torch.bfloat16` kalau tidak kuantisasi; (3) `optim` default `adamw_torch` (lepas dari bitsandbytes, sama seperti alasan sm_121); (4) dataset gagal muat -> `raise` (BUKAN fallback 3 baris touch-rugby palsu) + validasi split train kosong. BONUS: log `precision/optim/max_seq_length/max_steps/epochs` di awal (auditable dari log), log nama kolom dataset (deteksi mismatch skema), dan audit jumlah sampel yang MELEBIHI max_seq_length ("N/total akan DIPOTONG") — truncation tidak lagi senyap. training_summary.json kini juga mencatat load_in_4bit, optim, max_steps, epochs.
+- `trainers/unsloth-llm-train/task.yaml` — mirror, arahkan ke repo kita, max_steps -1, load_in_4bit false.
+- `trainers/README.md` — kenapa fork, tabel default upstream yang salah, cara jaga diffable, gotcha default-branch.
+**finetune.ts:** `UPSTREAM_GITHUB_URL` BARU (transformerlab-app) dipakai GRPO & TTS — WAJIB, karena keduanya tadinya numpang `TRAINER_GITHUB_URL`; kalau tidak dipisah, ganti URL bakal merusak GRPO+TTS (direktorinya tak ada di repo kita). `TRAINER_GITHUB_URL` -> repo kita, `TRAINER_GITHUB_DIR` -> `trainers/unsloth-llm-train`. `TRAINER_RUN` TIDAK berubah (TL pakai basename direktori). Param baru `loadIn4bit?` -> `load_in_4bit: p.loadIn4bit ?? false`.
+**finetune-form.tsx:** checkbox "Muat model 4-bit (QLoRA)" di Advanced, default MATI, dengan peringatan jangan dinyalakan di GB10.
+**Verifikasi:** `tsc` exit 0; vitest 16/16; `py -3 -m py_compile train.py` OK; diff vs upstream = 112 baris, hanya deviasi yang dimaksud.
+**Ukuran repo:** 1,76 MiB packed -> clone per job murah, bukan masalah.
+**PRASYARAT DEPLOY:** trainer WAJIB sudah ada di `main` remote SEBELUM job pertama jalan (TL clone default branch). Fase A + B numpang SATU release frontend yang sama.
+
+### Fix lint pra-existing (2026-07-20 10:55 WIB)
+`npm run lint` gagal 1 error di `gateway-access.tsx:107` (`react-hooks/set-state-in-effect`) — WARISAN dari kerjaan gateway sebelumnya, bukan dari Fase A/B; sudah ikut ter-release 2x tanpa ketahuan karena CI/build tidak menjalankan lint. Diperbaiki pakai pola yang SUDAH dipakai di repo (`// eslint-disable-next-line ... -- alasan`, sama seperti di finetune-form.tsx). Sekarang lint exit 0.

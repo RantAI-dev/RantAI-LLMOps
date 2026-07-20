@@ -52,6 +52,9 @@ export function FinetuneForm({
   // Token per sampel. Dataset gaya RAG (konteks retrieval ikut di prompt) gampang
   // tembus 2048 — kelebihannya dipotong diam-diam, jadi ini wajib bisa dinaikkan.
   const [maxSeqLength, setMaxSeqLength] = useState(2048);
+  // Off by default: GB10 has 128 GB unified memory, so 4-bit only adds compute —
+  // and its kernels are reported to stall on sm_121. For small-VRAM hosts only.
+  const [loadIn4bit, setLoadIn4bit] = useState(false);
   const [inputField, setInputField] = useState("question");
   const [outputField, setOutputField] = useState("answer");
   const [audioColumn, setAudioColumn] = useState("audio");
@@ -142,6 +145,7 @@ export function FinetuneForm({
       learningRate,
       maxSteps,
       maxSeqLength,
+      loadIn4bit,
       ...(method === "grpo"
         ? { datasetInputField: inputField, datasetOutputField: outputField }
         : {}),
@@ -373,6 +377,20 @@ export function FinetuneForm({
               </span>
             </label>
           </div>
+
+          <label className="flex cursor-pointer items-start gap-2 rounded-md bg-surface-2 px-3 py-2">
+            <input
+              type="checkbox"
+              checked={loadIn4bit}
+              onChange={(e) => setLoadIn4bit(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-primary"
+            />
+            <span className="text-[11px] leading-4 text-ink-soft">
+              <span className="font-medium text-ink">Muat model 4-bit (QLoRA)</span> — hemat memori
+              buat GPU kecil. <strong>Biarkan mati di GB10</strong>: memori terpadu 128 GB bikin ini
+              gak perlu, dan kernel 4-bit dilaporkan macet di sm_121.
+            </span>
+          </label>
 
           <p className="rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
             Model <strong>gated</strong> (Llama/Gemma)?{" "}

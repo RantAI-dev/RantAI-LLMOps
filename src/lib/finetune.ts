@@ -38,13 +38,25 @@ export { fetchAdaptors } from "@/lib/models-catalog";
 export { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 
+/** Upstream Transformer Lab gallery — still the source for the GRPO and TTS
+ *  trainers below, which we run unmodified. */
+const UPSTREAM_GITHUB_URL = "https://github.com/transformerlab/transformerlab-app";
+
 /**
- * The GitHub-hosted trainer the local compute provider clones and runs. Unsloth
- * (4-bit + LoRA) keeps memory low enough for modest GPUs. The `run`/`setup`
- * mirror its `task.yaml`; the provider builds a fresh uv venv from `setup`.
+ * The SFT trainer the local compute provider clones and runs — a RantAI fork in
+ * THIS repo under `trainers/`, not the upstream gallery. Upstream hardcoded
+ * `load_in_4bit=True`, an `adamw_8bit` optimizer, and a fallback to a 3-row
+ * placeholder dataset when loading failed. All three are wrong on a GB10 (128 GB
+ * unified memory makes 4-bit pointless, and bitsandbytes kernels are reported to
+ * stall on sm_121) and all three failed silently — a run looked green either way.
+ * See trainers/README.md. The `run`/`setup` mirror its `task.yaml`; the provider
+ * builds a fresh uv venv from `setup`.
+ *
+ * NOTE: Transformer Lab clones the repo's DEFAULT BRANCH, so a trainer edit only
+ * takes effect once it is merged to `main` and pushed.
  */
-const TRAINER_GITHUB_URL = "https://github.com/transformerlab/transformerlab-app";
-const TRAINER_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-llm-train";
+const TRAINER_GITHUB_URL = "https://github.com/RantAI-dev/RantAI-LLMOps";
+const TRAINER_GITHUB_DIR = "trainers/unsloth-llm-train";
 const TRAINER_SETUP =
   "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb";
 const TRAINER_RUN = "python unsloth-llm-train/train.py";
@@ -470,6 +482,10 @@ export type SubmitFinetuneParams = {
    *  the prompt must raise this well above the 2048 default (GB10's 128 GB unified
    *  memory handles 4096–8192 comfortably for an 8B LoRA). */
   maxSeqLength?: number;
+  /** Load the base model in 4-bit (QLoRA). Defaults to false — on a GB10 the 128 GB
+   *  of unified memory makes quantization pointless, and bitsandbytes' 4-bit kernels
+   *  are reported to stall on sm_121. Enable only for small-VRAM hosts. */
+  loadIn4bit?: boolean;
   /** Optional HF token for gated models/datasets. */
   hfToken?: string;
   /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech. */
@@ -519,7 +535,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       taskName: adaptorName,
       run: GRPO_RUN,
       setup: GRPO_SETUP,
-      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoUrl: UPSTREAM_GITHUB_URL,
       githubRepoDir: GRPO_GITHUB_DIR,
       accelerators: "NVIDIA:1",
       parameters: {
@@ -554,7 +570,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       taskName: adaptorName,
       run: TTS_RUN,
       setup: TTS_SETUP,
-      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoUrl: UPSTREAM_GITHUB_URL,
       githubRepoDir: TTS_GITHUB_DIR,
       accelerators: "NVIDIA:1",
       parameters: {
@@ -601,6 +617,7 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       // override the epoch count, which reads as "trained" while stopping early.
       max_steps: p.maxSteps ?? -1,
       max_seq_length: p.maxSeqLength ?? 2048,
+      load_in_4bit: p.loadIn4bit ?? false,
       lora_r: p.loraR ?? 16,
       lora_alpha: p.loraAlpha ?? 16,
       lora_dropout: 0.05,

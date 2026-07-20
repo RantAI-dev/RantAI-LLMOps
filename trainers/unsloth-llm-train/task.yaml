@@ -1,0 +1,38 @@
+name: unsloth-llm-train-task
+# Points at THIS repo, not transformerlab-app: the trainer is a RantAI fork (see
+# train.py's docstring for the four deviations). Transformer Lab clones this repo
+# per job, so the directory must exist on the default branch before a run starts.
+github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
+github_repo_dir: trainers/unsloth-llm-train
+resources:
+  accelerators: "NVIDIA:1"
+setup: "uv pip install unsloth==2025.12.5 transformers==4.57.3 torch==2.10.0 datasets huggingface-hub wandb"
+run: "python unsloth-llm-train/train.py"
+envs:
+  WANDB_PROJECT: "unsloth-llm-training"
+  PYTHONUNBUFFERED: "1"
+  HF_TOKEN: "{{secret._HF_TOKEN}}"
+  WANDB_API_KEY: "{{secret._WANDB_API_KEY}}"
+parameters:
+  model_name: "unsloth/Qwen2.5-0.5B-Instruct"
+  dataset: "Trelis/touch-rugby-rules"
+  lr: 0.0002
+  num_train_epochs: 1
+  batch_size: 2
+  gradient_accumulation_steps: 4
+  warmup_steps: 5
+  # -1 = let num_train_epochs drive the run. A positive value silently overrides
+  # the epoch count, which reads as a finished run that stopped early.
+  max_steps: -1
+  max_seq_length: 2048
+  lora_r: 16
+  lora_alpha: 16
+  lora_dropout: 0.05
+  logging_steps: 1
+  save_steps: 50
+  weight_decay: 0.01
+  dataloader_num_workers: 0
+  # Off by default: GB10's 128 GB unified memory makes 4-bit pointless, and its
+  # kernels are reported to stall on sm_121. Turn on only for small-VRAM hosts.
+  load_in_4bit: false
+  optim: "adamw_torch"
