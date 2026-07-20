@@ -2204,3 +2204,27 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **ARTINYA: korpus tidak perlu keluar dari server sama sekali.** Konflik kedaulatan data yang kutemukan saat memeriksa rencana Shiro (satu-satunya jalur melatih dulu = unggah ke Hugging Face) kini TERTUTUP dengan bukti berjalan, bukan sekadar kode.
 **STATUS LLMOps utk rencana Shiro — SEMUA JALUR DATA & PELATIHAN TERBUKTI:** dataset dari path lokal / S3-MinIO / HF; BF16 di sm_121 (3 sumber independen); konteks panjang + audit truncation; checkpoint (terbukti di run 8B); skala 8B terukur (46/121 GB, 12,2 dtk/langkah, 179 langkah 41 menit); Fase 4 eval grounding (4 angka + riwayat + tahan pindah halaman).
 **SISA (jujur):** (1) register bahasa per jenjang belum terukur — syarat Shiro yang belum punya angka; (2) uji kebocoran antar-jenjang BUKAN ranah LLMOps (retrieval di Agents); (3) eval set masih kecil (10 negatif di set kecil); (4) optimasi xIELU belum dipakai; (5) **`minio-test` itu instance UJI — perlu diputuskan: dihapus, atau diganti pakai RustFS milik Agents yang sudah ada** (perlu koordinasi antar-tim, bukan keputusan sepihak).
+
+## DIAGNOSA eval FAILED + penampil log di Evals (2026-07-20 18:00 WIB)
+**Gejala:** eval `arc_easy` pada `apertus-sea-lion-v4-8b-it-train8b` -> FAILED, dan user TIDAK BISA tahu sebabnya (EvalJobList cuma menampilkan status+skor, tidak ada log).
+**Akar (diambil via `/api/tasks/<id>/output` dari luar):**
+`RuntimeError: expected mat1 and mat2 to have the same dtype, but got: float != c10::Half` di `transformers/models/apertus/modeling_apertus.py` -> `self.down_proj(self.act_fn(self.up_proj(x)))`.
+**Penjelasan:** Apertus memakai aktivasi **xIELU**; kernel CUDA-nya tidak terpasang (`No module named 'xielu'` — sudah tercatat sebagai temuan di run training) sehingga jalan versi Python yang mengeluarkan **float32**, sementara lm_eval memuat bobot **FP16**. Training tidak kena karena Unsloth menambal model + memakai BF16.
+**Perbaikan yang dibutuhkan (BELUM dikerjakan, opsi B):** trainer eval membangun `model_args = f"pretrained={model_name},trust_remote_code=True"` TANPA dtype ([eleutherai-lm-evaluation-harness/train.py:145]). Tambahkan `,dtype=bfloat16`. TAPI file itu UPSTREAM -> perlu fork ke `trainers/` seperti Fase B.
+**DIKERJAKAN (opsi A, dipilih user): penampil log di halaman Evals.**
+- `src/components/job-log.tsx` BARU: `useJobOutput(jobId, active, enabled)` + `JobLogPanel` (log PENUH + Salin + Perbesar/overlay + Esc). Diangkat dari training-monitor supaya DIPAKAI BERSAMA, bukan disalin — kalau disalin, dua versinya pasti menyimpang.
+- `training-monitor.tsx` ditulis ulang memakai keduanya; kini tinggal mengurus sparkline loss + GpuMeters.
+- `eval-job-list.tsx`: komponen `EvalJobLog` per baris. Fetch DIGERBANGI `open` (daftar tidak boleh polling log yang tidak dilihat siapa pun), dan baris **FAILED terbuka otomatis** — log-nya justru alasan orang membukanya.
+**Verifikasi:** tsc 0, lint 0, semua test, build 0. Push 4f398bc.
+**Pelajaran berulang:** kegagalan yang tak terlihat lebih mahal daripada bug-nya. Ini kasus ketiga (log training kepotong 40 baris, metrik sitasi yang menyesatkan, kini eval tanpa log).
+
+## OPSI B: fork harness eval + dtype (2026-07-20 19:00 WIB)
+**Akar masalah DIPASTIKAN dari sumber (bukan tebakan).** `modeling_apertus.py`: `self.act_fn = ACT2CLS["xielu"](dtype=config.dtype)`; `activations.py` XIELUActivation: `__init__(..., dtype=torch.bfloat16)` dan parameter dibuat `nn.Parameter(torch.tensor(..., dtype=dtype))`, **tanpa `.float()` di mana pun**. Jadi: parameter aktivasi **BF16**, bobot dimuat **FP16** -> `alpha_p * x * x + beta * x` mencampur bf16*fp16 -> PyTorch promosikan ke **FP32** -> `down_proj` (bobot fp16) menolak inputnya sendiri. **Bukan bug xIELU — dua dtype yang tidak disamakan.** Sempat kukhawatirkan fallback-nya memaksa float32 (kalau begitu dtype=bfloat16 tak menolong); dicek ke sumber, TIDAK. Jadi menyamakan dtype memang menyelesaikannya.
+**Dikerjakan:**
+- `trainers/eleutherai-lm-evaluation-harness/train.py` — fork (disalin lalu ditambal, bukan ditulis ulang). Deviasi TUNGGAL: `dtype` jadi config (default `bfloat16`) yang disisipkan ke `--model_args` di KEDUA cabang (CPU & CUDA), + baris log `⚙️ dtype=` supaya masalah dtype terlihat SEBELUM traceback. Diff vs upstream bersih: hanya penambahan yang dimaksud.
+- `task.yaml` mirror (arah ke repo kita, `dtype: bfloat16`).
+- `src/lib/evals.ts`: `EVAL_GITHUB_URL/DIR` -> repo kita; `SubmitEvalParams.dtype?`; parameter `dtype` dikirim EKSPLISIT (bukan mengandalkan default trainer) supaya dtype yang dipakai terlihat di parameter job.
+- `trainers/README.md`: alasan fork kedua.
+**Verifikasi:** py_compile OK, tsc 0, lint 0, semua test, build 0.
+**TIDAK di-commit/push — user minta commit & push dilakukan sendiri mulai sekarang.**
+**Urutan deploy:** push (trainer tersedia di main) -> release -> recreate. Perubahan trainer saja tidak cukup kali ini karena konstanta EVAL_GITHUB_* ada di FRONTEND.

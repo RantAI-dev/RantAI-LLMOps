@@ -21,6 +21,17 @@ failed *silently*:
 So the trainer moved here, where we own the defaults. Since this repo is public,
 Transformer Lab can still clone it without credentials.
 
+`eleutherai-lm-evaluation-harness/` is here for the same reason. Upstream built
+`--model_args` without naming a dtype, so weights loaded as fp16 while Apertus'
+xIELU activation builds its parameters in bf16. Mixing the two promotes to fp32
+and the next `Linear` rejects its own input:
+
+```
+RuntimeError: expected mat1 and mat2 to have the same dtype, but got: float != c10::Half
+```
+
+Every Apertus benchmark died there, before scoring a single sample.
+
 ## Keeping it diffable
 
 `unsloth-llm-train/` is a fork of

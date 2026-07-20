@@ -26,8 +26,19 @@ import { logServerError } from "@/lib/log";
 const EVAL_EXPERIMENT = FINETUNE_EXPERIMENT;
 
 /** GitHub-hosted EleutherAI lm-eval harness trainer (mirrors its task.yaml). */
-const EVAL_GITHUB_URL = "https://github.com/transformerlab/transformerlab-app";
-const EVAL_GITHUB_DIR = "api/transformerlab/galleries/examples/eleutherai-lm-evaluation-harness";
+/**
+ * The benchmark harness — a RantAI fork in THIS repo under `trainers/`, not the
+ * upstream gallery. Upstream built `--model_args` without naming a dtype, so
+ * weights loaded as fp16 while Apertus' xIELU activation builds its parameters
+ * in bf16; mixing the two promotes to fp32 and the next Linear rejects its own
+ * input, killing every Apertus benchmark before the first sample was scored.
+ * See trainers/eleutherai-lm-evaluation-harness/train.py.
+ *
+ * NOTE: Transformer Lab clones the repo's DEFAULT BRANCH, so an edit to the
+ * harness only takes effect once it is merged to `main` and pushed.
+ */
+const EVAL_GITHUB_URL = "https://github.com/RantAI-dev/RantAI-LLMOps";
+const EVAL_GITHUB_DIR = "trainers/eleutherai-lm-evaluation-harness";
 const EVAL_SETUP = "uv pip install lm_eval==0.4.7 pandas torch";
 const EVAL_RUN = "python eleutherai-lm-evaluation-harness/train.py";
 
@@ -110,6 +121,10 @@ export type SubmitEvalParams = {
   benchmark: string;
   /** Fraction of the benchmark to run, 0–1 (smaller = faster). */
   limit?: number;
+  /** Weight dtype for the harness. Defaults to bfloat16: it is what this hardware
+   *  and Apertus' xIELU activation both use, and naming one dtype for weights and
+   *  activations is what stops the fp32 promotion that failed every Apertus run. */
+  dtype?: string;
   /** Optional local path (for a model already on disk) and adapter dir. */
   modelPath?: string;
   modelAdapter?: string;
@@ -161,6 +176,9 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
       model_adapter: p.modelAdapter ?? "",
       tasks: p.benchmark,
       limit: String(p.limit ?? 0.05),
+      // Sent explicitly rather than left to the harness default, so the dtype a
+      // run used is visible in its job parameters instead of having to be inferred.
+      dtype: p.dtype ?? "bfloat16",
     },
     envVars: env_vars,
     description: `Eval ${label} on ${p.benchmark}`,

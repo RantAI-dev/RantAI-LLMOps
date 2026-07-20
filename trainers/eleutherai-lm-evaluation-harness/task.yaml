@@ -1,0 +1,23 @@
+name: eleuther-ai-lm-evaluation-harness
+# Points at THIS repo, not transformerlab-app: the harness is a RantAI fork (see
+# train.py's docstring for the deviation). Transformer Lab clones this repo per
+# job, so the directory must exist on the default branch before a run starts.
+github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
+github_repo_dir: trainers/eleutherai-lm-evaluation-harness
+resources:
+  accelerators: "NVIDIA:1"
+setup: "uv pip install lm_eval==0.4.7 pandas torch"
+run: "python eleutherai-lm-evaluation-harness/train.py"
+envs:
+  PYTHONUNBUFFERED: "1"
+  HF_TOKEN: "{{secret._HF_TOKEN}}"
+parameters:
+  model_name: "HuggingFaceTB/SmolLM-135M-Instruct"
+  model_path: ""
+  model_adapter: ""
+  tasks: "mmlu_abstract_algebra"
+  limit: "1.0"
+  # One dtype for weights and activations. Left unset, Apertus loaded fp16 weights
+  # against bf16 xIELU parameters, which promotes to fp32 and makes the next Linear
+  # reject its own input. Set to float16 only on hardware without bf16 support.
+  dtype: "bfloat16"
