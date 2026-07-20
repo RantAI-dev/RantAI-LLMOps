@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FlaskConical, Loader2, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { formatInterval, wilsonInterval } from "@/lib/eval-stats";
 import type { EvalRun, EvalRunSummary } from "@/lib/eval-run-store";
 import {
   DEFAULT_GROUNDING_PROMPT,
@@ -24,20 +25,28 @@ const STATUS_LABEL: Record<EvalRun["status"], string> = {
 /**
  * One rate. `goodWhen` says which direction is good, because two of these are
  * failures counted upward — a reader should not have to remember which.
+ *
+ * `n` is the denominator the rate was computed over. It drives the bar and the
+ * confidence range, and it is the difference between "we refuse correctly, full
+ * stop" and "10 out of 10, so at least 72% — ask again with a bigger set".
  */
 function Metric({
   label,
   value,
   goodWhen,
   hint,
+  n,
 }: {
   label: string;
   value: number;
   goodWhen: "high" | "low";
   hint: string;
+  n?: number;
 }) {
   const good = goodWhen === "high" ? value >= 0.8 : value <= 0.2;
   const bad = goodWhen === "high" ? value < 0.5 : value > 0.5;
+  const range =
+    n != null && n > 0 ? formatInterval(wilsonInterval(Math.round(value * n), n)) : null;
   return (
     <div className="rounded-lg border border-border bg-background p-3">
       <div className="text-[11px] font-medium text-ink-soft">{label}</div>
@@ -49,13 +58,30 @@ function Metric({
       >
         {pct(value)}
       </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={cn(
+            "h-full rounded-full",
+            good ? "bg-success" : bad ? "bg-danger" : "bg-primary"
+          )}
+          style={{ width: `${Math.min(100, Math.max(0, value * 100))}%` }}
+        />
+      </div>
       <div className="mt-1 text-[11px] leading-4 text-ink-faint">{hint}</div>
+      {range ? (
+        <div className="mt-0.5 text-[11px] leading-4 text-ink-faint" title="Selang kepercayaan 95%">
+          Dari {n} kasus, yang bisa diklaim: {range}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function Report({ report }: { report: GroundingReport }) {
   const jenjang = Object.keys(report.byJenjang).sort();
+  // Citation is scored only over positives the model actually answered — the
+  // same denominator buildReport uses, so the interval matches the rate.
+  const answeredPositives = Math.round(report.positives * (1 - report.overRefusalRate));
   return (
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
@@ -64,24 +90,28 @@ function Report({ report }: { report: GroundingReport }) {
           value={report.refusalAccuracy}
           goodWhen="high"
           hint={`dari ${report.negatives} soal yang jawabannya TIDAK ada di materi`}
+          n={report.negatives}
         />
         <Metric
           label="Ngarang"
           value={report.hallucinationRate}
           goodWhen="low"
           hint="menjawab padahal materinya tidak mendukung"
+          n={report.negatives}
         />
         <Metric
           label="Salah tolak"
           value={report.overRefusalRate}
           goodWhen="low"
           hint={`dari ${report.positives} soal yang jawabannya ADA di materi`}
+          n={report.positives}
         />
         <Metric
           label="Akurasi sitasi"
           value={report.citationAccuracy}
           goodWhen="high"
-          hint="menyebut buku + bab dengan benar"
+          hint={`dari ${answeredPositives} jawaban yang benar-benar diberikan`}
+          n={answeredPositives}
         />
       </div>
 

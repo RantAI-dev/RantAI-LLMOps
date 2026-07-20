@@ -79,7 +79,7 @@ export function EvalForm({
 
         <label className="block">
           <span className="mb-1 block text-[13px] font-medium text-ink">
-            Coverage — {coverage}% of the benchmark
+            Cakupan — {coverage}% dari benchmark
           </span>
           <input
             type="range"
@@ -89,14 +89,23 @@ export function EvalForm({
             onChange={(e) => setCoverage(Number(e.target.value))}
             className="w-full accent-primary"
           />
+          {/* A percentage is abstract; the question count is the actual cost, and
+              it is what makes "naikin ke 100%" a decision rather than advice. */}
           <span className="text-[11px] text-ink-soft">
-            Lebih kecil = lebih cepat. Buat skor beneran, naikin ke 100%.
+            {selectedBench
+              ? `± ${Math.round((selectedBench.questions * coverage) / 100).toLocaleString("id-ID")} dari ${selectedBench.questions.toLocaleString("id-ID")} soal. `
+              : ""}
+            Lebih kecil = lebih cepat. Buat skor yang bisa dikutip, naikkan ke 100%.
           </span>
         </label>
       </div>
 
       {selectedBench ? (
-        <p className="mt-2 text-[12px] text-ink-soft">ℹ️ {selectedBench.description}</p>
+        <p className="mt-2 text-[12px] text-ink-soft">
+          ℹ️ {selectedBench.description} Menebak acak dapat{" "}
+          <strong>{Math.round(selectedBench.chance * 100)}%</strong>, jadi skor di sekitar
+          angka itu berarti model belum menunjukkan kemampuan apa pun.
+        </p>
       ) : null}
 
       {error ? (

@@ -2228,3 +2228,40 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **Verifikasi:** py_compile OK, tsc 0, lint 0, semua test, build 0.
 **TIDAK di-commit/push — user minta commit & push dilakukan sendiri mulai sekarang.**
 **Urutan deploy:** push (trainer tersedia di main) -> release -> recreate. Perubahan trainer saja tidak cukup kali ini karena konstanta EVAL_GITHUB_* ada di FRONTEND.
+
+## TERBUKTI: eval benchmark Apertus lulus setelah dtype disamakan (2026-07-20 19:19 WIB)
+**Deploy:** v0.40.31 ke Portainer stack 21 (CI `completed/success` 12:09:33Z; tag -> `64c4cd9` = origin/main HEAD; fork `trainers/eleutherai-lm-evaluation-harness/` dikonfirmasi ADA di branch default sebelum deploy — TL meng-clone default branch).
+**Hasil run `arc_easy` pada `apertus-sea-lion-v4-8b-it-train8b`, limit 0.1 (238 soal):** `acc 0.7941 ±0.0263`, `acc_norm 0.8067 ±0.0256`, status COMPLETE, durasi 3 menit 32 detik. Run kedua di menit berbeda: 78.2 / 79.0 — selisih ~1 poin, **di dalam ±2,6 poin galat baku**, jadi konsisten, bukan tidak stabil.
+**Bukti perbaikannya yang bekerja, bukan kebetulan:** log memuat `⚙️  dtype=bfloat16` lalu `--model_args pretrained=...,trust_remote_code=True,dtype=bfloat16`, dan 951 permintaan loglikelihood selesai 100% TANPA `RuntimeError` — persis titik yang dulu selalu mati.
+**Catatan log yang TIDAK berbahaya (supaya tidak dikira gejala):**
+- `CUDA-fused xIELU not available (No module named 'xielu')` — fallback Python; memperlambat, tidak menggagalkan. Sekarang murni soal kecepatan karena dtype sudah sama.
+- `Found GPU0 NVIDIA GB10 ... cuda capability 12.1 ... supported (8.0)-(12.0)` — peringatan tabel PyTorch yang belum memuat sm_121; nyatanya jalan.
+- `fatal: not a git repository` — lm_eval mencoba mencatat git hash lingkungannya; tidak memengaruhi skor.
+**Konsekuensi:** benchmark lain (ARC Challenge, HellaSwag, PIQA, WinoGrande, BoolQ) mati di titik yang SAMA, jadi ikut terselesaikan; halaman Compare hanya membaca skor job, jadi ikut hidup begitu ada >=2 job COMPLETE.
+**Kejujuran angka:** limit 0.1 = 10% soal. 79% itu untuk MEMBUKTIKAN pipeline hidup, BUKAN angka yang boleh dilaporkan sebagai skor model. Untuk angka yang dikutip, jalankan coverage 100%.
+
+## Dokumen metrik evaluasi untuk atasan (2026-07-20 19:40 WIB)
+**Permintaan:** atasan menanyakan "metrik apa yang dipakai untuk benchmark". Dibuat halaman ringkas berisi katalog metrik + angka nyata + grafik.
+**Semua angka DITARIK LANGSUNG dari server, bukan diketik ulang dari ingatan:** `GET /api/evals/jobs` dan `GET /api/evals/grounding` di `10.17.254.27:3000`.
+**Empat kelompok metrik yang dijelaskan:** (1) benchmark akademik lm-eval — `acc`, `acc_norm`, `stderr`, 6 benchmark; (2) grounding — `refusalAccuracy`, `hallucinationRate`, `overRefusalRate`, `citationAccuracy`, + `contentOverlap` (ditandai tegas sebagai ALAT TRIASE, bukan skor) dan `byJenjang`; (3) metrik pelatihan — loss, langkah/epoch, detik/langkah, memori; (4) operasional — tok/dtk, utilisasi, suhu/daya.
+**TEMUAN BARU dari data live yang belum pernah dibahas: `citationAccuracy = 0%` (0 dari 36).** Model menolak 100% benar dan 0% ngarang, TAPI tidak pernah menyebut sumber -> guru tidak bisa memverifikasi. Justru bukti kenapa metrik dipisah: satu skor gabungan akan menyembunyikan ini. Perlu ditindaklanjuti (dugaan: prompt minta format `(Sumber: ...)` tapi model GGUF Q8_0 tidak mematuhinya — belum diverifikasi, jangan diklaim).
+**Hanya 1 run grounding yang tersisa di store** (KEEP_RUNS/lokasi data) — run-run sebelumnya tidak ada lagi. Dicatat apa adanya.
+**Kejujuran statistik dibuat eksplisit (selang kepercayaan Wilson 95%):** refusal 10/10 -> yang boleh diklaim hanya **>=72%**, bukan "100% terjamin"; sitasi 0/36 -> **<=10%**, jadi cukup untuk menyatakan memang rusak. ARC acc 79,4% ± stderr -> 74–85%.
+**Ditulis juga bagian "yang BELUM diukur"** (kualitas makna jawaban, register bahasa per jenjang, kebocoran antar-jenjang, perbandingan sebelum/sesudah fine-tune, 5 benchmark lain + cakupan 100%) — daftar metrik tanpa daftar kekurangannya adalah laporan yang menyesatkan.
+**Cakupan 10% ditandai sebagai PERINGATAN**, bukan catatan kaki: 79,4% itu dari 238 dari 2.376 soal, tidak boleh dikutip sebagai skor final.
+
+## UI Evals & Compare: metrik dilengkapi + visual (2026-07-20 20:00 WIB)
+**Pemicu:** user minta UI Evals/Compare metriknya lebih lengkap & visual. Saat membaca kode, ketemu masalah KEBENARAN, bukan sekadar tampilan.
+**AKAR: `stderr` selama ini SENGAJA DIBUANG** — `fetchEvalScores` punya filter `!key.includes("stderr")`. Akibatnya Compare menampilkan `+1,2` HIJAU untuk selisih yang lebih kecil daripada galat pengukurannya. Bukti dari data live sendiri: model yang SAMA dua kali di arc_easy = 79,4% dan 78,2%, keduanya ±2,6 poin. UI lama akan menyatakan salah satunya "menang".
+**Dikerjakan:**
+- `src/lib/eval-stats.ts` BARU + 14 test: `scoreInterval` (±1,96·stderr), `wilsonInterval` (untuk grounding — normal approximation memberi ±0 pada 10/10 alias mengaku pasti dari 10 contoh; Wilson memberi 72–100%), `compareScores` (ambang = galat SELISIH, yaitu dua stderr dijumlah kuadrat, BUKAN salah satu), `formatPct/formatInterval`. Verdict `unknown` dipisah dari `tie`: diam soal selisih bukan bukti tidak ada selisih.
+- `src/lib/benchmarks.ts` BARU: katalog benchmark + `chance` (tebak acak) + `questions`. **Dipisah dari `evals.ts` karena `evals.ts` server-only** (host-runner -> `node:child_process`); mengimpor NILAI dari sana ke komponen klien MEMATAHKAN BUILD — ketemu saat build, sudah diperbaiki.
+- `evals.ts`: `EvalScore.stderr`, `EvalJob.coverage/samples/dtype`; `fetchEvalScores` memasangkan `acc,none` dengan `acc_stderr,none` dan membaca `n-samples`.
+- `score-display.tsx` BARU: `ScoreBar` (batang + pita ketidakpastian + garis tebak-acak; merah + peringatan kalau skor <= tebak acak), `CoverageBadge`, `VERDICT_STYLE`.
+- `eval-job-list.tsx`: skor jadi grafik, + durasi, cakupan, n, dtype, dan peringatan kalau cakupan < 100%.
+- `eval-compare.tsx`: tabel diganti PANEL PER-BENCHMARK berisi batang per model, diurutkan; delta hanya ditulis angka kalau melewati galat, kalau tidak "≈ setara"; **peringatan MERAH kalau cakupan antar model berbeda** (angkanya memang tidak sebanding).
+- `grounding-eval.tsx`: tiap kartu metrik dapat batang + "Dari n kasus, yang bisa diklaim: x–y%".
+- `eval-form.tsx`: slider cakupan menyebut jumlah soal sebenarnya; info benchmark menyebut skor tebak acak.
+**Verifikasi:** tsc 0, eslint 0, 133 test lulus (21 berkas), build sukses.
+**Catatan: TIDAK di-commit/push** sesuai permintaan user.
+**Pelajaran:** permintaan "bikin lebih visual" ternyata menutupi bug pelaporan. Grafik di atas angka yang menyesatkan hanya membuat kesalahannya lebih meyakinkan.

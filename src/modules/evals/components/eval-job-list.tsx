@@ -5,8 +5,10 @@ import { useState } from "react";
 
 import { JobLogPanel, useJobOutput } from "@/components/job-log";
 import { Progress } from "@/components/ui/progress";
+import { benchmarkById } from "@/lib/benchmarks";
 import type { EvalJob } from "@/lib/evals";
 import { formatAppDateTime } from "@/lib/tl-datetime";
+import { CoverageBadge, ScoreBar } from "@/modules/evals/components/score-display";
 import { isEvalActive } from "@/modules/evals/hooks/use-evals";
 import { cn } from "@/lib/utils";
 
@@ -44,8 +46,18 @@ function EvalJobLog({ jobId, active, failed }: { jobId: string; active: boolean;
   );
 }
 
-function pct(score: number): string {
-  return `${(score * 100).toFixed(1)}%`;
+/**
+ * How long the run took, from TL's zone-less UTC timestamps. Shown because it is
+ * what turns "coverage 10%" into a decision — the reader can see what a full run
+ * would cost before starting one.
+ */
+function duration(from?: string, to?: string): string | null {
+  if (!from || !to) return null;
+  const ms = Date.parse(`${to}Z`) - Date.parse(`${from}Z`);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const mins = Math.floor(ms / 60000);
+  const secs = Math.round((ms % 60000) / 1000);
+  return mins > 0 ? `${mins}m ${secs}d` : `${secs} detik`;
 }
 
 export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
@@ -64,6 +76,8 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
         // Prefer the finish time (history); fall back to start while still running.
         const finished = !active && !!job.finishedAt;
         const when = finished ? job.finishedAt : job.startedAt;
+        const bench = benchmarkById(job.benchmark);
+        const took = duration(job.startedAt, job.finishedAt);
         return (
           <div key={job.id} className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
@@ -71,18 +85,12 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
                 <p className="truncate text-sm font-medium text-ink">
                   {job.model?.split("/").pop() ?? "—"}
                 </p>
-                <p className="truncate text-[12px] text-ink-soft">{job.benchmark ?? "—"}</p>
+                <p className="truncate text-[12px] text-ink-soft">
+                  {bench?.name ?? job.benchmark ?? "—"}
+                  {bench ? <span className="text-ink-faint"> · {bench.description}</span> : null}
+                </p>
               </div>
               <div className="flex shrink-0 items-center gap-3">
-                {job.scores.map((s) => (
-                  <span
-                    key={s.type}
-                    className="rounded-md bg-primary-soft px-2 py-1 text-sm font-semibold text-primary tabular-nums"
-                    title={`${s.type} accuracy`}
-                  >
-                    {pct(s.score)}
-                  </span>
-                ))}
                 <span
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium",
@@ -110,12 +118,36 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
                 </span>
               </div>
             ) : null}
-            {when ? (
-              <p className="mt-2 flex items-center gap-1 text-[11px] text-ink-soft">
-                <Clock className="size-3 shrink-0" aria-hidden />
-                {finished ? "Selesai" : "Mulai"} {formatAppDateTime(when)} WIB
+            {job.scores.length > 0 ? (
+              <div className="mt-3 grid gap-3 rounded-lg border border-hairline-2 bg-surface-2/50 p-3 sm:grid-cols-2">
+                {job.scores.map((s) => (
+                  <ScoreBar key={s.type} score={s} chance={bench?.chance} />
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-ink-soft">
+              {when ? (
+                <span className="flex items-center gap-1">
+                  <Clock className="size-3 shrink-0" aria-hidden />
+                  {finished ? "Selesai" : "Mulai"} {formatAppDateTime(when)} WIB
+                </span>
+              ) : null}
+              {took ? <span className="tabular-nums">{took}</span> : null}
+              <CoverageBadge coverage={job.coverage} samples={job.samples} />
+              {job.dtype ? <span className="text-ink-faint">dtype {job.dtype}</span> : null}
+            </div>
+
+            {/* A partial run is a smoke test, not a score. Said once here rather
+                than left to the reader to infer from the coverage badge. */}
+            {!active && !failed && job.coverage != null && job.coverage < 1 ? (
+              <p className="mt-2 rounded-md bg-warning-soft px-2.5 py-1.5 text-[11px] text-warning">
+                Baru {Math.round(job.coverage * 100)}% soal yang dijalankan
+                {bench ? ` (${job.samples ?? "?"} dari ${bench.questions.toLocaleString("id-ID")})` : ""}.
+                Cukup untuk memastikan jalan, belum cukup untuk dikutip sebagai skor model.
               </p>
             ) : null}
+
             <EvalJobLog jobId={job.id} active={active} failed={failed} />
           </div>
         );

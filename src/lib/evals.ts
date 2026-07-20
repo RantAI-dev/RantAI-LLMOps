@@ -10,6 +10,7 @@
  * Only safetensors models can be evaluated (the harness loads via HF
  * transformers); GGUF is inference-only.
  */
+import { BENCHMARKS, benchmarkById, type Benchmark } from "@/lib/benchmarks";
 import { runHostScript } from "@/lib/host-runner";
 import { fetchDownloaded, TL_ROOT, type CatalogModel } from "@/lib/models-catalog";
 import { inferenceHeaders } from "@/lib/inference";
@@ -42,17 +43,11 @@ const EVAL_GITHUB_DIR = "trainers/eleutherai-lm-evaluation-harness";
 const EVAL_SETUP = "uv pip install lm_eval==0.4.7 pandas torch";
 const EVAL_RUN = "python eleutherai-lm-evaluation-harness/train.py";
 
-export type Benchmark = { id: string; name: string; description: string };
-
-/** Small, well-known multiple-choice benchmarks that run quickly on a small GPU. */
-export const BENCHMARKS: Benchmark[] = [
-  { id: "arc_easy", name: "ARC Easy", description: "Grade-school science questions (easy)." },
-  { id: "arc_challenge", name: "ARC Challenge", description: "Harder grade-school science." },
-  { id: "hellaswag", name: "HellaSwag", description: "Commonsense sentence completion." },
-  { id: "piqa", name: "PIQA", description: "Physical commonsense reasoning." },
-  { id: "winogrande", name: "WinoGrande", description: "Pronoun/coreference resolution." },
-  { id: "boolq", name: "BoolQ", description: "Yes/no reading comprehension." },
-];
+// The benchmark catalogue lives in lib/benchmarks.ts (plain data, client-safe);
+// re-exported here so existing server-side importers keep one entry point.
+// Client components must import it from there directly — pulling a value out of
+// THIS module drags host-runner's node:child_process into the browser bundle.
+export { BENCHMARKS, benchmarkById, type Benchmark };
 
 export type EvalModel = {
   id: string;
@@ -66,7 +61,17 @@ export type EvalModel = {
 
 export type EvalOptions = { models: EvalModel[]; benchmarks: Benchmark[] };
 
-export type EvalScore = { type: string; score: number };
+export type EvalScore = {
+  type: string;
+  score: number;
+  /**
+   * Standard error of `score`, as the harness reports it. Carried because a
+   * score without it cannot be compared: two runs of the SAME model on ARC Easy
+   * scored 79.4% and 78.2%, a gap well inside one stderr. Shown as a difference
+   * without this number, that noise reads as a real win for one model.
+   */
+  stderr?: number;
+};
 
 export type EvalJob = {
   id: string;
@@ -76,6 +81,16 @@ export type EvalJob = {
   status: string;
   progress: number;
   scores: EvalScore[];
+  /**
+   * Fraction of the benchmark the run covered, 0..1. Surfaced because a 5% run
+   * and a 100% run produce the same-looking percentage, and putting them side by
+   * side is not a comparison — the small one is mostly sampling noise.
+   */
+  coverage?: number;
+  /** Questions actually scored. The denominator behind every rate above. */
+  samples?: number;
+  /** Weight dtype the harness ran with. */
+  dtype?: string;
   /** TL timestamps (UTC, zone-less) — when the run started / finished. */
   startedAt?: string;
   finishedAt?: string;
@@ -252,7 +267,7 @@ type TlEvalJob = {
     config?: { script_parameters?: { tasks?: string } };
     // v0.40.0 provider (REMOTE) jobs
     task_name?: string;
-    parameters?: { model_name?: string; tasks?: string };
+    parameters?: { model_name?: string; tasks?: string; limit?: string; dtype?: string };
     launch_progress?: { percent?: number };
     subtype?: string;
     run?: string;
@@ -269,6 +284,17 @@ function parseScores(raw?: string): EvalScore[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * `limit` as the harness received it — a fraction of the benchmark, "1.0" being
+ * all of it. Anything unparseable is left undefined rather than defaulted: a
+ * wrong coverage badge is worse than none, because it would be believed.
+ */
+function parseCoverage(raw?: string): number | undefined {
+  if (!raw) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 && n <= 1 ? n : undefined;
 }
 
 function normalize(j: TlEvalJob): EvalJob {
@@ -289,40 +315,69 @@ function normalize(j: TlEvalJob): EvalJob {
     // v0.40.0 eval scores live in `evals` artifacts / /evals/compare_evals, not
     // job_data.score. Kept as a fallback for any legacy plugin jobs.
     scores: parseScores(d.score),
+    coverage: parseCoverage(d.parameters?.limit),
+    dtype: d.parameters?.dtype,
     startedAt: d.start_time,
     finishedAt: d.end_time,
   };
 }
 
-type LmEvalResults = { results?: Record<string, Record<string, number | string>> };
+type LmEvalResults = {
+  results?: Record<string, Record<string, number | string>>;
+  /** Per task: how many questions the benchmark has vs how many `--limit` kept. */
+  "n-samples"?: Record<string, { original?: number; effective?: number }>;
+};
 
 /**
  * Read a finished eval job's accuracy scores. v0.40.0 stores them as the raw
  * lm-eval results JSON (not `job_data.score`), exposed via `get_eval_results`.
- * We keep the primary accuracy metrics (`acc`, `acc_norm`) and drop stderr.
+ *
+ * Keeps the primary accuracy metrics (`acc`, `acc_norm`) and PAIRS EACH WITH ITS
+ * STDERR. The harness emits them as sibling keys — `"acc,none"` next to
+ * `"acc_stderr,none"` — and we used to drop the second one. That left the UI
+ * showing 79.4% against 78.2% with nothing to say the gap was smaller than the
+ * measurement error, which is how noise gets reported as a result.
  */
-async function fetchEvalScores(jobId: string, experiment: string): Promise<EvalScore[]> {
+async function fetchEvalScores(
+  jobId: string,
+  experiment: string
+): Promise<{ scores: EvalScore[]; samples?: number }> {
   try {
     const exp = encodeURIComponent(experiment);
     const res = await tlFetch(
       `/experiment/${exp}/jobs/${encodeURIComponent(jobId)}/get_eval_results?experimentId=${exp}&task=view`
     );
-    if (!res.ok) return [];
+    if (!res.ok) return { scores: [] };
     // The endpoint returns text/csv ("No evaluation results found") when empty.
-    if (!(res.headers.get("content-type") ?? "").includes("application/json")) return [];
+    if (!(res.headers.get("content-type") ?? "").includes("application/json")) return { scores: [] };
     const data = (await res.json()) as LmEvalResults;
     const out: EvalScore[] = [];
     for (const taskRes of Object.values(data.results ?? {})) {
+      // Collect the stderrs first: "acc_stderr,none" -> stderr of "acc".
+      const stderrs = new Map<string, number>();
       for (const [key, value] of Object.entries(taskRes)) {
-        if (typeof value === "number" && key.includes("acc") && !key.includes("stderr")) {
-          out.push({ type: key.split(",")[0], score: value }); // "acc,none" -> "acc"
+        const metric = key.split(",")[0]; // "acc_stderr,none" -> "acc_stderr"
+        // lm-eval writes the string "N/A" when it cannot compute one, so the
+        // number check is what keeps that out rather than a cast.
+        if (typeof value === "number" && metric.endsWith("_stderr")) {
+          stderrs.set(metric.slice(0, -"_stderr".length), value);
+        }
+      }
+      for (const [key, value] of Object.entries(taskRes)) {
+        const metric = key.split(",")[0]; // "acc,none" -> "acc"
+        if (typeof value === "number" && metric.includes("acc") && !metric.endsWith("_stderr")) {
+          out.push({ type: metric, score: value, stderr: stderrs.get(metric) });
         }
       }
     }
-    return out;
+    // How many questions were actually scored. Only one task runs per job, so
+    // the first entry is this job's — but read it by value rather than assuming
+    // the key, since the task name is the benchmark id.
+    const samples = Object.values(data["n-samples"] ?? {})[0]?.effective;
+    return { scores: out, samples: typeof samples === "number" ? samples : undefined };
   } catch (err) {
     logServerError("fetchEvalScores", err);
-    return [];
+    return { scores: [] };
   }
 }
 
@@ -360,7 +415,9 @@ export async function fetchEvalJobs(): Promise<EvalJob[]> {
   await Promise.all(
     tagged.map(async ({ job, experimentId }) => {
       if (job.status === "COMPLETE" && job.scores.length === 0) {
-        job.scores = await fetchEvalScores(job.id, experimentId);
+        const { scores, samples } = await fetchEvalScores(job.id, experimentId);
+        job.scores = scores;
+        job.samples = samples;
       }
     })
   );
