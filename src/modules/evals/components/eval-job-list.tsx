@@ -1,12 +1,48 @@
 "use client";
 
-import { CheckCircle2, CircleAlert, Clock, Loader2 } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Clock, Loader2 } from "lucide-react";
+import { useState } from "react";
 
+import { JobLogPanel, useJobOutput } from "@/components/job-log";
 import { Progress } from "@/components/ui/progress";
 import type { EvalJob } from "@/lib/evals";
 import { formatAppDateTime } from "@/lib/tl-datetime";
 import { isEvalActive } from "@/modules/evals/hooks/use-evals";
 import { cn } from "@/lib/utils";
+
+/**
+ * One job's log, fetched only once opened — a list can hold many jobs and there
+ * is no reason to poll the ones nobody is looking at.
+ */
+function EvalJobLog({ jobId, active, failed }: { jobId: string; active: boolean; failed: boolean }) {
+  // A failed run is the one people need to read, so open it by default rather
+  // than leaving the reason one more click away.
+  const [open, setOpen] = useState(failed);
+  const output = useJobOutput(jobId, active, open);
+
+  return (
+    <div className="mt-2 border-t border-hairline-2 pt-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 text-[12px] font-medium text-ink-soft hover:text-ink"
+      >
+        {open ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}
+        Log
+        {failed ? <span className="ml-1 text-danger">· lihat penyebab gagal</span> : null}
+      </button>
+      {open ? (
+        <div className="mt-2">
+          <JobLogPanel
+            output={output}
+            active={active}
+            emptyLabel={active ? "Menyiapkan evaluasi — build venv + muat model…" : "Belum ada log untuk job ini."}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function pct(score: number): string {
   return `${(score * 100).toFixed(1)}%`;
@@ -80,6 +116,7 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
                 {finished ? "Selesai" : "Mulai"} {formatAppDateTime(when)} WIB
               </p>
             ) : null}
+            <EvalJobLog jobId={job.id} active={active} failed={failed} />
           </div>
         );
       })}

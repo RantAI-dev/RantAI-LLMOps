@@ -2159,3 +2159,48 @@ Bandingkan: 0.5B dasar 50%/50%/14%; 0.5B fine-tune 20%/80%/8%.
 **IMPLIKASI BESAR UNTUK RENCANA SHIRO:** 8B + prompt ketat sudah mencapai grounding ~sempurna **tanpa SFT sama sekali**. Ini persis skenario yang "gerbang baseline" ada untuk menangkapnya — rencana Shiro menjadwalkan SFT sebagai kepastian, padahal datanya menunjukkan prompt saja mungkin cukup di 8B. SFT mungkin tinggal untuk memoles (mis. konsistensi format sitasi lengkap + register bahasa per jenjang), bukan untuk grounding.
 **CATATAN:** eval set masih kecil (10 negatif) dan sebagian soal berasal dari materi yang sama; perlu set lebih besar + soal yang belum pernah dilihat sebelum diklaim final.
 **Verifikasi fix:** tsc 0, lint 0, 20 test grounding (total 117), build 0.
+
+## OPSI A: dataset uji-infrastruktur skala 8B (2026-07-20 15:20 WIB)
+**Konteks:** user bertanya dataset apa yang dipakai untuk latihan 8B sungguhan, karena dataset asli (dari MinIO) belum ada. **Jawaban: dataset asli BUKAN tugasnya** — itu Fase 1-2 (praproses korpus), ranah Shiro. Untuk uji skala, yang harus realistis adalah BENTUK (panjang sampel + jumlah baris), bukan isi.
+**Perubahan `scripts/gen-dryrun-dataset.py`:** konteks panjang dibuat dengan MENGGABUNGKAN beberapa potongan (default 5-9), bukan menggelembungkan satu bacaan — itu yang sebenarnya dikembalikan retrieval, tiap potongan berkepala sitasi sendiri, dan jawabannya cuma ada di salah satunya (posisi diacak). Jadi sekaligus menguji apakah model memilih SUMBER YANG BENAR. Argumen CLI: --rows/--chunks/--negatif/--eval-split/--seed (seeded -> hasil bisa diulang). Variasi awalan pertanyaan supaya baris tidak identik.
+**Hasil:** 1500 baris, rata-rata **~1.195 token**, maks ~1.571, 20% negatif -> tepat di rentang 1.000-2.000 token spek Shiro. Mode kecil tetap ada (`--rows 48 --chunks 1 1`).
+**KONSEKUENSI ke eval (harus ikut diperbaiki):** dengan banyak potongan, kepala sitasi PERTAMA biasanya BUKAN sumber jawaban. `scoreCase` kini mengambil sitasi yang diharapkan dari `(Sumber: ...)` di jawaban ideal (`parseExpectedCitation`), fallback ke header pertama. Tanpa ini, jawaban yang menyitasi dengan benar akan dinilai terhadap potongan yang justru benar-benar diabaikannya. +2 test (total 22 grounding, 119 keseluruhan).
+**Jujur & sengaja:** pada --rows besar pasangan QA BERULANG; skrip mencetak peringatan bahwa model hasilnya tidak boleh dinilai kualitasnya. Dataset ini menjawab: MUAT/tidak, BERAPA LAMA, STABIL/tidak.
+**Verifikasi:** py_compile OK, tsc 0, lint 0, semua test lulus.
+
+## 🎉 UJI INFRASTRUKTUR SKALA 8B: LULUS TOTAL (2026-07-20 15:40 WIB)
+Job `apertus-sea-lion-v4-8b-it-train8b` — `aisingapore/Apertus-SEA-LION-v4-8B-IT` + dataset lokal `/root/.transformerlab/train8b` (1.425 train / 75 eval, rata-rata ~1.195 token), max_seq_length 2048, LoRA r16, dropout 0, max_steps -1, 1 epoch.
+**HASIL: `Training completed in 0:40:58`, 179/179 langkah.**
+| Kriteria | Hasil |
+| Muat? | **46,3 / 121,6 GB** (sisa 62%) — penilaian Shiro "sangat lega" TERBUKTI TERUKUR |
+| BF16 bukan 4-bit? | Unsloth sendiri mencetak "QLoRA and full finetuning all not selected. **Switching to 16bit LoRA**" + "Bfloat16 = TRUE" -> sumber KETIGA yang independen membenarkan perbaikan Fase B |
+| GPU dipakai? | **96% util**, 84C, 86W sepanjang run |
+| Checkpoint? | **tersimpan di step 150 & 179** — run panjang bisa diselamatkan kalau terputus |
+| Kecepatan | **~12,2 detik/langkah** (langkah 1 = 48s, warm-up) |
+| LoRA | 39,845,888 dari 8,093,184,064 param (**0,49%**) |
+**EKSTRAPOLASI (berbasis ukuran, bukan tebakan):** 2.000 contoh x 2 epoch = 500 langkah ~**1,7 jam**; 5.000 x 3 epoch = 1.875 langkah ~**6,4 jam**. -> **Perkiraan Shiro "beberapa jam sampai satu malam" TERBUKTI AKURAT.** Caveat: durasi naik proporsional kalau sampel Shiro lebih panjang dari ~1.195 token.
+**TEMUAN OPTIMASI (belum dipakai):** `CUDA-fused xIELU not available (No module named 'xielu') – falling back to a Python version.` Apertus pakai aktivasi xIELU; kernel CUDA-nya tidak terpasang jadi jalan versi Python yang lebih lambat, di SETIAP langkah. `pip install git+https://github.com/nickjbrowning/XIELU` berpotensi mempercepat. TIDAK kupasang sendiri: paket eksperimental dari git, menambah waktu setup SEMUA job termasuk yang bukan Apertus. Tuas pertama kalau run 6 jam terasa mahal.
+**Peringatan metadata index.json muncul lagi** — sudah terbukti kosmetik (export+inference jalan di run sebelumnya).
+**Loss 2.413 -> 0.030: HAFALAN, bukan kualitas** (cuma ~37 QA unik diputar). Model ini tidak boleh dinilai — sesuai peringatan yang dicetak generator.
+
+## MinIO uji + TEMUAN BESAR: infrastruktur Agents (2026-07-20 16:15 WIB)
+**Rekon sebelum memasang apa pun (box dipakai bareng, pernah bentrok port):** stack `rantai-agents` (id=28) ternyata SUDAH menjalankan:
+- **`tei-embed` + `tei-rerank`** — image `ghcr.io/huggingface/text-embeddings-inference:**121**-latest`. Tag 121 = **sm_121 = build khusus GB10**. Jadi pertanyaan atasan user soal TEI SUDAH TERJAWAB oleh tim sebelah: TEI bukan cuma cocok, sudah dipakai, lengkap dengan reranker, di build GB10.
+- **`rustfs`** (rustfs/rustfs, S3-compatible, expose 9000/9001) + `rustfs-init` (image minio/mc, env S3_BUCKET/S3_ACCESS_KEY_ID) -> penyimpanan S3 SUDAH ADA.
+- **`mineru`** — ekstraksi PDF = perkakas Fase 1 rencana Shiro.
+- postgres, redis, surrealdb. Port host terpakai: 3000, 8090, 8339, 11435. Disk docker: image 121 GB + volume 103 GB.
+**Kenapa TIDAK memakai RustFS:** `rantai-backend` ada di network `rantai-llmops_llmops`, rustfs di `rantai-agents_default` — terpisah. Menyambungkannya berarti backend kita dapat akses ke postgres/redis/surrealdb milik Agents, memakai kredensial mereka, dan menulis data uji ke object store mereka. User sendiri bilang "agents bukan ranahku" -> itu percakapan koordinasi, BUKAN keputusan sepihak lewat `docker network connect`.
+**Jalur A dikerjakan:** service `minio-test` (minio/minio) ditambahkan ke stack llmops — **TANPA `ports:`**, jadi cuma terjangkau dari network internal: mustahil bentrok port, tak terjangkau dari luar. Volume `minio_test_data`.
+**TEMUAN PENTING:** compose yang TER-DEPLOY ternyata TIDAK punya env S3 yang kutambahkan ke repo — karena semua redeploy-ku selama ini mengirim ulang `StackFileContent` yang SAMA dari Portainer. **Perubahan compose di repo tidak pernah sampai ke stack berjalan; itu cuma berlaku untuk deployment baru dari nol.** Disisipkan terarah (bukan menimpa seluruh file, krn di dalamnya ada rahasia): env S3 ke service frontend + service minio-test + volume. 7907 -> 8924 karakter. PUT 200.
+**Seeding:** container sekali-jalan `minio/mc` di network llmops + mount `rantai-llmops_tl_data:ro` -> bucket `sft` dibuat, `train.jsonl` (6,6 MiB) + `eval.jsonl` (354 KiB) diunggah ke `s3://sft/train8b/`.
+**Verifikasi:** minio-test running; env S3 (4 nama) ADA di container frontend; frontend 307, gateway 200, GPU GB10 44C.
+**Kredensial:** admin/admin123 — LEMAH tapi instance ini tidak terekspos ke luar network docker. Ini instance UJI; hapus service + volume setelah jalur s3 terbukti, dan jangan jadikan pola untuk produksi.
+
+## 🏁 JALUR s3:// TERBUKTI — potongan terakhir jalur produksi Shiro (2026-07-20 16:30 WIB)
+Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 179 langkah) RUNNING, loss 1.907 turun stabil.
+**Log trainer (bukti eksplisit):**
+`Loading dataset: s3://sft/train8b/` / `Pulling s3://sft/train8b/train.jsonl -> .../workspace/_dataset/train.jsonl` / `Pulling s3://sft/train8b/eval.jsonl -> ...` / `Dataset source: S3/MinIO (http://minio-test:9000)` / `Loaded dataset with 1425 examples` / `Dataset columns: ['instruction','output']` / `Sample text length: 5004` / `All samples fit within max_seq_length=2048`.
+**Yang terbukti sekaligus:** prefix `s3://.../` dikenali (menarik DUA berkas), `eval.jsonl` otomatis jadi split validation, **diunduh ke disk lokal dulu bukan streaming** (sesuai kalimat Shiro sendiri), endpoint MinIO terbaca dari env yang diteruskan frontend -> job, skema instruction/output terbaca, sampel multi-potongan panjang (5004 karakter) muat di 2048 token.
+**ARTINYA: korpus tidak perlu keluar dari server sama sekali.** Konflik kedaulatan data yang kutemukan saat memeriksa rencana Shiro (satu-satunya jalur melatih dulu = unggah ke Hugging Face) kini TERTUTUP dengan bukti berjalan, bukan sekadar kode.
+**STATUS LLMOps utk rencana Shiro — SEMUA JALUR DATA & PELATIHAN TERBUKTI:** dataset dari path lokal / S3-MinIO / HF; BF16 di sm_121 (3 sumber independen); konteks panjang + audit truncation; checkpoint (terbukti di run 8B); skala 8B terukur (46/121 GB, 12,2 dtk/langkah, 179 langkah 41 menit); Fase 4 eval grounding (4 angka + riwayat + tahan pindah halaman).
+**SISA (jujur):** (1) register bahasa per jenjang belum terukur — syarat Shiro yang belum punya angka; (2) uji kebocoran antar-jenjang BUKAN ranah LLMOps (retrieval di Agents); (3) eval set masih kecil (10 negatif di set kecil); (4) optimasi xIELU belum dipakai; (5) **`minio-test` itu instance UJI — perlu diputuskan: dihapus, atau diganti pakai RustFS milik Agents yang sudah ada** (perlu koordinasi antar-tim, bukan keputusan sepihak).
