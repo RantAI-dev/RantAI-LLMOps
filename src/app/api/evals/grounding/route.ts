@@ -86,7 +86,11 @@ export async function POST(req: Request) {
 
   const systemPrompt =
     typeof body.systemPrompt === "string" ? body.systemPrompt : DEFAULT_GROUNDING_PROMPT;
-  const maxTokens = Number(body.maxTokens) > 0 ? Number(body.maxTokens) : 512;
+  // A grounded answer is a sentence plus its source, and a refusal is one line —
+  // so the cap is a runtime lever, not a quality one. At 512 an 8B model that
+  // rambles costs ~20s per question; the whole eval then takes 15 minutes for
+  // output nobody reads past the first line.
+  const maxTokens = Number(body.maxTokens) > 0 ? Number(body.maxTokens) : 192;
 
   try {
     const cases: ScoredCase[] = new Array(examples.length);

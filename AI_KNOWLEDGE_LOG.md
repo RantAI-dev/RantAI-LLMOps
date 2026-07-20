@@ -2067,3 +2067,55 @@ Job `uji-bf16-2` (unsloth/Qwen2.5-0.5B-Instruct + Trelis/touch-rugby-rules, max_
 **Verifikasi:** py_compile OK, tsc 0, lint 0, 97/97.
 **Deploy:** trainer = cukup push; frontend (validator, env passthrough, hint) = butuh release.
 **BELUM diuji end-to-end:** jalur s3:// belum pernah dijalankan sungguhan (butuh MinIO). Jalur path lokal & HF sudah masuk akal secara kode tapi juga belum diuji.
+
+## DEPLOY v0.40.26: dataset lokal/S3 + generator uji-coba (2026-07-20 12:40 WIB)
+Diverifikasi tag v0.40.26 menunjuk tepat ke 914f58c (commit terakhirku) -> semua perubahan termasuk. Redeploy stack 21 (PullImage=true) -> 200 OK. Sehat: frontend 307 (~4s), GPU GB10 43C, gateway 200, ollama OK (model hasil fine-tune `rantai-uji-bf16-2` sudah ada di daftar).
+**Isi rilis:** assertDatasetRef + passthrough env S3 + field LoRA dropout + hint dataset (frontend); trainer sudah live sejak push (di-clone dari main).
+**Artefak baru:** `scripts/gen-dryrun-dataset.py` — generator dataset uji-coba bergaya rencana Shiro (48 contoh, 20% negatif, kolom instruction/output, kepala sitasi + potongan + pertanyaan; menulis train.jsonl + eval.jsonl). Diambil di container via raw.githubusercontent, jadi tidak perlu menempel skrip panjang ke console.
+**Panduan uji ke user:** taruh di `/root/.transformerlab/dryrun` (volume tl_data -> selamat dari recreate), lalu isi Dataset dengan path itu ("Pakai persis"). Bukti lulus = baris `Dataset source: local directory ... (train=train.jsonl)` + `Turn columns detected: instruction -> output`. Uji bonus: max_seq_length=256 harus memicu peringatan truncation.
+**Catatan jujur ke user:** konteks contoh ~200 token (rencana Shiro 1.000-2.000+), jadi ini menguji BENTUK bukan panjang; `eval.jsonl` terbaca sbg split validation TAPI belum dipakai (SFTTrainer cuma menerima train_dataset) — itu pekerjaan Fase 4.
+
+### KESALAHANKU: redeploy mendahului CI (2026-07-20 12:50 WIB)
+**Gejala:** field "LoRA dropout" tidak muncul di form padahal kodenya jelas ada di commit yang ditag rilis (diverifikasi `git show 914f58c:...finetune-form.tsx` -> ada; ditambahkan di 3a9d330).
+**Akar:** CI v0.40.26 mulai 05:37:18Z **selesai 05:43:43Z**, sedangkan aku redeploy ~05:40Z — **3 menit sebelum image terdorong ke GHCR**. Jadi `PullImage=true` menarik `:latest` LAMA. Semua fitur v0.40.25 tampak normal, cuma yang baru yang hilang → gampang disalahartikan sebagai bug kode.
+**Pelajaran (WAJIB dipakai lain kali):** "release sudah dibuat" != "image sudah jadi"; build ~6 menit. **Sebelum redeploy, cek `gh run list` sampai run rilis itu `completed/success`.** Kalau tidak, gejalanya menyesatkan.
+**Aksi:** redeploy ulang setelah CI selesai -> PUT 200, frontend up 307 (~4s), GPU GB10 43C.
+
+### BUG-KU: assertDatasetRef menolak dot-directory (2026-07-20 13:35 WIB)
+**Gejala:** user isi Dataset `/root/.transformerlab/dryrun` -> `Invalid dataset ref`. (Field LoRA dropout SUDAH muncul, jadi redeploy ulang tadi benar.)
+**Akar:** aturanku "tiap segmen wajib DIAWALI alfanumerik" (dibuat utk memblokir `..`) ikut memblokir SEMUA direktori tersembunyi — padahal volume data TL sendiri ada di `.transformerlab`. Jadi tempat paling wajar menaruh dataset justru ditolak.
+**Fix:** validasi per segmen (`/^[A-Za-z0-9._-]+$/`), tolak HANYA `.` dan `..` (itu ejaan traversal yang sebenarnya). Trailing slash tetap khusus URI, jadi `owner/` masih tertangkap dini. +2 kasus uji dot-directory. tsc 0, lint 0, 8/8.
+**Workaround TANPA release:** pakai path tanpa dot-directory, mis. `/root/dryrun` — lolos validator yang SEKARANG ter-deploy. Konsekuensi: bukan di volume tl_data, jadi hilang saat container di-recreate (tidak masalah utk uji-coba; generator tinggal dijalankan ulang).
+
+## 🏁 UJI-COBA KERING LULUS — jalur data Fase 3 rencana Shiro TERBUKTI (2026-07-20 13:45 WIB)
+Job `dryrun-shiro` (Qwen2.5-0.5B + dataset lokal `/root/dryrun`, 46 contoh, max_steps=10, max_seq_length=4096, dropout=0) -> **success**, loss 2.3996 -> 1.5698, 44 detik.
+**Semua bukti muncul:** `Dataset source: local directory /root/dryrun (train=train.jsonl)`; `Loaded dataset with 46 examples`; `Dataset columns: ['instruction','output']`; `Turn columns detected: instruction -> output`; `✅ All samples fit within max_seq_length=4096`. Ditambah `Generating validation split: 2 examples` -> **eval.jsonl otomatis terbaca sbg split validation, pembagian 95:5 Shiro jalan tanpa wiring tambahan**.
+**ARTINYA: dataset TIDAK PERLU mampir ke Hugging Face.** Konflik kedaulatan data di rencana Shiro selesai secara nyata, bukan cuma di kode.
+**BONUS 1 — perbaikan dropout terukur:** Unsloth run sebelumnya (dropout 0.05) `patched 24 layers with 0 QKV, 0 O, 0 MLP`; run ini (dropout 0) `patched 24 layers with 24 QKV, 24 O, 24 MLP`. Jalur cepat benar-benar aktif, bukan sekadar peringatan hilang.
+**BONUS 2 — penomoran step benar:** `Step 1..Step 10` lengkap (sebelumnya mulai "Step 2" dan step terakhir tak pernah tercatat). Perbaikan `on_log` bekerja.
+**Catatan:** peringatan metadata `index.json` masih muncul — sudah terbukti kosmetik (export+inference jalan). `Num Epochs = 2` di banner Unsloth wajar krn max_steps=10 melewati batas epoch pertama (46/8 ~ 6 langkah/epoch).
+**Status rencana:** P0 bersih; Fase A, B, dan jalur data Fase 3 TERBUKTI end-to-end. **Sisa gap terbesar: Fase 4 (eval kustom — akurasi sitasi + tingkat penolakan), belum ada jalur sama sekali.** Split validation sudah terbaca tapi belum dipakai SFTTrainer.
+
+## FASE 4 (bagian belakang): eval grounding deterministik (2026-07-20 13:55 WIB)
+**Kesenjangan:** rencana Shiro menuntut akurasi sitasi + tingkat penolakan, sementara Evals LLMOps cuma LM-Eval-Harness (benchmark umum) -> tidak menjawab apa pun soal grounding.
+**Dibangun:**
+- `src/lib/grounding-eval.ts` — penilaian MURNI & DETERMINISTIK (tanpa LLM juri; tiap angka bisa ditunjuk asal string-nya, murah, tidak berubah antar-run). 4 angka: refusalAccuracy, hallucinationRate, overRefusalRate, citationAccuracy + rincian per jenjang. Deteksi penolakan via pola (termasuk parafrase, bukan cuma kalimat persis dataset). Sitasi dicocokkan per bagian (buku & bab terpisah) supaya beda tanda baca/kata penghubung tidak menggagalkan. Penyebut citationAccuracy = positif yang DIJAWAB (positif yang ditolak sudah dihitung sbg over-refusal; jangan dihukum dua kali).
+- `src/lib/grounding-eval.test.ts` — 15 test (97 -> 112 total).
+- `src/app/api/evals/grounding/route.ts` — replay eval set ke model TERSAJI (GGUF di Ollama, bukan adapter mentah) -> jadi MODEL DASAR pun bisa dievaluasi = akhirnya ada BASELINE prompt-only, hal yang selama ini kubilang hilang dari rencana Shiro. Worker pool 4 (50 contoh ~25 detik). Panggilan gagal diskor sbg balasan kosong TAPI dilaporkan di `errors`/`errorCount` — laporan yang dibangun di atas error senyap itu bohong. `DEFAULT_GROUNDING_PROMPT` disediakan supaya baseline "prompt saja" tinggal sekali klik.
+**Keputusan desain penting:** systemPrompt jadi bagian request -> lever PROMPT bisa diukur terpisah dari fine-tune (mis. model dasar+prompt ketat vs model hasil fine-tune). Ini perbandingan yang menentukan apakah fine-tune layak biayanya.
+**BELUM:** UI (halaman Evals). Route sudah lengkap & teruji tapi belum ada yang memanggil.
+**Catatan:** syarat #3 Shiro (kebocoran antar jenjang) BUKAN ranah LLMOps — itu retrieval di Agents (`resolve_kbs`).
+
+## FASE 4 SELESAI: tab Grounding di halaman Evals (2026-07-20 14:00 WIB)
+`DEFAULT_GROUNDING_PROMPT` dipindah dari route ke `grounding-eval.ts` supaya bisa dipakai UI (lib murni, aman di client).
+**UI (`grounding-eval.tsx`) + tab ketiga di evals-page:** pilih model tersaji (dari /api/serve/info), eval set via upload file ATAU tempel langsung, system prompt bisa diedit/dikosongkan, tombol jalankan + estimasi durasi. Hasil: 4 kartu angka (tiap kartu menyatakan arah mana yang BAIK — dua dari empat adalah kegagalan yang dihitung naik, pembaca tak boleh disuruh mengingat sendiri), tabel rincian per jenjang, dan daftar kasus gagal yang bisa dibuka (berlabel ngarang / salah tolak / sitasi salah, menampilkan pertanyaan + jawaban seharusnya + jawaban model). Job list LM-Eval disembunyikan di tab ini (grounding jalan in-request, jadi daftar job cuma jadi gangguan).
+**Penanganan error jujur:** permintaan gagal diskor sbg balasan kosong TAPI banner memberitahu jumlahnya dan meminta ulang — laporan di atas error senyap lebih buruk daripada tidak ada laporan.
+**Verifikasi:** tsc 0, lint 0, 112 test, **`npm run build` exit 0** (build produksi penting krn ini komponen client + route baru — tsc saja tidak menangkap pelanggaran batas server/client).
+**Cara pakai yg paling berharga:** jalankan 2x — (a) model DASAR + prompt grounding, (b) model hasil fine-tune. Selisihnya menjawab pertanyaan yang selama ini cuma DIASUMSIKAN rencana Shiro: apakah SFT benar-benar menambah sesuatu.
+
+## DEPLOY v0.40.27: tab Grounding (Fase 4) LIVE (2026-07-20 14:10 WIB)
+**Pelajaran tadi DIPATUHI:** sebelum menyentuh Portainer, diverifikasi (a) CI `completed/success` selesai 07:02:37Z, (b) tag v0.40.27 -> `e374185` = commit tab Grounding. Baru redeploy. (Bandingkan v0.40.26 yang gagal karena redeploy 3 menit sebelum CI kelar.)
+Redeploy stack 21 (PullImage=true) -> 200 OK. Sehat: frontend 307 (~4s), GPU GB10 44C, gateway 200.
+**Status rencana Shiro dari sisi LLMOps:** P0 bersih; Fase A & B terbukti; jalur data Fase 3 terbukti end-to-end (dataset tak perlu ke HF); **Fase 4 kini ADA** (4 angka deterministik + rincian per jenjang + daftar kasus gagal).
+**Yang BELUM pernah dijalankan sungguhan:** (1) grounding eval belum sekali pun dijalankan pada model nyata — baru terbukti secara unit test + build; (2) jalur dataset `s3://` belum diuji (butuh MinIO); (3) baseline vs fine-tune belum diukur.
+**Langkah paling berharga berikutnya:** jalankan grounding eval 2x (model dasar + prompt vs model hasil fine-tune) -> selisihnya menjawab apakah SFT layak biayanya, pertanyaan yang selama ini cuma diasumsikan rencana Shiro.

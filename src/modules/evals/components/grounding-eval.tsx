@@ -187,6 +187,9 @@ export function GroundingEval() {
   const [model, setModel] = useState("");
   const [jsonl, setJsonl] = useState("");
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_GROUNDING_PROMPT);
+  // Runtime lever, not a quality one: a grounded answer is a sentence plus its
+  // source. Raise it only if replies are visibly getting cut off mid-answer.
+  const [maxTokens, setMaxTokens] = useState(192);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RunResult | null>(null);
@@ -226,7 +229,7 @@ export function GroundingEval() {
       const res = await fetch("/api/evals/grounding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, jsonl, systemPrompt }),
+        body: JSON.stringify({ model, jsonl, systemPrompt, maxTokens }),
       });
       const data = (await res.json()) as RunResult & { error?: string };
       if (!res.ok) throw new Error(data.error || `Eval gagal (${res.status})`);
@@ -315,6 +318,24 @@ export function GroundingEval() {
           <span className="mt-1 block text-[11px] text-ink-soft">
             Kosongkan untuk menguji model <strong>tanpa</strong> prompt sama sekali — bedanya dengan
             hasil di atas menunjukkan seberapa besar andil prompt.
+          </span>
+        </label>
+
+        <label className="mt-3 block max-w-[16rem]">
+          <span className="mb-1 block text-[13px] font-medium text-ink">Batas token jawaban</span>
+          <input
+            type="number"
+            min={32}
+            step={32}
+            value={maxTokens}
+            onChange={(e) => setMaxTokens(Number(e.target.value))}
+            onBlur={() => setMaxTokens((v) => (Number.isFinite(v) && v >= 32 ? v : 192))}
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-[13px]"
+          />
+          <span className="mt-1 block text-[11px] leading-4 text-ink-soft">
+            Jawaban grounding cuma 1-2 kalimat, jadi ini pengatur <strong>durasi</strong>, bukan
+            kualitas. Makin besar makin lama — pada model 8B, 512 token bisa berarti ~20 detik per
+            soal. Naikkan hanya kalau jawaban terlihat terpotong.
           </span>
         </label>
 
