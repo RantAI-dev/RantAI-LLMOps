@@ -2265,3 +2265,25 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **Verifikasi:** tsc 0, eslint 0, 133 test lulus (21 berkas), build sukses.
 **Catatan: TIDAK di-commit/push** sesuai permintaan user.
 **Pelajaran:** permintaan "bikin lebih visual" ternyata menutupi bug pelaporan. Grafik di atas angka yang menyesatkan hanya membuat kesalahannya lebih meyakinkan.
+
+## Deploy v0.40.32 + koreksi angka dokumen metrik (2026-07-20 20:20 WIB)
+**Verifikasi SEBELUM menyentuh Portainer (protokol tetap):** CI `release v0.40.32 | completed/success | 13:05:04Z`; tag v0.40.32 -> `7685c9d` = `origin/main` HEAD ("feat: enhance eval comparison and scoring features"); dicek pula ISI tag-nya benar memuat `src/lib/benchmarks.ts`, `src/lib/eval-stats.ts` + test, dan `evals.ts` sudah memasangkan `_stderr` (6 kemunculan).
+**Deploy:** stack 21 `rantai-llmops`, compose TIDAK diubah, `PullImage:true`. PUT 200. Frontend hidup ~4 detik, gateway 200.
+**Verifikasi FUNGSIONAL (bukan cuma "kontainer hidup"):** `/api/evals/jobs` kini mengembalikan `stderr`, `coverage`, `samples`, `dtype`. Contoh: `arc_easy acc=0.7941 ±0.0263 cov=0.1 n=238`.
+**TEMUAN yang langsung muncul dari data itu — dan MENGOREKSI klaimku sendiri:** dua run arc_easy ternyata **cakupannya BERBEDA** (0.1 / n=238 vs 0.05 / n=119), dan stderr run kedua ±0,038 bukan ±0,026. Di dokumen untuk atasan aku sempat menulis keduanya "10%" dan "±2,6" — itu ASUMSI, dan salah. Sudah dikoreksi di artifact (ditambah kotak merah "dua run ini tidak sebanding").
+**Kesimpulannya tidak berubah:** selisih 1,2 poin vs galat gabungan 1,96·√(0,026²+0,038²) = 9,1 poin -> tetap "≈ setara". Yang salah adalah angka masukan yang kukutip, bukan kesimpulannya.
+**Data baru:** `winogrande` SELESAI — acc 0,7480 ±0,0387, cov 10%, n=127. Penting dibaca dengan tebak-acak 50% (bukan 25% seperti ARC), dan fitur garis tebak-acak yang baru saja dideploy persis untuk ini.
+**Pelajaran (ulangan dari kasus sitasi):** aku lagi-lagi menegaskan angka yang tidak kutarik langsung. Aturan yang kupakai sekarang: kalau angka masuk ke dokumen untuk orang lain, tarik dari sumbernya saat itu juga — jangan dari ingatan percakapan.
+
+## Evals: rincian per soal + profil model (2026-07-20 20:45 WIB)
+**Keluhan user:** "ini emg ini doang data metriksnya?" — mengharapkan grafik & lebih banyak angka.
+**JAWABAN JUJUR BAGIAN 1 (batas yang tidak bisa dilewati):** enam benchmark ini SEMUANYA pilihan ganda, dan lm-eval memang hanya menghitung `acc`, `acc_norm`, `stderr`. Tidak ada metrik lain yang disembunyikan UI. Untuk metrik jenis lain (exact match, F1, BLEU) harus menambah tugas generatif — pekerjaan lain, bukan soal tampilan.
+**JAWABAN BAGIAN 2 (yang memang belum ditampilkan — dan ini banyak):** trainer SUDAH menyimpan hasil PER SOAL (`eval_samples_<task>.csv`, 238 baris untuk run ARC 10%: soal, jawaban model, kunci, benar/salah) sebagai artifact. Selama ini hanya rata-ratanya yang ditampilkan.
+**Dikerjakan:**
+- `fetchEvalSamples()` di `evals.ts`. TL memberi artifact eval sebagai daftar BERINDEKS tanpa cara meminta berdasarkan nama, jadi indeks 0..4 ditelusuri dan berkas per-soal dikenali dari BENTUK ISINYA (berkas agregat memakai id literal "aggregated"; yang per-soal menomori barisnya). Dicocokkan dari isi, bukan nama berkas, supaya tetap jalan kalau trainer mengganti nama artifact-nya.
+- Route `GET /api/evals/jobs/[id]/samples` — dimuat HANYA saat panel dibuka (satu run ratusan baris, daftar memuat banyak job).
+- `eval-samples.tsx` BARU: batang benar/salah, penyaring Salah/Benar/Semua (default **Salah** — itu yang bisa ditindaklanjuti), daftar bertingkat 25 baris.
+- `model-profile.tsx` BARU: SEMUA benchmark satu model dalam satu grafik. **Batang diukur dari skor tebak-acak, bukan dari nol** — WinoGrande 2 pilihan (acak 50%) vs ARC 4 pilihan (acak 25%), jadi 74,8% dan 79,4% BUKAN angka yang sebanding kalau digambar dari nol. Ini persis salah baca yang sedang terjadi pada data kita sekarang.
+- `evals-page.tsx`: bagian "Profil model" di atas "Riwayat run".
+**Verifikasi:** tsc 0, eslint 0, 133 test lulus, build sukses (route `/api/evals/jobs/[id]/samples` terdaftar).
+**TIDAK di-commit/push** sesuai permintaan user.

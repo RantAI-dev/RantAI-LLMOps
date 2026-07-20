@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { benchmarkById } from "@/lib/benchmarks";
 import type { EvalJob } from "@/lib/evals";
 import { formatAppDateTime } from "@/lib/tl-datetime";
+import { EvalSamples } from "@/modules/evals/components/eval-samples";
 import { CoverageBadge, ScoreBar } from "@/modules/evals/components/score-display";
 import { isEvalActive } from "@/modules/evals/hooks/use-evals";
 import { cn } from "@/lib/utils";
@@ -148,6 +149,9 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
               </p>
             ) : null}
 
+            {!active && !failed && job.scores.length > 0 ? (
+              <EvalSamples jobId={job.id} />
+            ) : null}
             <EvalJobLog jobId={job.id} active={active} failed={failed} />
           </div>
         );

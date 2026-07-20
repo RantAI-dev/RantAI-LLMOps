@@ -427,3 +427,72 @@ export async function fetchEvalJobs(): Promise<EvalJob[]> {
 function slug(s: string): string {
   return (s.split("/").pop() ?? s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
+
+/** One scored question from a finished benchmark run. */
+export type EvalSample = {
+  /** The question as the benchmark posed it. */
+  question: string;
+  /** What the model picked. */
+  answer: string;
+  /** The key. */
+  expected: string;
+  /** lm-eval's per-question `acc`: 1 when the pick matched the key. */
+  correct: boolean;
+};
+
+type CsvView = { header?: string[]; body?: string[][] };
+
+/**
+ * The per-question results behind a benchmark score.
+ *
+ * The harness already saves these — 238 rows for a 10% ARC Easy run — but the
+ * screen only ever showed the average. An accuracy tells you a model is wrong
+ * 21% of the time; only these rows tell you WHICH questions, which is the part
+ * that can be acted on.
+ *
+ * TL exposes a job's eval artifacts as an indexed list with no way to ask for
+ * one by name, so we walk the indices and identify the per-sample file by its
+ * shape: the aggregated file uses the literal id "aggregated", the per-sample
+ * one numbers its rows. Matching on content rather than filename keeps this
+ * working if the trainer renames its artifacts.
+ */
+export async function fetchEvalSamples(jobId: string): Promise<EvalSample[]> {
+  const experiment = await resolveJobExperiment(jobId);
+  const exp = encodeURIComponent(experiment);
+  for (let index = 0; index < 5; index++) {
+    try {
+      const res = await tlFetch(
+        `/experiment/${exp}/jobs/${encodeURIComponent(jobId)}/get_eval_results` +
+          `?experimentId=${exp}&task=view&file_index=${index}`
+      );
+      if (!res.ok) continue;
+      if (!(res.headers.get("content-type") ?? "").includes("application/json")) continue;
+      const data = (await res.json()) as CsvView;
+      const header = data.header;
+      const body = data.body;
+      if (!Array.isArray(header) || !Array.isArray(body) || body.length === 0) continue;
+
+      const col = (name: string) => header.indexOf(name);
+      const idAt = col("test_case_id");
+      const scoreAt = col("score");
+      // The aggregated metrics file has the same columns but one row per METRIC,
+      // tagged "aggregated" — skip it and keep looking for the per-question one.
+      if (idAt < 0 || scoreAt < 0) continue;
+      if (body.every((row) => row[idAt] === "aggregated")) continue;
+
+      const qAt = col("input");
+      const aAt = col("output");
+      const eAt = col("expected_output");
+      return body.map((row) => ({
+        question: qAt >= 0 ? (row[qAt] ?? "") : "",
+        answer: aAt >= 0 ? (row[aAt] ?? "") : "",
+        expected: eAt >= 0 ? (row[eAt] ?? "") : "",
+        // CSV round-trips the score as text; anything above 0.5 is a hit.
+        correct: Number(row[scoreAt]) > 0.5,
+      }));
+    } catch (err) {
+      logServerError("fetchEvalSamples", err);
+    }
+  }
+  return [];
+}
