@@ -104,6 +104,7 @@ export function GatewayAccess() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot fetch on mount; load() only sets state once the requests resolve
     load();
   }, [load]);
 
