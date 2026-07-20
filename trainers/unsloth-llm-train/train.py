@@ -245,8 +245,11 @@ def train_with_unsloth():
 
         lab.update_progress(20)
 
-        # Load model and tokenizer using Unsloth
-        lab.log("Loading model and tokenizer with Unsloth...")
+        # Load model and tokenizer using Unsloth. The name is logged BEFORE the
+        # attempt because Unsloth's "No config file found" error never echoes back
+        # which id it tried — leaving a wrong (or GGUF, which has no config.json)
+        # model a dead end to diagnose from the log alone.
+        lab.log(f"Loading model with Unsloth: {training_config['model_name']}")
         try:
             import torch
 
@@ -310,23 +313,37 @@ def train_with_unsloth():
         # Prepare dataset with chat template
         lab.log("Preparing dataset with chat template...")
         try:
+            # (user turn, assistant turn) column pairs, in priority order. Upstream
+            # only recognised instruction/output, so a prompt/completion dataset fell
+            # through to the "join every field" branch below and trained on literal
+            # "prompt: ...\ncompletion: ..." strings instead of the model's chat
+            # format. These are the same pairs buildFormattingTemplate() documents.
+            turn_pairs = (("instruction", "output"), ("prompt", "completion"), ("question", "answer"))
+            cols = dataset["train"].column_names
+            detected = next((p for p in turn_pairs if p[0] in cols and p[1] in cols), None)
+            lab.log(
+                f"Turn columns detected: {detected[0]} -> {detected[1]}"
+                if detected
+                else f"No known turn-column pair in {cols}; falling back to raw text"
+            )
+
             # Apply chat template to format the dataset
             def format_dataset(example):
                 # Handle different dataset formats - process one example at a time
-                if "instruction" in example and "output" in example:
-                    # Format: instruction-output pairs
-                    instruction = example["instruction"]
-                    output = example["output"]
+                pair = next((p for p in turn_pairs if p[0] in example and p[1] in example), None)
+                if pair:
+                    user_turn = example[pair[0]]
+                    assistant_turn = example[pair[1]]
                     # Use the model's chat template if available
                     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
                         messages = [
-                            {"role": "user", "content": instruction},
-                            {"role": "assistant", "content": output},
+                            {"role": "user", "content": user_turn},
+                            {"role": "assistant", "content": assistant_turn},
                         ]
                         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
                     else:
                         # Fallback format
-                        text = f"### Instruction:\n{instruction}\n\n### Response:\n{output}"
+                        text = f"### Instruction:\n{user_turn}\n\n### Response:\n{assistant_turn}"
                     return {"text": text}
                 elif "text" in example:
                     # Already formatted - ensure it's a string

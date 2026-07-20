@@ -106,7 +106,10 @@ export function HfSearch({
         />
       </div>
       {selected ? (
-        <span className="mt-1 block truncate text-[11px] font-medium text-primary">✓ {selected}</span>
+        // Never truncate: this is the exact id that gets submitted, and the
+        // "Pakai persis" option takes whatever was typed — so a half-typed id and a
+        // merely clipped display looked identical, which cost a wasted training run.
+        <span className="mt-1 block text-[11px] font-medium break-all text-primary">✓ {selected}</span>
       ) : (
         <span className="mt-1 block text-[11px] text-ink-soft">{cfg.hint}</span>
       )}

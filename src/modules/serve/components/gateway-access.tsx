@@ -5,40 +5,13 @@ import { Check, Copy, KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucid
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/copy-text";
 import { cn } from "@/lib/utils";
 
 type PublicKey = { id: string; name: string; keyMasked: string; createdAt: number };
 type ServeModel = { id: string; name: string };
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
-
-/** Copy that also works over plain HTTP: navigator.clipboard is only available in
- *  a secure context (HTTPS / localhost), and this app is often served over HTTP on
- *  a LAN IP — there it's undefined, so fall back to the legacy execCommand path. */
-async function copyText(text: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    /* fall through to the legacy path */
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
 
 function Copyable({ value, className }: { value: string; className?: string }) {
   const [copied, setCopied] = useState(false);

@@ -2006,3 +2006,18 @@ Release v0.40.23 (frontend: badge GGUF/safetensors + toggle "Termasuk safetensor
 
 ### Fix lint pra-existing (2026-07-20 10:55 WIB)
 `npm run lint` gagal 1 error di `gateway-access.tsx:107` (`react-hooks/set-state-in-effect`) — WARISAN dari kerjaan gateway sebelumnya, bukan dari Fase A/B; sudah ikut ter-release 2x tanpa ketahuan karena CI/build tidak menjalankan lint. Diperbaiki pakai pola yang SUDAH dipakai di repo (`// eslint-disable-next-line ... -- alasan`, sama seperti di finetune-form.tsx). Sekarang lint exit 0.
+
+## DEPLOY v0.40.24: Fase A + B LIVE (2026-07-20 11:10 WIB)
+Release v0.40.24 ijo (FE+BE). Redeploy stack id=21 via Portainer API (PUT PullImage=true) -> 200 OK. Verifikasi: frontend up HTTP 307 (~4s); GPU NVIDIA GB10 kebaca (43C, 30/124,5 GB) -> TIDAK lepas setelah recreate; ollama + daftar model utuh; gateway :11435 HTTP 200.
+**Prasyarat Fase B terverifikasi sebelum deploy:** `gh api repos/RantAI-dev/RantAI-LLMOps/contents/trainers/unsloth-llm-train?ref=main` -> task.yaml + train.py ADA di main GitHub (itu yang di-clone TL saat job jalan). Jadi bukan asumsi.
+**Menunggu hasil uji user (3 uji, urut prioritas):**
+1. Fine-tune kecil (Qwen 0.5B + touch-rugby) -> cari baris log `⚙️ precision=BF16` = BUKTI fork trainer kita hidup & 4-bit mati.
+2. Panjang konteks maks=4096 -> artifact `training_summary.json` harus `max_seq_length: 4096`.
+3. Dataset id ngawur -> job WAJIB GAGAL (dulu: "sukses" pakai 3 baris touch-rugby palsu).
+**Kalau uji 1 gagal:** rollback murah = balikin 2 baris (TRAINER_GITHUB_URL + TRAINER_GITHUB_DIR ke upstream) -> release.
+
+### Fix UX field "Panjang konteks maks" (2026-07-20 11:30 WIB)
+**Lapor user:** field gak bisa diisi manual, panah cuma sampai 4352 (bukan 4096). **Akar:** aku set `min={256} step={512}` — HTML number input menghitung nilai sah dari `min`, jadi grid-nya 256+512n = 256,768,...,3840,4352; **2048/4096/8192 justru mustahil dicapai lewat panah**. Plus `onChange` pakai `Math.max(256, Number(v) || 2048)` -> field balik ke 2048 tiap dikosongkan, jadi ngetik manual mustahil.
+**Fix:** `step={256}` (grid 256+256n mencakup 2048/4096/8192) + clamp dipindah dari `onChange` ke `onBlur` (onChange cuma set angka mentah). tsc 0, lint 0.
+**Catatan:** 4352 SAH dipakai uji (max_seq_length gak harus pangkat dua; 4352 = 128x34, ramah kernel) — malah lebih meyakinkan sbg bukti karena angkanya khas, bukan default. Fix ini menumpang release berikutnya, tidak memblokir pengujian.
+**Pola serupa masih ada** di field numerik lain form ini (epochs, LoRA r/alpha, learning rate) — `Number(v) || fallback` di onChange bikin susah ngetik. Belum disentuh; tawarkan ke user kalau mengganggu.

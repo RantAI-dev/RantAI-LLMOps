@@ -363,12 +363,18 @@ export function FinetuneForm({
             </label>
             <label className="block">
               <span className="mb-1 block text-[13px] font-medium text-ink">Panjang konteks maks</span>
+              {/* step must divide evenly from `min`, or the browser's spinner skips
+                  the values people actually want (min 256 + step 512 made 2048/4096
+                  unreachable). Clamping happens on blur, not on change — clamping
+                  per keystroke snaps the field back the moment it's cleared, which
+                  makes typing a value by hand impossible. */}
               <Input
                 type="number"
                 min={256}
-                step={512}
+                step={256}
                 value={maxSeqLength}
-                onChange={(e) => setMaxSeqLength(Math.max(256, Number(e.target.value) || 2048))}
+                onChange={(e) => setMaxSeqLength(Number(e.target.value))}
+                onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : 2048))}
               />
               <span className="mt-1 block text-[11px] text-ink-soft">
                 Token per sampel (konteks + pertanyaan + jawaban). Yang lebih panjang{" "}
