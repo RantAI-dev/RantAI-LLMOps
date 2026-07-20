@@ -36,6 +36,9 @@ describe("assertDatasetRef", () => {
       "my-local-dataset",
       "/uidata/sft/train.jsonl",
       "./data/train.jsonl",
+      // Hidden directories are ordinary on Linux — the TL data volume is one.
+      "/root/.transformerlab/dryrun",
+      "/root/.cache/hf/train.jsonl",
       "s3://buku-korpus/sft/train.jsonl",
       "s3://buku-korpus/sft/", // prefix holding train.jsonl + eval.jsonl
       "https://minio.internal/sft/train.jsonl",
