@@ -1969,3 +1969,24 @@ User restart `ollama` + `rantai-backend` via Portainer. Cek `/api/compute/gpu-me
 - hub-page.tsx: deskripsi header disamain.
 **Catatan:** VL (image-text-to-text) tetap gak muncul di toggle safetensors krn searchHfTrainableModels paksa pipeline_tag=text-generation (bener, itu emang buat fine-tune teks) — hint arahin "cari versi GGUF-nya". Frontend-only, gak perlu rebuild backend.
 **Next:** user commit manual (`git add -A`) -> release -> recreate (pull FRONTEND aja).
+
+## DEPLOY v0.40.23: Hub format transparency LIVE (2026-07-18 19:50 WIB)
+Release v0.40.23 (frontend: badge GGUF/safetensors + toggle "Termasuk safetensors" + copy edukatif; backend gak berubah). Redeploy via Portainer API (Node script krn python3 gak ada di dev PC; stack id=21 endpoint=3, PUT StackFileContent+Env sama + PullImage=true) -> 200 OK. Verifikasi remote: frontend up HTTP 307 (~4s); GPU NVIDIA GB10 kebaca (util 0, 6.6/124.5GB, 39C, 5W -> GPU TETAP nyantol setelah recreate seluruh stack, gak balik CPU); serve/info ollama OK, model list utuh (VL+Apertus+Llama v3.5+touch-rugby), loaded=null (fresh).
+**Keamanan:** password Portainer lewat transcript chat LAGI -> user WAJIB rotate password Portainer.
+**User next:** hard-refresh (Ctrl+Shift+R) -> Hub -> Models: cek toggle "Termasuk safetensors" + badge format.
+
+## MERGE + FASE A: max_seq_length & max_steps configurable (2026-07-20 10:35 WIB)
+**Merge:** `feat/migrate-v0.40.0` -> `main` via fast-forward murni (`git fetch . feat:main`) — main leluhur feat, 0 commit menyimpang, tertinggal 54 commit. Dipilih FF tanpa pindah branch supaya working tree (AI_KNOWLEDGE_LOG.md + PDF Shiro) gak keinjak. main lokal = 18a14c4. **Remote (origin & nexusquantum) MASIH 0001256 — belum di-push.**
+**Konteks Fase A:** temuan audit trainer utk rencana Shiro — frontend mematok `max_seq_length: 2048` & default `max_steps: 60`, padahal trainer upstream SUDAH baca dua-duanya dari config. Sampel Shiro (konteks retrieval 1.000-2.000 token lebih) bakal kepotong senyap; max_steps positif juga MENIMPA num_train_epochs (semantik HF Trainer) -> "sukses" tapi kurang latih.
+**Perubahan (frontend-only, gak perlu rebuild backend):**
+- finetune.ts: `SubmitFinetuneParams` + `maxSeqLength?`; `max_seq_length: p.maxSeqLength ?? 2048`; `max_steps: p.maxSteps ?? 60` -> `?? -1` (ikut epochs).
+- finetune-form.tsx: state `maxSeqLength` (default 2048) + dikirim di handleSubmit; field baru "Panjang konteks maks" di Advanced (min 256, step 512, hint "dipotong diam-diam, RAG butuh 4096-8192"); default `maxSteps` 60 -> -1 + hint diperjelas; label toggle Advanced ditambah "panjang konteks".
+- submit/route.ts: TIDAK diubah (pass-through body -> SubmitFinetuneParams).
+**Verifikasi:** `tsc --noEmit` exit 0; `vitest src/lib/finetune.test.ts` 16/16 lulus.
+**Cara buktikan setelah deploy:** trainer menulis artifact `training_summary.json` yang MENCATAT `max_seq_length` -> submit job, cek artifact-nya.
+**Belum dikerjakan (Fase B):** `load_in_4bit=True` + `optim="adamw_8bit"` (bitsandbytes, risiko sm_121) & fallback dataset palsu — semua ada di train.py UPSTREAM (di-clone dari github transformerlab/transformerlab-app saat job jalan), jadi wajib ambil alih trainer ke `trainers/unsloth-llm-train/` di repo kita (public, jadi TL bisa clone) + ganti TRAINER_GITHUB_URL/DIR. Trainer HARUS ada di branch default (main) remote sebelum dipakai.
+
+### Koreksi (2026-07-20 10:45 WIB) — main SUDAH di-push
+`git push origin main` -> `0001256..18a14c4 main -> main` (fast-forward, 54 commit). **origin = https://github.com/RantAI-dev/RantAI-LLMOps** (yang dipakai). `nexusquantum` = https://github.com/NexusQuantum/NQRust-LLMOps (repo lama, SENGAJA tidak di-push).
+**Jebakan yang hampir kena:** working directory tool ke-reset ke `d:\Project\unsloth` (repo Unsloth, remote unslothai/unsloth) antar-giliran — `git remote -v` tanpa path sempat nunjukin remote yang SALAH. Mulai sekarang semua perintah git WAJIB pakai `git -C /d/Project/NQRust-LLMOps`.
+**Prasyarat Fase B sekarang TERPENUHI:** repo public + main remote sudah current, jadi TL bisa meng-clone `trainers/unsloth-llm-train/` begitu ditambahkan & di-push ke main.

@@ -461,8 +461,15 @@ export type SubmitFinetuneParams = {
   learningRate?: number;
   loraR?: number;
   loraAlpha?: number;
-  /** Cap on optimizer steps. The unsloth trainer honours this (-1 = unlimited). */
+  /** Cap on optimizer steps. The unsloth trainer honours this (-1 = unlimited).
+   *  A POSITIVE value overrides `epochs` entirely (HF Trainer semantics), so use
+   *  -1 for real runs and a small number only for quick smoke tests. */
   maxSteps?: number;
+  /** Token budget per training sample — context + prompt + answer. Anything longer
+   *  is silently TRUNCATED, so RAG-style datasets that embed retrieved passages in
+   *  the prompt must raise this well above the 2048 default (GB10's 128 GB unified
+   *  memory handles 4096–8192 comfortably for an 8B LoRA). */
+  maxSeqLength?: number;
   /** Optional HF token for gated models/datasets. */
   hfToken?: string;
   /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech. */
@@ -590,8 +597,10 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       batch_size: p.batchSize ?? 2,
       gradient_accumulation_steps: 4,
       warmup_steps: 5,
-      max_steps: p.maxSteps ?? 60,
-      max_seq_length: 2048,
+      // -1 = train the full `num_train_epochs`. A positive max_steps would silently
+      // override the epoch count, which reads as "trained" while stopping early.
+      max_steps: p.maxSteps ?? -1,
+      max_seq_length: p.maxSeqLength ?? 2048,
       lora_r: p.loraR ?? 16,
       lora_alpha: p.loraAlpha ?? 16,
       lora_dropout: 0.05,

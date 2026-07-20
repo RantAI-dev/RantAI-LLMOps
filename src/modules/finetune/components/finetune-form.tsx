@@ -47,7 +47,11 @@ export function FinetuneForm({
   const [loraR, setLoraR] = useState(8);
   const [loraAlpha, setLoraAlpha] = useState(16);
   const [learningRate, setLearningRate] = useState(0.0002);
-  const [maxSteps, setMaxSteps] = useState(60);
+  // -1 = ikut `epochs`. Angka positif MENIMPA epochs, jadi itu cuma untuk uji cepat.
+  const [maxSteps, setMaxSteps] = useState(-1);
+  // Token per sampel. Dataset gaya RAG (konteks retrieval ikut di prompt) gampang
+  // tembus 2048 — kelebihannya dipotong diam-diam, jadi ini wajib bisa dinaikkan.
+  const [maxSeqLength, setMaxSeqLength] = useState(2048);
   const [inputField, setInputField] = useState("question");
   const [outputField, setOutputField] = useState("answer");
   const [audioColumn, setAudioColumn] = useState("audio");
@@ -137,6 +141,7 @@ export function FinetuneForm({
       loraAlpha,
       learningRate,
       maxSteps,
+      maxSeqLength,
       ...(method === "grpo"
         ? { datasetInputField: inputField, datasetOutputField: outputField }
         : {}),
@@ -305,7 +310,7 @@ export function FinetuneForm({
         onClick={() => setShowAdvanced((v) => !v)}
         className="mt-3 text-[12px] font-medium text-ink-soft hover:text-ink"
       >
-        {showAdvanced ? "− Sembunyikan" : "+ Advanced"} (LoRA, learning rate, max steps)
+        {showAdvanced ? "− Sembunyikan" : "+ Advanced"} (LoRA, learning rate, max steps, panjang konteks)
       </button>
 
       {showAdvanced ? (
@@ -348,7 +353,23 @@ export function FinetuneForm({
                 onChange={(e) => setMaxSteps(Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 60)}
               />
               <span className="mt-1 block text-[11px] text-ink-soft">
-                Batas langkah training — <strong>override epochs</strong>. Set <code>-1</code> biar ikut epochs penuh.
+                <code>-1</code> (default) = ikut epochs penuh. Angka positif{" "}
+                <strong>menimpa epochs</strong> — cuma buat uji cepat.
+              </span>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">Panjang konteks maks</span>
+              <Input
+                type="number"
+                min={256}
+                step={512}
+                value={maxSeqLength}
+                onChange={(e) => setMaxSeqLength(Math.max(256, Number(e.target.value) || 2048))}
+              />
+              <span className="mt-1 block text-[11px] text-ink-soft">
+                Token per sampel (konteks + pertanyaan + jawaban). Yang lebih panjang{" "}
+                <strong>dipotong diam-diam</strong>. Dataset gaya RAG butuh <code>4096</code>–
+                <code>8192</code>.
               </span>
             </label>
           </div>
