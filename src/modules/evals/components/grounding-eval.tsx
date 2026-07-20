@@ -153,8 +153,10 @@ function Failures({ cases }: { cases: ScoredCase[] }) {
                   : c.modelRefused
                     ? "salah tolak"
                     : contentOk
-                      ? "sitasi hilang · isi benar"
-                      : "isi meleset";
+                      ? "sitasi hilang · isi cocok"
+                      : // Not "wrong": word overlap cannot judge correctness, and a
+                        // right answer phrased differently ("F = m × a") lands here.
+                        "isi beda · cek manual";
                 const tone = c.hallucinated
                   ? "bg-danger-soft text-danger"
                   : c.modelRefused

@@ -110,8 +110,15 @@ export function citesSource(reply: string, citation: string | null): boolean {
   if (!citation) return false;
   const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
   const haystack = norm(reply);
-  // "Buku IPA Kelas 3, Bab 2: Wujud Benda" → ["Buku IPA Kelas 3", "Bab 2: Wujud Benda"]
-  const parts = citation.split(",").map(norm).filter(Boolean);
+  // "Buku IPA Kelas 3, Bab 2: Wujud Benda" → require the book and the chapter
+  // NUMBER only. What follows the colon is the chapter's title, and a reply that
+  // says "(Sumber: Buku IPA Kelas 3, Bab 2)" has identified the source exactly.
+  // Demanding the title too scored a model that cited every single answer
+  // correctly as never citing at all.
+  const parts = citation
+    .split(",")
+    .map((part) => norm(part.split(":")[0]))
+    .filter(Boolean);
   return parts.every((part) => haystack.includes(part));
 }
 
@@ -141,11 +148,15 @@ function contentWords(text: string): Set<string> {
  */
 export function contentOverlap(actual: string, expected: string): number {
   const want = contentWords(expected);
-  if (want.size === 0) return 0;
   const got = contentWords(actual);
+  if (want.size === 0 || got.size === 0) return 0;
   let hit = 0;
   for (const w of want) if (got.has(w)) hit++;
-  return hit / want.size;
+  // Measured against the SMALLER set. A correct answer is often more concise
+  // than the ideal one ("Pencernaan dimulai dari mulut." against an ideal that
+  // also describes the teeth and saliva); dividing by the ideal's length
+  // punished brevity and made short-but-right answers look wrong.
+  return hit / Math.min(want.size, got.size);
 }
 
 export function scoreCase(example: EvalExample, actual: string): ScoredCase {

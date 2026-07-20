@@ -70,10 +70,17 @@ describe("citesSource", () => {
     }
   });
 
+  it("accepts the chapter number without its title", () => {
+    // What a model that cites well actually writes. Requiring the title too
+    // scored a perfectly-citing model as never citing.
+    expect(citesSource("Ada tiga. (Sumber: Buku IPA Kelas 3, Bab 2)", citation)).toBe(true);
+  });
+
   it("rejects a missing, partial or wrong source", () => {
     expect(citesSource("Ada tiga wujud benda.", citation)).toBe(false);
     expect(citesSource("Sumber: Buku IPA Kelas 3", citation)).toBe(false); // no chapter
-    expect(citesSource("Sumber: Buku IPA Kelas 5, Bab 2: Wujud Benda", citation)).toBe(false);
+    expect(citesSource("Sumber: Buku IPA Kelas 5, Bab 2", citation)).toBe(false); // wrong book
+    expect(citesSource("Sumber: Buku IPA Kelas 3, Bab 7", citation)).toBe(false); // wrong chapter
     expect(citesSource("apa pun", null)).toBe(false);
   });
 });
@@ -111,6 +118,15 @@ describe("contentOverlap", () => {
   it("is low when the answer is about something else", () => {
     const c = scoreCase(positif, "Presiden pertama Indonesia adalah Soekarno.");
     expect(c.contentOverlap).toBeLessThan(0.5);
+  });
+
+  it("does not punish a correct answer for being more concise than the ideal", () => {
+    const verbose: EvalExample = {
+      instruction: positif.instruction,
+      output: "Pencernaan makanan dimulai dari mulut. Di mulut, gigi mengunyah makanan dan air liur membantu melunakkannya.",
+    };
+    const c = scoreCase(verbose, "Pencernaan makanan dimulai dari mulut.");
+    expect(c.contentOverlap).toBeGreaterThanOrEqual(0.9);
   });
 
   it("ignores the citation itself so a missing source is not read as missing content", () => {
