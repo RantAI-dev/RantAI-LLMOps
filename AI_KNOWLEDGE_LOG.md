@@ -2148,3 +2148,14 @@ Model `rantai-dryrun-shiro` (0,5B, 10 langkah) diuji pada train.jsonl (46 soal) 
 **Untuk dibawa ke Shiro:** (a) prinsip pemisahan pengetahuan/perilaku terbukti; (b) ukuran model penting — argumen berbasis data untuk 8B; (c) prompt saja tidak cukup di model kecil (mengoreksi klaimku sendiri sebelumnya).
 **DEPLOY v0.40.29:** protokol dipatuhi — CI `completed/success` (07:50:22Z) + tag -> 1c3cd0d diverifikasi SEBELUM redeploy. PUT 200. Sehat: frontend 307 (~4s), GPU GB10 44C, gateway 200, endpoint baru `/api/evals/grounding` balas `{"runs":[]}` (riwayat masih kosong, wajar).
 **Berikutnya (paling menjawab): uji grounding eval pada 8B.** Kalau 8B menyitasi benar & tidak salah tolak -> masalahnya murni kapasitas model. Kalau 8B pun tidak menyitasi -> di situ SFT punya pekerjaan jelas, dengan angka sebagai bukti.
+
+## 🏆 HASIL 8B: grounding nyaris sempurna TANPA fine-tune — dan 2 bug di alatku (2026-07-20 15:05 WIB)
+**Hasil `Qwen-SEA-LION-v4-8B-VL:Q8_0` + prompt grounding, eval set sama:**
+Menolak dengan benar **100%** (10/10) · Ngarang **0%** · Salah tolak **0%** — dan konsisten di KETIGA jenjang (SD 13, SMP 14, SMA 19 soal).
+Bandingkan: 0.5B dasar 50%/50%/14%; 0.5B fine-tune 20%/80%/8%.
+**BUG-KU #1 (penting): "sitasi 0%" ternyata SALAH.** Model menulis `(Sumber: Buku IPA Kelas 3, Bab 2)` — benar — tapi `citesSource` menuntut JUDUL bab juga (`: Wujud Benda`), jadi model yang menyitasi SEMPURNA diskor tidak pernah menyitasi. **Aku sempat menyimpulkan "pengecek sitasiku tidak salah" saat menganalisis 0.5B — itu keliru.** Kasus 0.5B (yang memang tak pernah menyitasi) MENYEMBUNYIKAN bug ini. Pelajaran: metrik baru bisa dipercaya setelah ada yang LULUS.
+**FIX:** cocokkan buku + NOMOR bab saja (buang bagian setelah ":"), judul bab itu hiasan.
+**BUG-KU #2:** `contentOverlap` dibagi panjang jawaban ideal -> jawaban benar yang lebih RINGKAS dihukum ("Pencernaan dimulai dari mulut." = 44% -> dilabeli "isi meleset"). FIX: bagi dengan sisi yang lebih pendek; label diubah jadi "isi beda · cek manual" (bukan "meleset") karena tumpang tindih kata TIDAK bisa menetapkan kebenaran — "F = m × a" itu benar tapi 0% kesamaan kata.
+**IMPLIKASI BESAR UNTUK RENCANA SHIRO:** 8B + prompt ketat sudah mencapai grounding ~sempurna **tanpa SFT sama sekali**. Ini persis skenario yang "gerbang baseline" ada untuk menangkapnya — rencana Shiro menjadwalkan SFT sebagai kepastian, padahal datanya menunjukkan prompt saja mungkin cukup di 8B. SFT mungkin tinggal untuk memoles (mis. konsistensi format sitasi lengkap + register bahasa per jenjang), bukan untuk grounding.
+**CATATAN:** eval set masih kecil (10 negatif) dan sebagian soal berasal dari materi yang sama; perlu set lebih besar + soal yang belum pernah dilihat sebelum diklaim final.
+**Verifikasi fix:** tsc 0, lint 0, 20 test grounding (total 117), build 0.

@@ -95,6 +95,19 @@ export function parseCitation(instruction: string): string | null {
   return m ? m[1].trim() : null;
 }
 
+/**
+ * "… (Sumber: Buku IPA Kelas 3, Bab 2: Wujud Benda)" → the text inside.
+ *
+ * Preferred over the prompt's first `[...]` header: realistic retrieval puts
+ * SEVERAL passages in the context and the answer lives in only one of them, so
+ * the first header is frequently the wrong source to grade against. The ideal
+ * answer names the right one.
+ */
+export function parseExpectedCitation(output: string): string | null {
+  const m = /\(sumber:\s*([^)]+)\)/i.exec(output);
+  return m ? m[1].trim() : null;
+}
+
 /** "Jenjang siswa: SMP" → "SMP". */
 export function parseJenjang(instruction: string): string | null {
   const m = /Jenjang siswa:\s*([A-Za-z]+)/i.exec(instruction);
@@ -162,7 +175,8 @@ export function contentOverlap(actual: string, expected: string): number {
 export function scoreCase(example: EvalExample, actual: string): ScoredCase {
   const isNegative = looksLikeRefusal(example.output);
   const modelRefused = looksLikeRefusal(actual);
-  const citationExpected = parseCitation(example.instruction);
+  const citationExpected =
+    parseExpectedCitation(example.output) ?? parseCitation(example.instruction);
   return {
     instruction: example.instruction,
     expected: example.output,

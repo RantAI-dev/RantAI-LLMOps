@@ -58,6 +58,30 @@ describe("parseCitation / parseJenjang", () => {
   });
 });
 
+describe("grading against multi-passage context", () => {
+  // What real retrieval looks like: several passages, the answer in one of them.
+  const multi: EvalExample = {
+    instruction:
+      "[Buku Geografi Kelas 10, Bab 4: Dinamika Litosfer]\nLitosfer adalah lapisan kulit bumi.\n\n" +
+      "[Buku IPA Kelas 3, Bab 2: Wujud Benda]\nBenda punya tiga wujud.\n\n" +
+      "Jenjang siswa: SD\nPertanyaan siswa: Ada berapa wujud benda?",
+    output: "Ada tiga wujud benda. (Sumber: Buku IPA Kelas 3, Bab 2: Wujud Benda)",
+  };
+
+  it("grades against the source the ideal answer names, not the first header", () => {
+    const c = scoreCase(multi, "Ada tiga wujud benda. (Sumber: Buku IPA Kelas 3, Bab 2)");
+    // The first header is the Geografi passage; grading against it would have
+    // marked a perfectly cited answer wrong.
+    expect(c.citationExpected).toBe("Buku IPA Kelas 3, Bab 2: Wujud Benda");
+    expect(c.citationOk).toBe(true);
+  });
+
+  it("still catches a reply that cites the wrong passage from the context", () => {
+    const c = scoreCase(multi, "Ada tiga wujud benda. (Sumber: Buku Geografi Kelas 10, Bab 4)");
+    expect(c.citationOk).toBe(false);
+  });
+});
+
 describe("citesSource", () => {
   const citation = "Buku IPA Kelas 3, Bab 2: Wujud Benda";
 

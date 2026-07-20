@@ -1,21 +1,37 @@
 #!/usr/bin/env python3
-"""Bikin dataset uji-coba kering bergaya rencana Shiro.
+"""Bikin dataset SFT bergaya rencana Shiro.
 
-Bentuknya sengaja meniru dataset SFT asli nanti:
-  - kolom `instruction` / `output` (skema yang disepakati)
-  - `instruction` = kepala sitasi + potongan buku + pertanyaan siswa
-  - `output`      = jawaban ideal beserta sitasi
-  - ~20% contoh NEGATIF: konteksnya tidak memuat jawaban -> menolak dengan halus
+Bentuknya meniru dataset asli nanti:
+  - kolom `instruction` / `output`
+  - `instruction` = BEBERAPA potongan buku (masing-masing berkepala sitasi) +
+    pertanyaan siswa, meniru hasil retrieval yang mengembalikan banyak potongan
+    sementara jawabannya cuma ada di salah satunya
+  - `output`      = jawaban ideal beserta sitasi buku + bab yang BENAR
+  - ~20% contoh NEGATIF: tidak satu pun potongan memuat jawabannya -> menolak
   - register bahasa dibedakan per jenjang (SD / SMP / SMA)
 
-Menulis train.jsonl + eval.jsonl ke direktori keluaran (95/5), supaya jalur
-"direktori + split validation" di trainer ikut teruji.
+Dua mode pemakaian:
+
+  # kecil, buat mengecek pipeline
+  python3 gen-dryrun-dataset.py /path/out --rows 48 --chunks 1 1
+
+  # besar + konteks panjang, buat UJI INFRASTRUKTUR pada model 8B
+  python3 gen-dryrun-dataset.py /path/out --rows 1500
+
+PERINGATAN untuk --rows besar: pasangan tanya-jawabnya BERULANG (variasinya ada
+pada potongan pengecoh, urutannya, dan awalan pertanyaan — bukan pada isinya).
+Dataset ini untuk menguji apakah training MUAT, BERAPA LAMA, dan STABIL. Model
+hasil latihannya TIDAK boleh dinilai kualitasnya.
 """
+import argparse
 import json
 import os
-import sys
+import random
 
 TOLAK = "Maaf, informasi itu belum ada di materi yang tersedia."
+
+# Variasi permukaan supaya tiap baris tidak identik walau pasangan QA-nya sama.
+TANYA_AWALAN = ["", "Coba jelaskan, ", "Menurut materi, ", "Bu, mau tanya: ", "Aku masih bingung. "]
 
 P = [
     dict(
@@ -29,8 +45,7 @@ P = [
             "menjadi air, dan air yang dipanaskan terus-menerus akan menguap menjadi uap air."
         ),
         qa=[
-            ("Ada berapa wujud benda?",
-             "Ada tiga wujud benda, yaitu padat, cair, dan gas."),
+            ("Ada berapa wujud benda?", "Ada tiga wujud benda, yaitu padat, cair, dan gas."),
             ("Kenapa air bisa berubah bentuk kalau dipindah ke gelas lain?",
              "Karena air termasuk benda cair. Bentuk benda cair berubah mengikuti wadahnya, tetapi ukurannya tetap sama."),
             ("Apa yang terjadi kalau es dipanaskan?",
@@ -54,8 +69,7 @@ P = [
              "Pencernaan makanan dimulai dari mulut. Di mulut, gigi mengunyah makanan dan air liur membantu melunakkannya."),
             ("Di organ apa sari-sari makanan diserap?",
              "Sari-sari makanan diserap di usus halus, lalu diedarkan ke seluruh tubuh oleh darah."),
-            ("Apa fungsi air liur?",
-             "Air liur membantu melunakkan makanan di dalam mulut sehingga lebih mudah dicerna."),
+            ("Apa fungsi air liur?", "Air liur membantu melunakkan makanan di dalam mulut sehingga lebih mudah dicerna."),
             ("Ke mana sisa makanan yang tidak diserap?",
              "Sisa makanan yang tidak diserap masuk ke usus besar, kemudian dikeluarkan melalui anus."),
         ],
@@ -71,8 +85,7 @@ P = [
             "jatuh ke bawah menuju bumi."
         ),
         qa=[
-            ("Apa itu gaya?",
-             "Gaya adalah tarikan atau dorongan yang dapat menyebabkan benda bergerak."),
+            ("Apa itu gaya?", "Gaya adalah tarikan atau dorongan yang dapat menyebabkan benda bergerak."),
             ("Kenapa buah jatuh ke bawah?",
              "Karena ada gaya gravitasi. Gaya gravitasi menyebabkan benda jatuh ke bawah menuju bumi."),
             ("Gaya apa yang bekerja saat kita mengerem sepeda?",
@@ -114,14 +127,12 @@ P = [
         ),
         qa=[
             ("Bagaimana bunyi teorema Pythagoras?",
-             "Pada segitiga siku-siku, kuadrat panjang sisi miring sama dengan jumlah kuadrat panjang kedua sisi lainnya, "
-             "yaitu a kuadrat ditambah b kuadrat sama dengan c kuadrat."),
+             "Pada segitiga siku-siku, kuadrat panjang sisi miring sama dengan jumlah kuadrat panjang kedua sisi lainnya."),
             ("Apa itu hipotenusa?",
              "Hipotenusa adalah sebutan lain untuk sisi miring, dan merupakan sisi terpanjang pada segitiga siku-siku."),
             ("Apakah teorema Pythagoras berlaku untuk semua segitiga?",
              "Tidak. Teorema Pythagoras hanya berlaku pada segitiga siku-siku."),
-            ("Berikan contoh tripel Pythagoras.",
-             "Contohnya 3, 4, dan 5, karena 9 ditambah 16 sama dengan 25."),
+            ("Berikan contoh tripel Pythagoras.", "Contohnya 3, 4, dan 5, karena 9 ditambah 16 sama dengan 25."),
         ],
     ),
     dict(
@@ -162,8 +173,7 @@ P = [
             ("Apa saja ciri kebahasaan teks laporan hasil observasi?",
              "Ciri kebahasaannya antara lain penggunaan kata benda umum, kata kerja relasional seperti adalah dan "
              "merupakan, serta istilah teknis sesuai bidangnya."),
-            ("Apa isi bagian deskripsi manfaat?",
-             "Deskripsi manfaat menjelaskan kegunaan objek yang diamati."),
+            ("Apa isi bagian deskripsi manfaat?", "Deskripsi manfaat menjelaskan kegunaan objek yang diamati."),
             ("Apakah teks laporan hasil observasi boleh memihak?",
              "Tidak. Teks laporan hasil observasi bersifat objektif, faktual, dan ditulis secara tidak memihak."),
         ],
@@ -183,15 +193,13 @@ P = [
             ("Apa bunyi Hukum I Newton?",
              "Suatu benda akan tetap diam atau bergerak lurus beraturan apabila resultan gaya yang bekerja padanya "
              "sama dengan nol."),
-            ("Apa itu inersia?",
-             "Inersia atau kelembaman adalah sifat benda mempertahankan keadaan geraknya, sebagaimana dijelaskan pada "
-             "Hukum I Newton."),
+            ("Apa itu inersia?", "Inersia atau kelembaman adalah sifat benda mempertahankan keadaan geraknya."),
             ("Bagaimana rumus Hukum II Newton?",
              "Gaya sama dengan massa dikali percepatan. Percepatan sebanding dengan resultan gaya dan berbanding "
              "terbalik dengan massa benda."),
             ("Apa yang dimaksud gaya aksi dan reaksi?",
-             "Menurut Hukum III Newton, apabila suatu benda memberikan gaya pada benda lain, benda kedua memberikan "
-             "gaya yang besarnya sama tetapi arahnya berlawanan."),
+             "Apabila suatu benda memberikan gaya pada benda lain, benda kedua memberikan gaya yang besarnya sama "
+             "tetapi arahnya berlawanan."),
         ],
     ),
     dict(
@@ -229,8 +237,7 @@ P = [
             "pelapukan dan erosi."
         ),
         qa=[
-            ("Apa itu litosfer?",
-             "Litosfer adalah lapisan kulit bumi paling luar yang tersusun atas batuan."),
+            ("Apa itu litosfer?", "Litosfer adalah lapisan kulit bumi paling luar yang tersusun atas batuan."),
             ("Sebutkan tiga jenis batuan berdasarkan pembentukannya.",
              "Batuan beku, batuan sedimen, dan batuan metamorf."),
             ("Bagaimana batuan metamorf terbentuk?",
@@ -242,67 +249,85 @@ P = [
     ),
 ]
 
-# Pertanyaan yang JELAS di luar cakupan tiap potongan -> harus ditolak.
-# Ini komponen terpenting: tanpa contoh negatif, model tidak pernah belajar
-# mengatakan "tidak ada di materi".
-NEGATIF = [
-    (0, "Siapa presiden pertama Indonesia?"),
-    (1, "Berapa jumlah pemain dalam satu tim sepak bola?"),
-    (2, "Kapan Indonesia merdeka?"),
-    (3, "Bagaimana cara menghitung luas lingkaran?"),
-    (4, "Apa ibu kota negara Jepang?"),
-    (5, "Apa rumus kecepatan?"),
-    (6, "Siapa penemu bola lampu?"),
-    (7, "Apa nama planet terbesar di tata surya?"),
-    (8, "Bagaimana proses fotosintesis pada tumbuhan?"),
-    (9, "Siapa penulis novel Laskar Pelangi?"),
-]
+
+def potongan(p):
+    """Satu potongan hasil retrieval: kepala sitasi + isinya."""
+    return f"[{p['buku']}, {p['bab']}]\n{p['teks']}"
 
 
-def instruksi(p, pertanyaan):
+def instruksi(chunks, jenjang, tanya):
     return (
-        f"[{p['buku']}, {p['bab']}]\n"
-        f"{p['teks']}\n\n"
-        f"Jenjang siswa: {p['jenjang']}\n"
-        f"Pertanyaan siswa: {pertanyaan}"
+        "\n\n".join(potongan(c) for c in chunks)
+        + f"\n\nJenjang siswa: {jenjang}\nPertanyaan siswa: {tanya}"
     )
 
 
-def bangun():
+def bangun(rows, n_min, n_max, rasio_negatif, rng):
+    """Rakit `rows` contoh. Konteks tiap contoh berisi beberapa potongan: pada
+    contoh positif salah satunya memuat jawabannya (posisinya diacak, jadi
+    jawabannya tidak selalu di potongan pertama); pada negatif tidak satu pun."""
+    positif = [(p, q, a) for p in P for q, a in p["qa"]]
     baris = []
-    for p in P:
-        for tanya, jawab in p["qa"]:
-            baris.append({
-                "instruction": instruksi(p, tanya),
-                "output": f"{jawab} (Sumber: {p['buku']}, {p['bab']})",
-            })
-    for idx, tanya in NEGATIF:
-        baris.append({"instruction": instruksi(P[idx], tanya), "output": TOLAK})
+    while len(baris) < rows:
+        negatif = rng.random() < rasio_negatif
+        n = rng.randint(n_min, n_max)
+        sumber, tanya, jawab = positif[rng.randrange(len(positif))]
+        awalan = rng.choice(TANYA_AWALAN)
+        lain = [p for p in P if p["buku"] != sumber["buku"]]
+
+        if negatif:
+            # Pertanyaan berasal dari buku X, tapi tidak satu pun potongan dari X.
+            chunks = rng.sample(lain, min(n, len(lain)))
+            out = TOLAK
+        else:
+            chunks = [sumber] + rng.sample(lain, min(n - 1, len(lain)))
+            rng.shuffle(chunks)
+            out = f"{jawab} (Sumber: {sumber['buku']}, {sumber['bab']})"
+
+        baris.append({
+            "instruction": instruksi(chunks, sumber["jenjang"], awalan + tanya),
+            "output": out,
+        })
     return baris
 
 
 def main():
-    out_dir = sys.argv[1] if len(sys.argv) > 1 else "/root/dryrun"
-    os.makedirs(out_dir, exist_ok=True)
-    baris = bangun()
-
-    # Sebar contoh negatif merata, bukan menumpuk di ekor.
-    baris = [b for pair in zip(baris[: len(baris) // 2], baris[len(baris) // 2:]) for b in pair] + (
-        baris[len(baris) // 2 * 2:]
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    ap.add_argument("out_dir", nargs="?", default="/root/dryrun")
+    ap.add_argument("--rows", type=int, default=1500, help="jumlah baris total (default 1500)")
+    ap.add_argument("--chunks", type=int, nargs=2, metavar=("MIN", "MAX"), default=[5, 9],
+                    help="jumlah potongan per contoh (default 5 9 -> ~800-1600 token, "
+                         "sesuai rentang konteks retrieval di rencana Shiro)")
+    ap.add_argument("--negatif", type=float, default=0.2, help="porsi contoh negatif (default 0.2)")
+    ap.add_argument("--eval-split", type=float, default=0.05, help="porsi untuk eval.jsonl (default 0.05)")
+    ap.add_argument("--seed", type=int, default=42, help="benih acak, supaya hasilnya bisa diulang")
+    args = ap.parse_args()
 
-    potong = max(1, round(len(baris) * 0.05))
+    rng = random.Random(args.seed)
+    baris = bangun(args.rows, args.chunks[0], args.chunks[1], args.negatif, rng)
+    rng.shuffle(baris)
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    potong = max(1, round(len(baris) * args.eval_split))
     evalset, trainset = baris[:potong], baris[potong:]
 
     for nama, rows in (("train", trainset), ("eval", evalset)):
-        path = os.path.join(out_dir, f"{nama}.jsonl")
+        path = os.path.join(args.out_dir, f"{nama}.jsonl")
         with open(path, "w", encoding="utf-8") as f:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
         print(f"{path}: {len(rows)} baris")
 
-    negatif = sum(1 for b in baris if b["output"] == TOLAK)
-    print(f"total {len(baris)} contoh, {negatif} negatif ({negatif * 100 // len(baris)}%)")
+    neg = sum(1 for b in baris if b["output"] == TOLAK)
+    # ~4 karakter per token: perkiraan kasar, cukup untuk memilih max_seq_length.
+    panjang = [(len(b["instruction"]) + len(b["output"])) // 4 for b in baris]
+    print(f"total {len(baris)} contoh, {neg} negatif ({neg * 100 // len(baris)}%)")
+    print(f"panjang sampel: min ~{min(panjang)} token, rata-rata ~{sum(panjang) // len(panjang)} token, "
+          f"maks ~{max(panjang)} token")
+    print("CATATAN: pada --rows besar pasangan QA berulang. Dataset ini menguji kapasitas")
+    print("         & kestabilan training, BUKAN untuk menilai kualitas model hasilnya.")
 
 
 if __name__ == "__main__":
