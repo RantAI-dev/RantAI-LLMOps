@@ -2119,3 +2119,12 @@ Redeploy stack 21 (PullImage=true) -> 200 OK. Sehat: frontend 307 (~4s), GPU GB1
 **Status rencana Shiro dari sisi LLMOps:** P0 bersih; Fase A & B terbukti; jalur data Fase 3 terbukti end-to-end (dataset tak perlu ke HF); **Fase 4 kini ADA** (4 angka deterministik + rincian per jenjang + daftar kasus gagal).
 **Yang BELUM pernah dijalankan sungguhan:** (1) grounding eval belum sekali pun dijalankan pada model nyata — baru terbukti secara unit test + build; (2) jalur dataset `s3://` belum diuji (butuh MinIO); (3) baseline vs fine-tune belum diukur.
 **Langkah paling berharga berikutnya:** jalankan grounding eval 2x (model dasar + prompt vs model hasil fine-tune) -> selisihnya menjawab apakah SFT layak biayanya, pertanyaan yang selama ini cuma diasumsikan rencana Shiro.
+
+## HASIL EVAL GROUNDING PERTAMA + temuan (2026-07-20 14:25 WIB)
+Model `rantai-dryrun-shiro` (0,5B, 10 langkah) diuji pada train.jsonl (46 soal) DENGAN prompt grounding default:
+- Menolak dengan benar **20%** (2/10 negatif) · **Ngarang 80%** · Salah tolak 8% (3/36) · **Akurasi sitasi 0%**
+**Sesuai prediksi** -> alatnya bekerja: ia menolak memberi nilai bagus pada model yang memang belum belajar.
+**TEMUAN PENTING:** ngarang 80% terjadi PADAHAL prompt grounding aktif -> model 0,5B terlalu kecil untuk mematuhi instruksi grounding. Ini bukti empiris yang MENDUKUNG pilihan 8B di rencana Shiro, sekaligus MENGOREKSI klaimku sebelumnya ("prompt menyumbang 80% grounding") — klaim itu hanya berlaku kalau modelnya cukup besar. Perlu dibuktikan dgn membandingkan pada 8B.
+**Belum diverifikasi:** sitasi 0% belum dipastikan bukan akibat pengecek sitasi yang terlalu galak — user diminta membuka daftar kasus gagal utk konfirmasi. Jangan percaya metrik yang baru pertama dipakai.
+**Pertanyaan user + jawaban:** (1) Qwen 0.5B dasar tak ada di daftar krn daftar = model di OLLAMA, sedangkan base HF cuma dipakai saat training; utk baseline adil perlu tarik GGUF-nya (Hub atau `ollama pull qwen2.5:0.5b-instruct`). Membandingkan fine-tune 0,5B dgn SEA-LION 8B = apel vs jeruk. (2) SEA-LION 8B lambat krn Ollama memproses berurutan (worker pool 4 tak menolong) + **max_tokens 512 kepatok — salahku**.
+**Perbaikan:** default max_tokens 512 -> **192** dan diekspos di form (kalau jawaban terpotong, model akan diskor atas truncation — jadi harus bisa dinaikkan). tsc 0, lint 0, 112 test.
