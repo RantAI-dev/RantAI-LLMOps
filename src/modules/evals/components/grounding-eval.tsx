@@ -143,21 +143,39 @@ function Failures({ cases }: { cases: ScoredCase[] }) {
         <div className="mt-2 space-y-2">
           {failed.map((c, i) => (
             <div key={i} className="rounded-lg border border-border bg-background p-2.5 text-[12px]">
-              <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                <span
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase",
-                    c.hallucinated
-                      ? "bg-danger-soft text-danger"
-                      : c.modelRefused
-                        ? "bg-warning/15 text-warning"
-                        : "bg-surface-2 text-ink-soft"
-                  )}
-                >
-                  {c.hallucinated ? "ngarang" : c.modelRefused ? "salah tolak" : "sitasi salah"}
-                </span>
-                {c.jenjang ? <span className="text-[10px] text-ink-faint">{c.jenjang}</span> : null}
-              </div>
+              {/* "no citation" and "wrong answer" both land here, and they are very
+                  different problems — a right answer missing its source is a format
+                  gap, a wrong one is a grounding failure. The overlap tells them apart. */}
+              {(() => {
+                const contentOk = c.contentOverlap >= 0.5;
+                const label = c.hallucinated
+                  ? "ngarang"
+                  : c.modelRefused
+                    ? "salah tolak"
+                    : contentOk
+                      ? "sitasi hilang · isi benar"
+                      : "isi meleset";
+                const tone = c.hallucinated
+                  ? "bg-danger-soft text-danger"
+                  : c.modelRefused
+                    ? "bg-warning/15 text-warning"
+                    : contentOk
+                      ? "bg-surface-2 text-ink-soft"
+                      : "bg-danger-soft text-danger";
+                return (
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                    <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase", tone)}>
+                      {label}
+                    </span>
+                    {c.jenjang ? <span className="text-[10px] text-ink-faint">{c.jenjang}</span> : null}
+                    {!c.isNegative && !c.modelRefused ? (
+                      <span className="text-[10px] text-ink-faint">
+                        kemiripan isi {Math.round(c.contentOverlap * 100)}%
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })()}
               <p className="text-ink-soft">
                 <span className="font-medium text-ink">Pertanyaan:</span>{" "}
                 {c.instruction.split("Pertanyaan siswa:").pop()?.trim().slice(0, 200)}

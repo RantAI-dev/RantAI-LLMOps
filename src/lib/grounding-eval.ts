@@ -47,6 +47,11 @@ export type ScoredCase = {
   citationOk: boolean;
   /** The reply invented an answer the passage does not support. */
   hallucinated: boolean;
+  /** Rough lexical overlap with the ideal answer, 0..1 — a TRIAGE AID only.
+   *  Reading a failure list, "right answer with no citation" and "wrong answer"
+   *  look identical without it, and they are very different problems. It is not
+   *  reported as a headline number: shared words are not shared meaning. */
+  contentOverlap: number;
 };
 
 export type GroundingReport = {
@@ -110,6 +115,39 @@ export function citesSource(reply: string, citation: string | null): boolean {
   return parts.every((part) => haystack.includes(part));
 }
 
+/** Words too common to say anything about whether two answers agree. */
+const STOPWORDS = new Set([
+  "yang", "dan", "di", "ke", "dari", "itu", "ini", "adalah", "atau", "pada",
+  "dengan", "untuk", "dalam", "akan", "tidak", "juga", "sebagai", "oleh",
+  "karena", "bahwa", "dapat", "ada", "sumber", "buku", "bab", "kelas",
+]);
+
+function contentWords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      // Drop the citation so a missing source does not also look like missing content.
+      .replace(/\(sumber:[^)]*\)/g, " ")
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 3 && !STOPWORDS.has(w))
+  );
+}
+
+/**
+ * Rough lexical overlap with the ideal answer, 0..1. A triage aid for reading
+ * the failure list — NOT a correctness score. It answers "did the model say
+ * roughly the same thing", which is enough to tell a missing citation apart from
+ * a wrong answer, and nothing more.
+ */
+export function contentOverlap(actual: string, expected: string): number {
+  const want = contentWords(expected);
+  if (want.size === 0) return 0;
+  const got = contentWords(actual);
+  let hit = 0;
+  for (const w of want) if (got.has(w)) hit++;
+  return hit / want.size;
+}
+
 export function scoreCase(example: EvalExample, actual: string): ScoredCase {
   const isNegative = looksLikeRefusal(example.output);
   const modelRefused = looksLikeRefusal(actual);
@@ -127,6 +165,7 @@ export function scoreCase(example: EvalExample, actual: string): ScoredCase {
     // Answering a question the passage cannot support IS the hallucination we care
     // about — it is what puts a wrong fact in front of a child.
     hallucinated: isNegative && !modelRefused,
+    contentOverlap: isNegative ? 0 : contentOverlap(actual, example.output),
   };
 }
 

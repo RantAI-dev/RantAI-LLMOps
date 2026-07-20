@@ -100,6 +100,26 @@ describe("scoreCase", () => {
   });
 });
 
+describe("contentOverlap", () => {
+  it("is high when the answer says the same thing without the citation", () => {
+    const c = scoreCase(positif, "Ada tiga wujud benda.");
+    // The point of this number: tell "right answer, no source" apart from "wrong".
+    expect(c.citationOk).toBe(false);
+    expect(c.contentOverlap).toBeGreaterThanOrEqual(0.5);
+  });
+
+  it("is low when the answer is about something else", () => {
+    const c = scoreCase(positif, "Presiden pertama Indonesia adalah Soekarno.");
+    expect(c.contentOverlap).toBeLessThan(0.5);
+  });
+
+  it("ignores the citation itself so a missing source is not read as missing content", () => {
+    const withCite = scoreCase(positif, "Ada tiga wujud benda. (Sumber: Buku IPA Kelas 3, Bab 2: Wujud Benda)");
+    const without = scoreCase(positif, "Ada tiga wujud benda.");
+    expect(withCite.contentOverlap).toBeCloseTo(without.contentOverlap);
+  });
+});
+
 describe("buildReport", () => {
   it("computes the four rates", () => {
     const cases = [
