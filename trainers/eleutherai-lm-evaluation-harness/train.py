@@ -425,7 +425,7 @@ def run_evaluation():
                                         for r in filtered_resps
                                         if isinstance(r, (list, tuple)) and len(r) > 0
                                     ]
-                                    pred_idx = max(range(len(logprobs)), key=lambda i: logprobs[i]) if logprobs else None
+                                    pred_idx = logprobs.index(max(logprobs)) if logprobs else None
 
                                     pred_text = _choice_text(pred_idx)
                                     exp_text = _choice_text(target)
@@ -451,7 +451,7 @@ def run_evaluation():
                                         "metric_name": task_name,
                                         "score": sample.get("acc", 0.0),
                                         "input": question,
-                                        "output": predicted,
+                                        "output": output,
                                         "expected_output": expected,
                                     }
                                 )

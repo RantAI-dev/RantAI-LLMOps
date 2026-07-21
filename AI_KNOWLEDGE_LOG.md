@@ -2334,3 +2334,13 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **Verifikasi kali ini pakai bentuk ASLI:** arguments=dict + choices=dict -> "prediksi: nucleus with electrons around it / kunci: sama"; kasus tanpa doc.choices -> tetap dapat "yes"/"no" dari arguments; py_compile OK. Docstring deviasi #2 dikoreksi.
 **Deploy: TRAINER-ONLY -> cukup PUSH, tanpa rilis/Portainer.** Berlaku utk run BERIKUTNYA. Run lama (angka mentah / kosong) tetap.
 **Pelajaran (dipertegas):** simulasi HARUS pakai bentuk data nyata; kalau tak bisa memastikan bentuknya, buat kode degradasi anggun supaya asumsi salah = tanpa-regresi, bukan crash. Belum di-push (user yang push).
+
+## BUG trainer #3 (NameError) + cara uji yang benar (2026-07-21 06:10 WIB)
+**Konteks:** user push Fix B (perbaikan KeyError), TAPI belum rilis/Portainer (trainer-only, tak perlu). Run baru (d25790e1, 10% n=238, mulai 09:36:54 = 25 detik setelah push) TETAP kosong.
+**Akar (dari LOG server):** `NameError: name 'predicted' is not defined` di baris append. Saat memperbaiki KeyError aku mengganti nama variabel jadi `output`/`expected`/`question`, TAPI blok `samples_data.append` masih menyebut `predicted` -> undefined -> except -> berkas sampel gagal lagi. Inkonsistensi rename.
+**Kenapa lolos lagi:** py_compile TIDAK menangkap NameError (nama valid secara sintaks). Simulasiku me-REIMPLEMENTASI logika dgn nama variabel sendiri, jadi tak pernah menjalankan baris append yg salah. Uji yg tidak menjalankan kode nyata = tidak menguji apa-apa.
+**Perbaikan:** `"output": predicted` -> `"output": output`. Plus lambda `key=lambda i: logprobs[i]` -> `logprobs.index(max(logprobs))` (bebas-closure, lebih sederhana).
+**CARA UJI BARU (dipakai sekarang, jadi standar):** EKSTRAK blok parsing sample dari file (hitung kurung seimbang), BUNGKUS jadi fungsi sungguhan, `exec`, lalu PANGGIL dengan sample bentuk ASLI lm-eval. Menjalankan byte yang sama dengan produksi. Catatan: exec dgn dua namespace merusak closure/comprehension -> HARUS dibungkus fungsi (scope nyata), bukan exec locals terpisah.
+**Terbukti (kode asli, 4 kasus):** (1) arc asli dict+dict -> "nucleus with electrons"; (2) model salah -> pilih 'salah' kunci 'benar'; (3) tanpa doc.choices -> fallback arguments 'no'; (4) data rusak -> '' tanpa crash. `predicted` tersisa = 0.
+**Deploy: TRAINER-ONLY -> cukup PUSH, tanpa rilis.** Belum di-push (user yg push). Setelah push, jalankan eval BARU -> rincian per soal harus teks.
+**Pelajaran (ditegaskan, kali ke-3 pola sama dalam fitur ini):** "hijau"-nya py_compile + simulasi terpisah itu palsu. Untuk kode yg tak bisa di-import, ekstrak+bungkus+jalankan blok ASLI-nya. Jangan pernah lapor "terbukti" dari kode yang bukan kode yang akan berjalan.
