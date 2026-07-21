@@ -48,7 +48,15 @@ services:
     #
     # NOTE: this image is ~41 GB and cannot be built on a GitHub-hosted runner
     # (14 GB disk). Build it on the GPU host itself — see the header.
-    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend:latest}
+    #
+    # PINNED BY DIGEST — DO NOT change back to :latest.
+    # The backend carries Transformer Lab, whose DB schema lives in the tl_data
+    # volume. On 2026-07-21 a deploy pulled a newer :latest backend; the newer TL
+    # replaced the job/eval DB with a fresh (empty) schema and the job HISTORY was
+    # lost (no backup). Pinning the digest means a redeploy NEVER silently upgrades
+    # TL and migrates the DB. To intentionally move to a new backend: build+test it,
+    # then update this digest deliberately AND back up the tl_data volume first.
+    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend@sha256:d4c323c76cbe7caf4f8c7eecbf9f052ef389bf38bdd104c380563134cd49d4be}
     container_name: rantai-backend
     environment:
       - PYTHONUNBUFFERED=1
@@ -166,7 +174,7 @@ services:
   # TIER 2 (later): set GATEWAY_CONFIG_FILE to a JSON file on a shared volume that
   #   the Deployments UI writes — access then changes live, no restart.
   rantai-gateway:
-    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend:latest}
+    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend@sha256:d4c323c76cbe7caf4f8c7eecbf9f052ef389bf38bdd104c380563134cd49d4be}
     container_name: rantai-gateway
     entrypoint: ["python3", "/opt/rantai/gateway.py"]
     environment:
