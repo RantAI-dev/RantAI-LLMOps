@@ -58,12 +58,23 @@ function EngineCard({ engine }: { engine: EngineInfo }) {
             ) : null}
           </dd>
         </dl>
-      ) : (
+      ) : null}
+
+      {/* vLLM serves one model per instance by design — say so, so its fixed
+          model doesn't read as a limitation of this app. */}
+      {engine.configured && engine.id === "vllm" ? (
+        <p className="mt-2 text-[11px] leading-4 text-ink-faint">
+          vLLM melayani satu model per instance. Ganti model lewat{" "}
+          <span className="font-mono">VLLM_MODEL</span> (id Hugging Face atau path fine-tune) lalu deploy ulang.
+        </p>
+      ) : null}
+
+      {!engine.configured ? (
         <p className="mt-3 rounded-md bg-surface-2 px-2.5 py-1.5 text-[11px] text-ink-soft">
           Set <span className="font-mono">VLLM_BASE_URL</span> ke endpoint vLLM (mis.
           <span className="font-mono"> http://host:8001/v1</span>) untuk mengaktifkan, lalu deploy ulang.
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

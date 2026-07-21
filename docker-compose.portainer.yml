@@ -107,6 +107,53 @@ services:
     networks:
       - llmops
 
+  # ─── vLLM (second inference engine: safetensors, FULL PRECISION) ─────────────
+  # The peer to Ollama, managed by this stack the same way. Ollama serves many
+  # quantized (GGUF) models on demand; vLLM serves ONE model at full precision,
+  # chosen via VLLM_MODEL. Reached internally as `vllm:8000` (the frontend's
+  # VLLM_BASE_URL). Like Ollama, NO host port to the network — internal only.
+  #
+  # VLLM_MODEL can be either:
+  #   - a Hugging Face id (the default), pulled into the cache volume on first start; or
+  #   - a LOCAL path to a merged fine-tune, e.g.
+  #       /root/.transformerlab/rantai_merged/<name>
+  #     (tl_data is mounted read-only below so those are reachable). Whether a
+  #     given fine-tune loads depends on vLLM supporting its architecture.
+  # Changing the model = edit the env and redeploy this stack: vLLM has ONE model
+  # per instance by design and cannot hot-swap like Ollama.
+  vllm:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: rantai-vllm
+    ipc: host
+    entrypoint: ["vllm", "serve"]
+    command:
+      - ${VLLM_MODEL:-aisingapore/Qwen-SEA-LION-v4-8B-VL}
+      - --served-model-name
+      - ${VLLM_SERVED_NAME:-qwen-sea-lion-v4-8b}
+      - --gpu-memory-utilization
+      - "${VLLM_GPU_UTIL:-0.22}"
+      - --max-model-len
+      - "${VLLM_MAX_MODEL_LEN:-16384}"
+      - --trust-remote-code
+    environment:
+      - HF_HUB_ENABLE_HF_TRANSFER=0
+      - HF_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - vllm_hf_cache:/root/.cache/huggingface
+      # Read-only view of Transformer Lab's data so vLLM can serve a merged
+      # fine-tune by local path (see VLLM_MODEL above).
+      - tl_data:/root/.transformerlab:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - llmops
+
   # ─── Gateway (auth + model allowlist in front of Ollama) ─────────────────────
   # The ONLY LLM endpoint exposed to the network. Reuses the backend image purely
   # to run docker/backend/gateway.py (no volume, no install) — every request needs
@@ -219,6 +266,9 @@ volumes:
   # small disk.
   tl_data:
   ui_data:
+  # vLLM's Hugging Face cache — keeps the served model across restarts so it is
+  # not re-downloaded every time the container recreates.
+  vllm_hf_cache:
 
 networks:
   llmops:

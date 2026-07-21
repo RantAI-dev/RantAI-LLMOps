@@ -2391,3 +2391,38 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **SISA UNTUK GO-LIVE DI UI:** (1) user push Fase 1+2+3 code + bikin rilis; (2) deploy rilis KE Portainer + pastikan StackFileContent Portainer memuat baris VLLM_BASE_URL (kalau compose Portainer belum sinkron dgn repo, aku inject baris itu saat redeploy). Setelah frontend baru + env -> engine picker muncul di Interact, Deployments tampil vLLM "Aktif".
 **Catatan penting:** VLLM_BASE_URL = `http://vllm:8000/v1` (port DALAM container 8000, alias `vllm`), BUKAN 8002 (itu port host utk debug). Frontend & vllm satu network jadi pakai nama+port internal.
 **Reversibel:** `docker rm -f rantai-vllm` + hapus volume `rantai-vllm-hf` mengembalikan VRAM sepenuhnya.
+
+## FASE 3 GO-LIVE: v0.40.35 + VLLM_BASE_URL, vLLM aktif di UI (2026-07-21 11:35 WIB)
+**Verifikasi protokol:** CI v0.40.35 completed/success; tag fae9690=origin/main; ketiga fase (inference-engines.ts, engine-picker.tsx, engine-status.tsx, VLLM_BASE_URL di compose, chat route baca resolveEngine) dikonfirmasi ADA di tag.
+**Deploy:** compose Portainer BELUM punya VLLM_BASE_URL -> disisipkan otomatis setelah baris OLLAMA_BASE_URL (`VLLM_BASE_URL=http://vllm:8000/v1`), redeploy stack 21 PullImage. PUT 200.
+**BUKTI END-TO-END (bukan cuma kontainer hidup):**
+- `/api/serve/info` -> engines[]: Ollama available=True; **vLLM configured=True available=True model=qwen-sea-lion-v4-8b url=http://vllm:8000/v1** -> frontend BARU menjangkau container vLLM via nama jaringan.
+- `/api/chat` engine=vllm (jalur penuh UI): "Saya adalah model Qwen 3 VL, dilayani oleh engine Qwen 3 VL 8B Instruct" — 27 token, 15 tok/s, streaming+metrik. Model self-identify Qwen3-VL = presisi penuh, bukan GGUF.
+**STATUS: vLLM sebagai engine kedua HIDUP DI PRODUKSI.** Interact -> engine picker Ollama|vLLM muncul; Deployments -> panel engine tampil vLLM "Aktif".
+**Rencana vLLM (Fase 0-3) SELESAI SEMUA:** kelayakan terbukti, abstraksi engine, UI, instance permanen, wiring. User diajari cara tes UI.
+
+## FIX vLLM 400 konteks: max-model-len 8192 -> 16384 (2026-07-21 12:00 WIB)
+**Gejala (user):** chat vLLM lewat UI -> prompt agak panjang -> 400 "This model's maximum context length is 8192 tokens. However, you requested 8192 output tokens". "hi there" pendek lolos, "resep rendang" gagal.
+**Akar (diagnosis dari data, bukan tebakan):** frontend deploy pakai `CHAT_MAX_TOKENS=8192`; vLLM `--max-model-len 8192`. vLLM KETAT: output_tokens+prompt_tokens <= max_model_len. max_tokens=8192 -> sisa 0 utk prompt -> 400. Uji langsung: max_tokens=8192 ERROR, 4096/2048 OK. (Ollama toleran, makanya tak pernah kena.)
+**Perbaikan LIVE tanpa rilis kode:** recreate `rantai-vllm` dgn `--max-model-len 16384` (model dari VOLUME, tak unduh ulang, siap 195 dtk). Sekarang 8192 output + <=8192 prompt muat. gpu-util 0.22 tetap cukup (KV 8B @16384 ~2.4GB/seq).
+**TERBUKTI:** vLLM langsung max_tokens=8192 -> LOLOS (550 token resep rendang); jalur penuh /api/chat engine=vllm -> LOLOS tanpa error konteks.
+**UTANG TEKNIS (fix altitude, utk rilis berikutnya):** ini band-aid. Fix benar = di `/api/chat`, saat engine=vllm, CAP max_tokens berdasarkan (max_model_len - estimasi_prompt_token - margin), pakai env `VLLM_MAX_MODEL_LEN`. Kalau prompt > ~8192 token, 16384 pun bisa kena lagi. Belum dikerjakan; dicatat.
+
+## vLLM SELESAI & DIKONFIRMASI USER DI UI (2026-07-21 12:10 WIB)
+User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks setelah fix max-model-len 16384. Toggle Ollama|vLLM muncul, model qwen-sea-lion-v4-8b, respons + metrik (116 token, 14.4 tok/s).
+**RANGKUMAN akhir engine kedua (Fase 0-3, semua terbukti end-to-end):**
+- Fase 0: vLLM jalan di GB10 sm_121 (cu130-nightly).
+- Fase 1: abstraksi engine backend (inference-engines.ts, /api/chat + /api/serve/info baca engine).
+- Fase 2: UI (engine-status di Deployments, engine-picker di Interact muncul saat >=2 engine).
+- Fase 3: container permanen `rantai-vllm` (Qwen-SEA-LION-v4-8B-VL, gpu-util 0.22 ~28GB, volume cache, restart unless-stopped, network alias vllm), VLLM_BASE_URL=http://vllm:8000/v1 di compose, max-model-len 16384.
+**OPERASIONAL yg perlu diingat:** vLLM mereservasi ~28GB VRAM permanen di box bersama; matikan via `docker rm -f rantai-vllm` + hapus volume `rantai-vllm-hf`. Debug langsung: port host 8002. Model cache di volume (restart cepat).
+**UTANG TEKNIS terbuka (belum dikerjakan):** (1) cap max_tokens adaptif utk vLLM di /api/chat (fix altitude, ganti band-aid 16384); (2) alur "deploy fine-tune safetensors ke vLLM presisi penuh" (Fase 3 rencana awal menyebutnya, tapi user pilih serve Qwen SEA-LION langsung — belum ada UI untuk swap model vLLM ke hasil fine-tune).
+
+## vLLM SETARA: service resmi stack + model konfigurabel (2026-07-21 12:00 WIB)
+**Permintaan user:** Ollama & vLLM "setara", user pilih mana yg dipakai; kerjakan 2 langkah rapi (A: vLLM jadi warga stack; B: bisa serve fine-tune di vLLM).
+**Kejujuran batas arsitektur (disampaikan):** vLLM = SATU model per instance (by design), TAK bisa hot-swap seperti Ollama. Ganti model vLLM = redeploy. App tak punya docker socket -> tak bisa restart container dari UI, jadi "ganti model vLLM" = config+redeploy, BUKAN tombol sekali klik.
+**Langkah A (SELESAI) — `docker-compose.portainer.yml`:** tambah service `vllm` (image cu130-nightly; entrypoint ["vllm","serve"]; command pakai env; GPU reservation count:all seperti ollama; restart unless-stopped; network llmops -> alias otomatis `vllm`; ipc host; volume `vllm_hf_cache` + `tl_data:/root/.transformerlab:ro`). Volume `vllm_hf_cache` didaftarkan. Frontend VLLM_BASE_URL default http://vllm:8000/v1 (sudah dari Fase 3).
+**Langkah B (SELESAI, level config) — model konfigurabel:** `VLLM_MODEL` (default Qwen HF id, ATAU path lokal fine-tune), `VLLM_SERVED_NAME`, `VLLM_GPU_UTIL` (0.22), `VLLM_MAX_MODEL_LEN` (16384). tl_data di-mount RO -> merged fine-tune (`/root/.transformerlab/rantai_merged/<name>`, terkonfirmasi ada: eval-apertus-sea-lion-v4-8b-it-train8b + 3 lain, 20GB) BISA disajikan vLLM. `.env.example` didokumentasikan. UI engine-status: baris petunjuk khusus vLLM ("satu model per instance, ganti via VLLM_MODEL + deploy ulang").
+**BATAS JUJUR belum terpecahkan:** (1) tombol UI sekali-klik "deploy fine-tune ke vLLM" perlu kontrol container dari app (docker socket / sidecar-manager) -> proyek infra terpisah, BELUM ada; (2) apakah fine-tune Apertus (xIELU) benar-benar LOAD di vLLM BELUM diuji (Qwen-based kemungkinan ok; Apertus arch niche, perlu gate seperti Fase 3).
+**Verifikasi:** YAML compose valid (python yaml, service vllm lengkap), tsc 0, eslint 0, 139 test, build sukses.
+**DEPLOY PLAN (beda dari biasanya):** redeploy HARUS mengganti StackFileContent Portainer dgn compose REPO yg baru (bukan re-send stored) SUPAYA service vllm masuk stack; DAN hapus container standalone `rantai-vllm` (yg kubuat manual Fase 3) dulu agar tak bentrok nama/port. Belum di-commit/push (user yg push).
