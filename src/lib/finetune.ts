@@ -894,6 +894,35 @@ export async function stopTrainingJob(jobId: string): Promise<boolean> {
   }
 }
 
+/**
+ * Force-stop a training job's process tree if SIGTERM did not take within a
+ * grace period.
+ *
+ * TL's stop sends only SIGTERM, which a training loop sitting deep in CUDA
+ * kernels can defer for many steps — so pressing Stop can hang while the run
+ * keeps stepping. After the grace period this SIGKILLs the job's processes. It
+ * is a no-op if SIGTERM already stopped them (`ps` finds nothing), so it is safe
+ * to always run — no "is it still running" check is needed.
+ *
+ * The kill matches the job's venv path. That pattern is built from `$1` at run
+ * time, so it never appears literally in this escalation shell's own argv (which
+ * carries the jobId only as a trailing arg) — the escalation cannot match, and
+ * therefore cannot kill, itself. `grep -v grep` drops the grep process too.
+ */
+export async function hardStopAfterGrace(jobId: string, graceSeconds = 15): Promise<void> {
+  try {
+    assertJobId(jobId); // defence-in-depth; runHostScript also isolates args via argv
+    await runHostScript(
+      `sleep ${graceSeconds}; ` +
+        `ps -eo pid,args 2>/dev/null | grep "$1/workspace/venv" | grep -v grep | ` +
+        `awk '{print $1}' | xargs -r kill -9 2>/dev/null || true`,
+      [jobId]
+    );
+  } catch {
+    /* best-effort — the SIGTERM stop already went through */
+  }
+}
+
 /** Delete a training job record. Returns whether TL accepted it. (v0.40.0: DELETE method.) */
 export async function deleteTrainingJob(jobId: string): Promise<boolean> {
   try {

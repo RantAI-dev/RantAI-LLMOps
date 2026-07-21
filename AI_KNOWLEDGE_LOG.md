@@ -2469,3 +2469,11 @@ User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks 
 **BELUM DIVERIFIKASI end-to-end:** apakah `device_map={"":0}` benar-benar bikin Gemma-9B latih SAAT vLLM nyala -> perlu 1 run uji setelah user push. Kalau device_map malah bentrok dgn Unsloth, fallback = matikan vLLM saat fine-tune (workaround terbukti).
 **Catatan kualitas (belum ditindak):** loss 0.019 SANGAT rendah -> dugaan overfitting/hafalan (dataset train8b "QA berulang"). Perlu grounding eval pada model Gemma ini utk validasi.
 **DUA fix trainer siap push (trainer-only, tanpa rilis):** (1) exit non-zero saat gagal (COMPLETE-palsu), (2) device_map single-GPU.
+
+## Tombol Stop fine-tune: eskalasi SIGTERM -> SIGKILL (2026-07-21 15:15 WIB)
+**Masalah (user alami):** klik Stop -> badge STOPPING lama, steps MALAH nambah (18->32). Akar: TL `stop_cluster`/`cancel_job` (backend, DIPIN) cuma kirim SIGTERM; training dalam kernel CUDA menunda/mengabaikan sinyal antar-langkah. Aku SIGKILL manual (kill -9 pohon proses 307369/307368/307361) -> berhenti, GPU 73.7->47.4GB, status STOPPED (bukan gagal).
+**FIX (sisi app, karena backend TL dipin tak boleh diubah):**
+- `src/lib/finetune.ts` BARU `hardStopAfterGrace(jobId, graceSeconds=15)`: via `runHostScript` (sidecar di container backend) -> `sleep 15; ps -eo pid,args | grep "$1/workspace/venv" | grep -v grep | awk '{print $1}' | xargs -r kill -9 || true`. Idempotent (no-op kalau SIGTERM sudah berhasil). `assertJobId` defence-in-depth.
+- Route stop `POST /api/finetune/jobs/[id]/stop`: setelah `stopTrainingJob` (SIGTERM), fire-and-forget `void hardStopAfterGrace(id)` -> tombol responsif, eskalasi jalan di background (Node server persisten).
+**KEAMANAN pola (diuji):** pola bunuh dibangun dari `$1` saat runtime -> TIDAK muncul literal di argv skrip eskalasi -> tak bunuh diri sendiri; `grep -v grep` buang proses grep. Uji simulasi ps: hanya proses venv training kena, bukan escalation/grep. Tools grep/awk/xargs/pkill terkonfirmasi ADA & jalan di backend; perintah asli jalan clean EXIT=0.
+**Verifikasi:** tsc 0, eslint 0, 16 test finetune, build. Deploy: FRONTEND -> push+rilis+Portainer (pin backend bikin ini aman). Belum di-commit/push.
