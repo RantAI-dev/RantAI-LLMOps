@@ -2313,3 +2313,24 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **Verifikasi:** tsc 0, eslint 0, 133 test, build sukses.
 **CATATAN DEPLOY: ini perubahan FRONTEND** (beda dgn perbaikan trainer teks-jawaban yg trainer-only). Jadi perlu: push -> rilis -> update Portainer. Trainer fix (deviasi #2) juga masih menunggu push. Keduanya belum di-push (user yang push).
 **Pelajaran:** "bikin lebih lengkap/visual" != "tambah sebanyak mungkin". Aku menambah lapisan agregasi yang tak diminta dan itu mengaburkan yang sederhana. Lain kali: penuhi model mental user dulu, tawarkan agregasi sebagai opsi terpisah, jangan suntik diam-diam.
+
+## Deploy v0.40.34: UX bersih + trainer teks-jawaban (2026-07-20 22:10 WIB)
+**Verifikasi protokol:** CI `v0.40.34 completed/success 01:45:22Z`; tag `8175b5c` = origin/main HEAD; dicek isi tag: `model-profile.tsx` SUDAH TIDAK ADA, `evals-page.tsx` 0 kemunculan ModelProfile, trainer `_option_text` (deviasi #2) ada.
+**Deploy:** stack 21, compose tidak diubah, PullImage:true. PUT 200 (via background task, hindari timeout 5 menit seperti sebelumnya).
+**Verifikasi image baru (BUKAN cuma "kontainer hidup"):** grep HTML tidak konklusif karena Evals dirender sisi-klien. Dipakai sinyal OTORITATIF: `GET /api/endpoints/3/docker/containers/json` -> `rantai-frontend` & `rantai-backend` keduanya "dibuat 0 menit lalu · running" = image `:latest` baru ditarik & kontainer dibuat ulang. Terkonfirmasi.
+**Konsekuensi ganda dari rilis ini:**
+1. FRONTEND: Profil model hilang, Single run = form+riwayat, Compare = scoreboard saja. Live sekarang setelah update Portainer ini.
+2. TRAINER: teks jawaban terbaca — tapi ini baru berlaku untuk run eval BERIKUTNYA (TL clone train.py dari main saat job). Run lama artifact-nya tetap angka mentah.
+**Untuk membuktikan trainer fix bekerja end-to-end:** jalankan 1 eval baru (mis. arc_easy 10%) -> buka "Rincian per soal" -> harus tampil teks jawaban, bukan "-20.5"/"3". Belum diuji ke server sungguhan (butuh run baru).
+
+## BUG trainer #2 diperbaiki: KeyError bikin run baru KOSONG (2026-07-21 05:35 WIB)
+**Gejala:** run eval BARU (0875175d, 09:23 WIB, sudah pakai v0.40.34) -> "Rincian per soal" KOSONG (`{"samples":[]}`), padahal run lama punya 119 sampel.
+**Akar (dari LOG server, bukan tebakan):** `KeyError: 0` di `_option_text`: `arguments[i]`. lm-eval 0.4.7 menyimpan `arguments` sebagai **DICT** (`{"gen_args_0":{"arg_0":ctx,"arg_1":opsi},...}`), BUKAN list seperti asumsiku. `len(dict)`=jumlah, `0<=0<n` true, lalu `dict[0]` -> KeyError -> lolos dari try/except `_option_text` (cuma tangkap ValueError/TypeError) -> naik ke `except Exception` blok samples -> SELURUH berkas sampel gagal tersimpan -> kosong. REGRESI dari perilaku lama.
+**Kenapa lolos verifikasiku:** py_compile + simulasi TAPI simulasi pakai LIST, bukan dict. Simulasi dgn bentuk salah = rasa aman palsu.
+**Perbaikan (train.py, trainer-only):**
+1. BASELINE dulu (perilaku lama: angka mentah) SELALU dihitung -> `output`/`expected`/`question` pasti terisi.
+2. Enrichment teks-terbaca di ATASNYA, dibungkus `try/except Exception` -> kalau bentuk data mengejutkan, jatuh balik ke mentah PER SAMPEL, TIDAK PERNAH menggagalkan berkas.
+3. Sumber teks: utamakan `doc["choices"]` (arc: `{"text","label"}`; task lain: list str); fallback normalisasi `arguments` (dict-values -> `arg_1`, atau list -> elemen[1]).
+**Verifikasi kali ini pakai bentuk ASLI:** arguments=dict + choices=dict -> "prediksi: nucleus with electrons around it / kunci: sama"; kasus tanpa doc.choices -> tetap dapat "yes"/"no" dari arguments; py_compile OK. Docstring deviasi #2 dikoreksi.
+**Deploy: TRAINER-ONLY -> cukup PUSH, tanpa rilis/Portainer.** Berlaku utk run BERIKUTNYA. Run lama (angka mentah / kosong) tetap.
+**Pelajaran (dipertegas):** simulasi HARUS pakai bentuk data nyata; kalau tak bisa memastikan bentuknya, buat kode degradasi anggun supaya asumsi salah = tanpa-regresi, bukan crash. Belum di-push (user yang push).

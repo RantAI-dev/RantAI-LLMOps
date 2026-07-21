@@ -15,9 +15,12 @@ deliberately close to upstream so it stays diffable; the deviations are:
   2. The per-sample artifact stores the READABLE option text the model picked
      and the correct one, not the raw log-likelihood and gold index. Upstream
      wrote "-20.5" as the answer and "3" as the expected value, which is
-     meaningless to anyone reading the breakdown. The option text is read from
-     each sample's `arguments` (i-th = (context, option_text)) so it works
-     across benchmarks whose `doc` shapes differ.
+     meaningless to anyone reading the breakdown. Option text comes from the
+     processed doc's choice list where present (arc stores {"text","label"}),
+     falling back to each sample's `arguments` (a dict keyed "gen_args_N", each
+     value {"arg_0": context, "arg_1": option}). The enrichment is best-effort
+     and wrapped: any unexpected shape falls back to the raw values for that one
+     sample rather than aborting the whole samples file.
 
 This script demonstrates:
 - Using lab.get_config() to read parameters from task configuration
@@ -344,55 +347,28 @@ def run_evaluation():
 
                                 # Extract relevant fields for eval DataFrame
                                 doc = sample.get("doc", {})
-
-                                # These are multiple-choice tasks, so lm-eval scores
-                                # each option by log-likelihood. filtered_resps is one
-                                # [logprob, is_greedy] per option; `target` is the index
-                                # of the correct one. The RAW values are a logprob and an
-                                # index — meaningless to a human ("-20.5" / "3"). The
-                                # readable text of each option lives in `arguments`, whose
-                                # i-th entry is (context, option_text); reading it there
-                                # rather than from `doc` keeps this working across
-                                # benchmarks whose doc shapes all differ (arc/piqa/boolq…).
                                 filtered_resps = sample.get("filtered_resps", [])
-                                arguments = sample.get("arguments", [])
-
-                                def _option_text(idx):
-                                    try:
-                                        i = int(idx)
-                                    except (ValueError, TypeError):
-                                        return ""
-                                    arg = arguments[i] if 0 <= i < len(arguments) else None
-                                    if isinstance(arg, (list, tuple)) and len(arg) > 1:
-                                        return str(arg[1]).strip()
-                                    return ""
-
-                                # The model's pick = the option with the highest
-                                # log-likelihood (this is what `acc` scores).
-                                pred_idx = None
-                                try:
-                                    logprobs = [
-                                        float(r[0])
-                                        for r in filtered_resps
-                                        if isinstance(r, (list, tuple)) and len(r) > 0
-                                    ]
-                                    if logprobs:
-                                        pred_idx = max(range(len(logprobs)), key=lambda i: logprobs[i])
-                                except (ValueError, TypeError):
-                                    pred_idx = None
-
                                 target = sample.get("target", "")
-                                # Prefer readable option text; fall back to the raw value
-                                # so a task that stores options differently still shows
-                                # SOMETHING rather than an empty cell.
-                                predicted = _option_text(pred_idx)
-                                if not predicted and filtered_resps:
-                                    first = filtered_resps[0]
-                                    predicted = str(first[0]) if isinstance(first, (list, tuple)) and first else ""
-                                expected = _option_text(target) or str(target)
 
-                                # The question: doc keys vary by task, so fall back to the
-                                # shared context (same for every option) from arguments.
+                                # BASELINE (never fails): the raw values upstream stored —
+                                # a log-likelihood as the "answer" and the gold INDEX as
+                                # "expected". Meaningless to a human, but always available,
+                                # so the readable version below can enrich ON TOP and fall
+                                # back here if anything about the sample's shape surprises
+                                # us. An earlier attempt read `arguments` assuming it was a
+                                # list; lm-eval logs it as a dict, the KeyError escaped, and
+                                # it took the WHOLE samples file down with it. Never again:
+                                # the enrichment is wrapped so one odd sample cannot.
+                                output = ""
+                                if filtered_resps:
+                                    for resp in filtered_resps:
+                                        if isinstance(resp, (list, tuple)) and len(resp) >= 2 and resp[1] is True:
+                                            output = str(resp[0])
+                                            break
+                                    if not output:
+                                        first = filtered_resps[0]
+                                        output = str(first[0]) if isinstance(first, (list, tuple)) and first else ""
+                                expected = str(target)
                                 question = ""
                                 if isinstance(doc, dict):
                                     for key in ("question", "goal", "sentence", "ctx", "query", "premise"):
@@ -400,12 +376,74 @@ def run_evaluation():
                                         if isinstance(val, str) and val.strip():
                                             question = val.strip()
                                             break
-                                if not question and arguments:
-                                    first = arguments[0]
-                                    if isinstance(first, (list, tuple)) and first:
-                                        question = str(first[0]).strip()
                                 if not question:
                                     question = str(doc)
+
+                                # READABLE enrichment (best-effort). Multiple-choice tasks
+                                # score each option by log-likelihood; the model's pick is
+                                # the option with the highest one. We turn the pick and the
+                                # gold index into their option TEXT. `arguments` is normalised
+                                # first because lm-eval logs it as a dict keyed "gen_args_N",
+                                # each value {"arg_0": context, "arg_1": option}, though older
+                                # builds used a list of (context, option) tuples.
+                                try:
+                                    if isinstance(arguments := sample.get("arguments"), dict):
+                                        arg_items = list(arguments.values())
+                                    elif isinstance(arguments, (list, tuple)):
+                                        arg_items = list(arguments)
+                                    else:
+                                        arg_items = []
+
+                                    def _continuation(item):
+                                        if isinstance(item, dict):
+                                            return str(item.get("arg_1", item.get("continuation", ""))).strip()
+                                        if isinstance(item, (list, tuple)) and len(item) > 1:
+                                            return str(item[1]).strip()
+                                        return ""
+
+                                    # Prefer the option list off the processed doc — the most
+                                    # reliable source across tasks. arc stores it as
+                                    # {"text": [...], "label": [...]}; others as a plain list.
+                                    choices = []
+                                    doc_choices = doc.get("choices") if isinstance(doc, dict) else None
+                                    if isinstance(doc_choices, dict) and isinstance(doc_choices.get("text"), list):
+                                        choices = [str(c).strip() for c in doc_choices["text"]]
+                                    elif isinstance(doc_choices, list) and all(isinstance(c, str) for c in doc_choices):
+                                        choices = [c.strip() for c in doc_choices]
+                                    if not choices:
+                                        choices = [_continuation(it) for it in arg_items]
+
+                                    def _choice_text(idx):
+                                        try:
+                                            i = int(idx)
+                                        except (ValueError, TypeError):
+                                            return ""
+                                        return choices[i] if 0 <= i < len(choices) else ""
+
+                                    logprobs = [
+                                        float(r[0])
+                                        for r in filtered_resps
+                                        if isinstance(r, (list, tuple)) and len(r) > 0
+                                    ]
+                                    pred_idx = max(range(len(logprobs)), key=lambda i: logprobs[i]) if logprobs else None
+
+                                    pred_text = _choice_text(pred_idx)
+                                    exp_text = _choice_text(target)
+                                    if pred_text:
+                                        output = pred_text
+                                    if exp_text:
+                                        expected = exp_text
+                                    # The shared context also carries the question for tasks
+                                    # whose doc lacks a plain field.
+                                    if question == str(doc) and arg_items:
+                                        ctx = arg_items[0]
+                                        ctx_text = ctx.get("arg_0", "") if isinstance(ctx, dict) else (
+                                            ctx[0] if isinstance(ctx, (list, tuple)) and ctx else ""
+                                        )
+                                        if str(ctx_text).strip():
+                                            question = str(ctx_text).strip()
+                                except Exception as enrich_err:  # noqa: BLE001 — never lose the file
+                                    lab.log(f"⚠️  Sampel {sample.get('doc_id', '?')}: pakai nilai mentah ({enrich_err})")
 
                                 samples_data.append(
                                     {
