@@ -159,6 +159,11 @@ services:
       # team (TL resolves it server-side), which is what a fresh install wants.
       - INFERENCE_TEAM_ID=${INFERENCE_TEAM_ID:-}
       - OLLAMA_BASE_URL=http://ollama:11434
+      # Optional second engine: a permanent vLLM service (safetensors, full
+      # precision) reachable by its network alias `vllm`. Leave unset to keep the
+      # Serve UI showing vLLM as "not configured" (never an error). See the
+      # standalone `rantai-vllm` container serving Qwen-SEA-LION-v4-8B.
+      - VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}
       # GPU widget reads nvidia-smi from the backend's sidecar (the frontend has
       # no GPU). Points at the backend service on the sidecar port (see
       # docker/backend/gpu-server.py).

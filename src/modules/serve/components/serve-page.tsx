@@ -1,5 +1,6 @@
 "use client";
 
+import { EngineStatus } from "@/modules/serve/components/engine-status";
 import { GatewayAccess } from "@/modules/serve/components/gateway-access";
 
 /**
@@ -20,6 +21,7 @@ export function ServePage() {
         </p>
       </div>
 
+      <EngineStatus />
       <GatewayAccess />
     </div>
   );

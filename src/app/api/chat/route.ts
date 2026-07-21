@@ -1,8 +1,8 @@
 import type { NextRequest } from "next/server";
 
-import { INFERENCE_MODEL, INFERENCE_STREAM } from "@/lib/inference";
+import { INFERENCE_STREAM } from "@/lib/inference";
+import { resolveChatModel, resolveEngine } from "@/lib/inference-engines";
 import { logInference } from "@/lib/inference-log-store";
-import { OLLAMA_V1, loadedOllamaModel } from "@/lib/ollama";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +16,8 @@ const DEFAULT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS) || 4096;
 type ChatBody = {
   messages?: Array<{ role: string; content: string }>;
   model?: string;
+  /** Which engine to serve from ("ollama" | "vllm"); defaults to Ollama. */
+  engine?: string;
   temperature?: number;
   max_tokens?: number;
   frequency_penalty?: number;
@@ -23,14 +25,14 @@ type ChatBody = {
 };
 
 /**
- * Backend-for-Frontend chat proxy. The Interact UI POSTs `{ messages, model? }`
- * here; we forward to Ollama's OpenAI-compatible `/v1/chat/completions` and pipe
- * the SSE stream straight back to the browser.
+ * Backend-for-Frontend chat proxy. The Interact UI POSTs `{ messages, model?,
+ * engine? }` here; we forward to the selected engine's OpenAI-compatible
+ * `/v1/chat/completions` and pipe the SSE stream straight back to the browser.
  *
  * v0.40.0 note: Transformer Lab no longer serves inference itself (no `/v1`), so
- * the chat engine is Ollama (run on the host). It serves every pulled model at
- * once, so the model name comes from the client's selection (`body.model`),
- * falling back to whatever is hot in VRAM.
+ * inference goes to an external engine — Ollama (default) or vLLM. Both speak
+ * `/v1`, so only the base URL, headers, and model resolution differ; the stream
+ * tap below is engine-agnostic.
  */
 export async function POST(req: NextRequest) {
   let body: ChatBody;
@@ -45,17 +47,23 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "`messages` array is required" }, { status: 400 });
   }
 
-  // Ollama serves all pulled models simultaneously, so the model name is the
-  // client's selection. Fall back to whatever is hot in VRAM, then the env
-  // default. (No HTTP-403 "wrong model" trap like TL's single-worker model.)
-  const model = body.model || (await loadedOllamaModel()) || INFERENCE_MODEL || "default";
+  // Pick the engine (default Ollama) and its model. A named-but-unconfigured
+  // engine (vLLM before deployment) is a clear 400, not a connection error.
+  const engine = resolveEngine(body.engine);
+  if (!engine.configured) {
+    return Response.json(
+      { error: `Engine ${engine.label} belum dikonfigurasi (VLLM_BASE_URL belum diset).` },
+      { status: 400 }
+    );
+  }
+  const model = await resolveChatModel(engine, body.model);
   // Request-send time — the anchor for time-to-first-token.
   const t0 = Date.now();
   let upstream: Response;
   try {
-    upstream = await fetch(`${OLLAMA_V1}/chat/completions`, {
+    upstream = await fetch(`${engine.v1BaseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" }, // Ollama needs no auth
+      headers: engine.headers,
       body: JSON.stringify({
         model,
         messages,
@@ -75,10 +83,12 @@ export async function POST(req: NextRequest) {
     });
   } catch {
     logChatError(model, t0);
+    const hint =
+      engine.id === "ollama"
+        ? " (start it in WSL: ~/start_ollama.sh, or set OLLAMA_BASE_URL in .env.local)"
+        : "";
     return Response.json(
-      {
-        error: `Could not reach Ollama at ${OLLAMA_V1}. Is it running? (start it in WSL: ~/start_ollama.sh, or set OLLAMA_BASE_URL in .env.local)`,
-      },
+      { error: `Tidak bisa menjangkau ${engine.label} di ${engine.v1BaseUrl}. Sedang jalan?${hint}` },
       { status: 502 }
     );
   }

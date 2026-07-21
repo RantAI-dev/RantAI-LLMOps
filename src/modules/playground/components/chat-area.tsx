@@ -5,9 +5,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { EnginePicker } from "@/modules/playground/components/engine-picker";
 import { ModelPicker } from "@/modules/playground/components/model-picker";
 import { parseChatMetrics, parseChatSseLine } from "@/modules/playground/lib/sse";
 import type { ChatMessage, ChatMetrics } from "@/modules/playground/types";
+import type { EngineInfo } from "@/modules/serve/hooks/use-engines";
 import { cn } from "@/lib/utils";
 
 type SetMessages = (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
@@ -26,6 +28,11 @@ export function ChatArea({
 }) {
   const [input, setInput] = useState("");
   const [model, setModel] = useState("");
+  // Which engine serves this chat. Ollama by default; the picker only appears
+  // when a second engine (vLLM) is configured. vLLM serves a single model, so
+  // when it's selected we send no model and let the backend resolve its one.
+  const [engine, setEngine] = useState<EngineInfo | null>(null);
+  const isOllama = !engine || engine.id === "ollama";
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -83,7 +90,12 @@ export function ChatArea({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, model: model || undefined }),
+        body: JSON.stringify({
+          messages: history,
+          // vLLM serves one model → send none and let the backend resolve it.
+          model: isOllama ? model || undefined : undefined,
+          engine: engine?.id,
+        }),
         signal: controller.signal,
       });
 
@@ -132,8 +144,17 @@ export function ChatArea({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex items-center px-4 py-2.5">
-        <ModelPicker value={model} onChange={setModel} />
+      <div className="flex items-center gap-2 px-4 py-2.5">
+        {isOllama ? (
+          <ModelPicker value={model} onChange={setModel} />
+        ) : (
+          // vLLM serves one fixed model — show it read-only instead of the
+          // Ollama picker, whose list wouldn't apply.
+          <span className="max-w-[320px] truncate px-2 py-1 text-sm font-semibold text-primary" title={engine?.loaded ?? undefined}>
+            {engine?.loaded?.split("/").pop() ?? "vLLM model"}
+          </span>
+        )}
+        <EnginePicker value={engine?.id ?? "ollama"} onChange={setEngine} />
       </div>
 
       <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto px-4">

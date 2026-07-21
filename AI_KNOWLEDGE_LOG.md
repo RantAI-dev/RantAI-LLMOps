@@ -2344,3 +2344,50 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 **Terbukti (kode asli, 4 kasus):** (1) arc asli dict+dict -> "nucleus with electrons"; (2) model salah -> pilih 'salah' kunci 'benar'; (3) tanpa doc.choices -> fallback arguments 'no'; (4) data rusak -> '' tanpa crash. `predicted` tersisa = 0.
 **Deploy: TRAINER-ONLY -> cukup PUSH, tanpa rilis.** Belum di-push (user yg push). Setelah push, jalankan eval BARU -> rincian per soal harus teks.
 **Pelajaran (ditegaskan, kali ke-3 pola sama dalam fitur ini):** "hijau"-nya py_compile + simulasi terpisah itu palsu. Untuk kode yg tak bisa di-import, ekstrak+bungkus+jalankan blok ASLI-nya. Jangan pernah lapor "terbukti" dari kode yang bukan kode yang akan berjalan.
+
+## TERBUKTI end-to-end: rincian per soal jadi teks terbaca (2026-07-21 06:25 WIB)
+**Run baru 67d579ab (arc_easy 10%) setelah user push commit 60be15f.** Verifikasi dari SERVER (bukan tampilan): 238 sampel tersimpan; **0 masih angka mentah**; 189 benar/49 salah = 79,4% (cocok skor kartu); contoh: model "brain cells" vs kunci "ovary cells", model "a network of interacting positive and negative particles" vs kunci "a massive core surrounded by negatively-charged particles".
+**Selesai setelah 3 iterasi bug (KeyError -> NameError -> fix), semua trainer-only (push tanpa rilis).** Yang menutup: uji dengan MENJALANKAN kode asli file (bukan reimplementasi) + verifikasi ulang ke data server.
+**Nilai fitur ini nyata:** daftar 49 kesalahan kini terbaca guru/manusia — bisa lihat POLA (mis. banyak salah di soal sains yang butuh penalaran sebab-akibat: Primary vs Secondary Succession, sistem sirkulasi vs endokrin). Ini yang tak terlihat dari angka 79,4% saja.
+
+## FASE 0 vLLM di GB10 — LULUS PENUH (2026-07-21 07:30 WIB)
+**Tujuan:** buktikan vLLM bisa jalan di GB10 (sm_121/ARM64/CUDA13) SEBELUM membangun UI apa pun. Gerbang terbesar (sama kelas risikonya dgn xIELU CUDA).
+**Riset kelayakan (tanpa sentuh GPU):** vLLM RESMI mendukung DGX Spark — halaman NVIDIA (build.nvidia.com/spark/vllm), blog vLLM 2026-06-01, image komunitas (hellohal2064, timothystewart6). Image resmi yg dipakai: **`vllm/vllm-openai:cu130-nightly`**, entrypoint stock `vllm serve MODEL` (tarik dari HF, tanpa mount).
+**Eksekusi via Portainer Docker API (endpoint 3):** pull image (200, sudah ada layer) -> create container (201) dgn Entrypoint `["vllm","serve"]`, Cmd model+`--gpu-memory-utilization 0.2 --max-model-len 4096`, DeviceRequests GPU, IpcMode host, port 8000->8001 -> start (204).
+**HASIL TERBUKTI (bukan cuma "hidup"):** `/v1/models` merespons ~100 dtk; **chat completion BENAR-BENAR generasi** — "Fotosintesis adalah proses di mana tanaman memanfaatkan sinar matahari... " 49 prompt + 45 token jawaban. Inference vLLM jalan di sm_121.
+**Kebersihan box bersama:** GPU idle sebelum & sesudah; gpu-util 0.2 (~24GB) selama uji; **container dihapus (204)**, GPU balik ke baseline 24354MB. Tidak ada sisa.
+**KESIMPULAN:** Fase 1-3 (abstraksi engine di /api/chat + serve/info, UI pilih engine, alur deploy fine-tune safetensors presisi penuh) BUKAN pekerjaan sia-sia. vLLM = kandidat sah engine kedua di samping Ollama.
+**Catatan teknis utk Fase 1:** vLLM bicara `/v1` OpenAI-compatible (sama pola dgn Ollama), jadi `/api/chat` BFF tinggal ditambah pilihan base URL engine. Model tarik dari HF cache; produksi sebaiknya mount `~/.cache/huggingface` biar tak unduh ulang. Untuk reproducible, ganti tag `cu130-nightly` -> digest/tag rilis spesifik.
+
+## FASE 1 vLLM: abstraksi engine inference di backend (2026-07-21 10:30 WIB)
+**Tujuan:** `/api/chat` & `/api/serve/info` tadinya hardcode `OLLAMA_V1`. Dijadikan PILIHAN engine (Ollama default, vLLM opsional) — TANPA merusak Ollama.
+**Dikerjakan:**
+- `src/lib/inference-engines.ts` BARU (server-only, registry): tipe `EngineId="ollama"|"vllm"`, `EngineInfo`, `listEngines()`, `resolveEngine(id?)` (default ollama; unknown->ollama; vllm tanpa `VLLM_BASE_URL`->configured:false), `resolveChatModel()` (ollama: body/hot/env; vllm: body/served-model/env), `listOpenAIModels()` (generic /v1/models utk vLLM), `engineHeaders()`. Ollama dibaca via native /api/tags (lebih kaya), vLLM via /v1/models. vLLM OPT-IN: cuma "configured" bila `VLLM_BASE_URL` diset.
+- `/api/chat`: terima `body.engine`; resolve engine+model; base URL & headers dari engine; engine bernama-tapi-belum-dikonfigurasi -> 400 jelas (bukan connection error). Blok streaming/metrics TIDAK diubah (engine-agnostic).
+- `/api/serve/info`: pertahankan bentuk atas (`baseUrl`/`loaded`/`models` = engine DEFAULT) supaya konsumen lama (grounding model picker, gateway-access) tak rusak; TAMBAH `engines[]` utk UI Fase 2.
+- `.env.example`: blok `VLLM_BASE_URL`/`VLLM_API_KEY` (opsional, opt-in).
+- Test `inference-engines.test.ts` (6, menjalankan modul asli via mock ollama): default ollama, unknown->ollama, vllm unconfigured, keyless, model resolution.
+**Verifikasi:** tsc 0, eslint 0, 139 test lulus (22 berkas), build sukses. Kontrak lama `/api/serve/info` dikonfirmasi di server live (kode lama kembalikan `baseUrl`+7 model tanpa `engines[]` = persis yang dipertahankan kodeku).
+**Deploy: FRONTEND -> perlu push->rilis->Portainer.** vLLM tetap "not configured" sampai `VLLM_BASE_URL` diset (Fase 3, saat vLLM permanen). Belum di-commit/push (user yang push).
+**Berikutnya Fase 2:** UI Serve/Deployments baca `engines[]`, pilih engine per model, endpoint. Fase 3: deploy fine-tune safetensors ke vLLM presisi penuh + set VLLM_BASE_URL.
+
+## FASE 2 vLLM: UI pilih engine (2026-07-21 10:38 WIB)
+**Tujuan:** UI baca `engines[]`, tampilkan status tiap engine, dan sediakan cara CHAT lewat vLLM dari UI (biar bisa diuji saat vLLM siap).
+**Dikerjakan:**
+- `src/modules/serve/hooks/use-engines.ts` BARU: `useEngines()` baca `/api/serve/info` -> `engines[]`. Tipe `EngineInfo` di-`import type` dari `@/lib/inference-engines` (server-only) -> terhapus saat build, tak menyeret kode server ke bundel (dikonfirmasi build sukses).
+- `src/modules/serve/components/engine-status.tsx` BARU: panel status di Deployments. Tiap engine kartu: label, pill status (Aktif hijau / Tidak terjangkau amber / Belum dikonfigurasi abu), endpoint, jumlah model, model aktif. vLLM belum dikonfig -> petunjuk set `VLLM_BASE_URL`. Ditaruh di atas GatewayAccess.
+- `src/modules/playground/components/engine-picker.tsx` BARU: segmented control di header chat. MUNCUL HANYA bila >=2 engine terkonfigurasi -> hari ini (Ollama saja) tak ada clutter; begitu vLLM diset, muncul.
+- `chat-area.tsx`: state `engine`; kirim `engine` ke `/api/chat`; saat vLLM dipilih -> ModelPicker (Ollama-centric) diganti label model vLLM read-only, dan `model` dikirim undefined (backend resolve model tunggal vLLM). Jalur Ollama TAK berubah (engine null -> isOllama true -> perilaku lama).
+**Verifikasi:** tsc 0, eslint 0, 139 test, build sukses (/serve & /interact OK, tanpa child_process bocor).
+**Deploy: FRONTEND.** Sesuai rencana user: push+rilis DILAKUKAN setelah vLLM siap (Fase 3), biar sekali deploy = engine live + UI-nya sekaligus. Belum di-commit/push.
+**Fase 3 (berikutnya):** vLLM permanen di box (container tetap, bukan uji sekali pakai) + `VLLM_BASE_URL` masuk compose/env; alur deploy fine-tune safetensors presisi penuh ke vLLM. Setelah itu baru push->rilis->Portainer, lalu engine picker muncul & bisa diuji chat via vLLM.
+
+## FASE 3 vLLM: instance PERMANEN Qwen-SEA-LION-v4-8B di GB10 (2026-07-21 11:15 WIB)
+**Keputusan user:** engine kedua vLLM permanen, model **`aisingapore/Qwen-SEA-LION-v4-8B-VL`** (satu-satunya 8B; multimodal tapi fine-tune fokus teks, kuat untuk chat), reservasi VRAM HEMAT (gpu-util 0.22 ~27GB) di box bersama.
+**Gerbang model asli (Fase 0 cuma 0.5B):** DIUJI DULU sementara -> Qwen3-VL-8B TERMUAT di vLLM cu130-nightly di sm_121, jawab benar ("Ibu kota Indonesia adalah Jakarta"). Footprint terukur ~37GB @0.30. Model TIDAK gated (unduh tanpa HF_TOKEN; frontend memang tak punya HF_TOKEN di env).
+**Container PERMANEN `rantai-vllm` (via Portainer Docker API):** image `vllm/vllm-openai:cu130-nightly`; `vllm serve aisingapore/Qwen-SEA-LION-v4-8B-VL --served-model-name qwen-sea-lion-v4-8b --gpu-memory-utilization 0.22 --max-model-len 8192 --trust-remote-code`; **volume `rantai-vllm-hf:/root/.cache/huggingface`** (restart tak unduh ulang); **RestartPolicy unless-stopped**; **NetworkMode `rantai-llmops_llmops` + alias `vllm`** (frontend jangkau via nama); port host 8002 (debug).
+**VERIFIKASI:** /v1/models -> qwen-sea-lion-v4-8b; chat -> "Halo, saya siap membantu Anda dengan senang hati!"; alias jaringan & restart policy dikonfirmasi via inspect; **GPU 52352/124546 MB** (vLLM ~28GB, sisa ~72GB).
+**Wiring kode:** `docker-compose.portainer.yml` frontend env + `VLLM_BASE_URL=${VLLM_BASE_URL:-http://vllm:8000/v1}`. `.env.example` sudah punya blok VLLM (Fase 1).
+**SISA UNTUK GO-LIVE DI UI:** (1) user push Fase 1+2+3 code + bikin rilis; (2) deploy rilis KE Portainer + pastikan StackFileContent Portainer memuat baris VLLM_BASE_URL (kalau compose Portainer belum sinkron dgn repo, aku inject baris itu saat redeploy). Setelah frontend baru + env -> engine picker muncul di Interact, Deployments tampil vLLM "Aktif".
+**Catatan penting:** VLLM_BASE_URL = `http://vllm:8000/v1` (port DALAM container 8000, alias `vllm`), BUKAN 8002 (itu port host utk debug). Frontend & vllm satu network jadi pakai nama+port internal.
+**Reversibel:** `docker rm -f rantai-vllm` + hapus volume `rantai-vllm-hf` mengembalikan VRAM sepenuhnya.
