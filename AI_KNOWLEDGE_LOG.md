@@ -2287,3 +2287,29 @@ Job `minio-test` (Qwen2.5-0.5B + dataset `s3://sft/train8b/`, max_steps -1 -> 17
 - `evals-page.tsx`: bagian "Profil model" di atas "Riwayat run".
 **Verifikasi:** tsc 0, eslint 0, 133 test lulus, build sukses (route `/api/evals/jobs/[id]/samples` terdaftar).
 **TIDAK di-commit/push** sesuai permintaan user.
+
+## Deploy v0.40.33 + cacat data per-soal yang baru kelihatan di server (2026-07-20 21:15 WIB)
+**Verifikasi protokol:** CI `v0.40.33 completed/success 14:14:28Z`; tag `5cdf316` = origin/main HEAD; ketiga berkas baru (`eval-samples.tsx`, `model-profile.tsx`, route `[id]/samples`) + `fetchEvalSamples` dikonfirmasi ADA di tag sebelum deploy.
+**Deploy:** PUT pertama TIMEOUT (5 menit, tarik image lama). Cek: route /samples masih 404 = image LAMA masih jalan = redeploy BELUM terjadi. Diulang di latar belakang (timeout 590d) -> PUT 200. Bukti image baru: route `/samples` kini 200 (dulu 404), mengembalikan 119 baris; 93 benar/119 = 78,2% cocok dgn skor -> hitungan BENAR.
+**CACAT DITEMUKAN (jujur — lolos dari semua test unit karena test tidak menyentuh server):** kolom yang disimpan trainer per soal untuk benchmark pilihan ganda TIDAK terbaca manusia. `output` = `str(resp[0])` = nilai log-likelihood (mis. "-20.5"); `expected_output` = `str(target)` = INDEKS jawaban (mis. "3"). Jadi UI menampilkan "Jawaban model: -20.5 · Seharusnya: 3" — tak berarti bagi orang awam. Teks pilihan jawaban juga tidak ikut disimpan, jadi soal tampil tanpa opsinya.
+**Yang TETAP berguna & benar:** jumlah benar/salah, soal MANA yang salah, profil model. Yang RUSAK: detail "model memilih apa vs yang benar apa".
+**Akar & perbaikan (trainer-side, perlu rilis lagi):** di `train.py` blok samples, hitung indeks prediksi = argmax logprob atas `filtered_resps`, petakan indeks prediksi & `target` ke teks pilihan (`doc["choices"]`), simpan sebagai kolom baru. Berisiko lintas-benchmark (arc/hellaswag/piqa/winogrande/boolq bentuk doc-nya beda) -> harus best-effort + fallback ke nilai mentah, JANGAN diam-diam.
+**Belum dikerjakan — menunggu keputusan user** (ini rilis lagi yang dia yang jalankan). Tidak commit/push.
+**Pelajaran (kali keempat pola "kegagalan tak terlihat"):** test unit hijau tidak membuktikan fitur benar; hanya data server yang membuktikannya. Sudah jadi kebiasaan: setiap deploy fitur data, tarik satu contoh nyata dari server dan BACA isinya, bukan cuma cek HTTP 200.
+
+## Perbaikan detail per-soal jadi teks terbaca (2026-07-20 21:35 WIB)
+**Dikerjakan (trainer-only, `trainers/eleutherai-lm-evaluation-harness/train.py`):** blok parsing samples kini menyimpan TEKS pilihan jawaban, bukan angka mentah. Kunci: teks tiap pilihan diambil dari `sample["arguments"]` (elemen ke-i = `(konteks, teks_pilihan)`) — TASK-AGNOSTIC, tahan terhadap perbedaan bentuk `doc` antar-benchmark (arc/piqa/boolq/hellaswag/winogrande). Indeks prediksi = argmax log-prob atas `filtered_resps` (persis yang di-skor `acc`). Fallback: kalau teks tak terpetakan, pakai nilai mentah -> tak pernah sel kosong. `input` (soal) juga di-fallback ke beberapa kunci doc lalu ke konteks bersama dari `arguments`.
+**Deviasi #2 dicatat di docstring train.py** (konvensi repo: setiap deviasi didaftar di docstring).
+**Verifikasi:** py_compile OK; simulasi terhadap sampel arc realistis -> "prediksi model: nucleus with electrons around / kunci benar: nucleus with electrons around / acc 1.0". Frontend TIDAK perlu diubah — `eval-samples.tsx` sudah membaca output/expected, sekarang cuma dapat string yang lebih baik.
+**PENTING soal deploy — INI PERUBAHAN TRAINER, BUKAN FRONTEND:** TL meng-clone harness dari default branch SETIAP job. Jadi begitu train.py di-push ke `main`, **run eval BERIKUTNYA otomatis memakai versi baru — TIDAK perlu rilis/Portainer baru.** (Konstanta EVAL_GITHUB_* sudah ter-deploy di v0.40.33.) Artifact run LAMA tidak berubah (sudah tertulis); jalankan ulang eval untuk melihat teks terbaca.
+**Belum di-push (user yang push).** Setelah push: jalankan 1 eval baru (mis. arc_easy 10%) lalu buka "Rincian per soal" -> harusnya lihat teks jawaban, bukan angka.
+
+## UX Evals dirapikan: buang "Profil model" (2026-07-20 21:55 WIB)
+**Umpan balik user:** bingung dgn tab Single run & Compare setelah perubahan. Model mental user (dan itu benar): riwayat = daftar run individual, tiap kartu run kaya metrik DI DALAMNYA. Yang mengganggu = section "Profil model" (agregasi lintas-benchmark, "2 dari 6 benchmark") yang KUTAMBAH sendiri, tidak diminta, dan nempel di tempat salah. Di Compare malah 3 ringkasan bertumpuk (Scoreboard + Profil model + Riwayat).
+**Ketegangan yang disurfacekan ke user:** "menilai model ini SEGINI" (keseluruhan) memang butuh gabungan banyak benchmark; satu run = satu model + SATU benchmark. Dua hal beda. User memilih: BUANG profil, cukup riwayat per-run.
+**Dikerjakan:**
+- `model-profile.tsx` DIHAPUS (jadi dead code); `evaluatedModels` useMemo + import dibuang dari `evals-page.tsx`.
+- Struktur baru: **Single run** = form + "Riwayat run" (kartu per-run kaya: batang skor, ketidakpastian, garis tebak-acak, rincian per soal). **Compare** = form + scoreboard-nya sendiri saja. **Grounding** = tak diubah. Riwayat run kini HANYA di Single run (satu run = satu model+satu benchmark, itu yang dicatat riwayat).
+**Verifikasi:** tsc 0, eslint 0, 133 test, build sukses.
+**CATATAN DEPLOY: ini perubahan FRONTEND** (beda dgn perbaikan trainer teks-jawaban yg trainer-only). Jadi perlu: push -> rilis -> update Portainer. Trainer fix (deviasi #2) juga masih menunggu push. Keduanya belum di-push (user yang push).
+**Pelajaran:** "bikin lebih lengkap/visual" != "tambah sebanyak mungkin". Aku menambah lapisan agregasi yang tak diminta dan itu mengaburkan yang sederhana. Lain kali: penuhi model mental user dulu, tawarkan agregasi sebagai opsi terpisah, jangan suntik diam-diam.

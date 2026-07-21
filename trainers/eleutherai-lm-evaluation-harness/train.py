@@ -3,7 +3,7 @@
 EleutherAI LM Evaluation Harness script with TransformerLab integration.
 
 RantAI fork of transformerlab-app's `eleutherai-lm-evaluation-harness`. Kept
-deliberately close to upstream so it stays diffable; the single deviation is:
+deliberately close to upstream so it stays diffable; the deviations are:
 
   1. `--model_args` names a `dtype` (config knob, default bfloat16). Upstream
      passed none, so weights loaded as fp16 while Apertus' xIELU activation
@@ -11,6 +11,13 @@ deliberately close to upstream so it stays diffable; the single deviation is:
      next Linear then rejects its own input — "expected mat1 and mat2 to have
      the same dtype, but got: float != c10::Half" — which killed every Apertus
      benchmark before the first sample was scored.
+
+  2. The per-sample artifact stores the READABLE option text the model picked
+     and the correct one, not the raw log-likelihood and gold index. Upstream
+     wrote "-20.5" as the answer and "3" as the expected value, which is
+     meaningless to anyone reading the breakdown. The option text is read from
+     each sample's `arguments` (i-th = (context, option_text)) so it works
+     across benchmarks whose `doc` shapes differ.
 
 This script demonstrates:
 - Using lab.get_config() to read parameters from task configuration
@@ -338,27 +345,76 @@ def run_evaluation():
                                 # Extract relevant fields for eval DataFrame
                                 doc = sample.get("doc", {})
 
-                                # Get the model response from filtered_resps or resps
+                                # These are multiple-choice tasks, so lm-eval scores
+                                # each option by log-likelihood. filtered_resps is one
+                                # [logprob, is_greedy] per option; `target` is the index
+                                # of the correct one. The RAW values are a logprob and an
+                                # index — meaningless to a human ("-20.5" / "3"). The
+                                # readable text of each option lives in `arguments`, whose
+                                # i-th entry is (context, option_text); reading it there
+                                # rather than from `doc` keeps this working across
+                                # benchmarks whose doc shapes all differ (arc/piqa/boolq…).
                                 filtered_resps = sample.get("filtered_resps", [])
-                                output = ""
-                                if filtered_resps:
-                                    # Extract the actual response
-                                    for resp in filtered_resps:
-                                        if len(resp) >= 2 and resp[1] is True:
-                                            output = str(resp[0])
+                                arguments = sample.get("arguments", [])
+
+                                def _option_text(idx):
+                                    try:
+                                        i = int(idx)
+                                    except (ValueError, TypeError):
+                                        return ""
+                                    arg = arguments[i] if 0 <= i < len(arguments) else None
+                                    if isinstance(arg, (list, tuple)) and len(arg) > 1:
+                                        return str(arg[1]).strip()
+                                    return ""
+
+                                # The model's pick = the option with the highest
+                                # log-likelihood (this is what `acc` scores).
+                                pred_idx = None
+                                try:
+                                    logprobs = [
+                                        float(r[0])
+                                        for r in filtered_resps
+                                        if isinstance(r, (list, tuple)) and len(r) > 0
+                                    ]
+                                    if logprobs:
+                                        pred_idx = max(range(len(logprobs)), key=lambda i: logprobs[i])
+                                except (ValueError, TypeError):
+                                    pred_idx = None
+
+                                target = sample.get("target", "")
+                                # Prefer readable option text; fall back to the raw value
+                                # so a task that stores options differently still shows
+                                # SOMETHING rather than an empty cell.
+                                predicted = _option_text(pred_idx)
+                                if not predicted and filtered_resps:
+                                    first = filtered_resps[0]
+                                    predicted = str(first[0]) if isinstance(first, (list, tuple)) and first else ""
+                                expected = _option_text(target) or str(target)
+
+                                # The question: doc keys vary by task, so fall back to the
+                                # shared context (same for every option) from arguments.
+                                question = ""
+                                if isinstance(doc, dict):
+                                    for key in ("question", "goal", "sentence", "ctx", "query", "premise"):
+                                        val = doc.get(key)
+                                        if isinstance(val, str) and val.strip():
+                                            question = val.strip()
                                             break
-                                    # Fallback to first response if no True found
-                                    if not output and filtered_resps:
-                                        output = str(filtered_resps[0][0]) if len(filtered_resps[0]) > 0 else ""
+                                if not question and arguments:
+                                    first = arguments[0]
+                                    if isinstance(first, (list, tuple)) and first:
+                                        question = str(first[0]).strip()
+                                if not question:
+                                    question = str(doc)
 
                                 samples_data.append(
                                     {
                                         "test_case_id": f"test_case_{sample.get('doc_id', 0)}",
                                         "metric_name": task_name,
                                         "score": sample.get("acc", 0.0),
-                                        "input": doc.get("question", "") if isinstance(doc, dict) else str(doc),
-                                        "output": output,
-                                        "expected_output": str(sample.get("target", "")),
+                                        "input": question,
+                                        "output": predicted,
+                                        "expected_output": expected,
                                     }
                                 )
 

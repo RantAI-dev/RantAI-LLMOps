@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { LoadingState } from "@/components/ui/loading-state";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,6 @@ import { EvalCompare } from "@/modules/evals/components/eval-compare";
 import { EvalForm } from "@/modules/evals/components/eval-form";
 import { EvalJobList } from "@/modules/evals/components/eval-job-list";
 import { GroundingEval } from "@/modules/evals/components/grounding-eval";
-import { ModelProfile } from "@/modules/evals/components/model-profile";
 import { useEvals } from "@/modules/evals/hooks/use-evals";
 
 type Tab = "single" | "compare" | "grounding";
@@ -18,16 +17,6 @@ export function EvalsPage() {
   const { options, jobs, loading, submitting, error, submit, comparing, compareProgress, submitCompare } =
     useEvals();
   const [tab, setTab] = useState<Tab>("single");
-
-  // Models with at least one finished run, newest first — the profile chart has
-  // nothing to draw for a model that has never been evaluated.
-  const evaluatedModels = useMemo(() => {
-    const seen: string[] = [];
-    for (const job of jobs) {
-      if (job.status === "COMPLETE" && job.model && !seen.includes(job.model)) seen.push(job.model);
-    }
-    return seen;
-  }, [jobs]);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
@@ -67,8 +56,18 @@ export function EvalsPage() {
             ))}
           </div>
 
+          {/* Single run: kick off a test, then the run log — each run its own
+              rich card. Compare: its own scoreboard. Grounding: self-contained.
+              The run history lives only under Single run; a run IS a single
+              model on a single benchmark, which is what its history records. */}
           {tab === "single" ? (
-            <EvalForm options={options} submitting={submitting} error={error} onSubmit={submit} />
+            <>
+              <EvalForm options={options} submitting={submitting} error={error} onSubmit={submit} />
+              <div>
+                <h2 className="mb-2 text-sm font-semibold text-primary">Riwayat run</h2>
+                <EvalJobList jobs={jobs} />
+              </div>
+            </>
           ) : tab === "compare" ? (
             <EvalCompare
               options={options}
@@ -79,25 +78,6 @@ export function EvalsPage() {
             />
           ) : (
             <GroundingEval />
-          )}
-
-          {/* Grounding runs in-request and renders its own result, so the
-              benchmark job list below would only be noise on that tab. */}
-          {tab === "grounding" ? null : (
-            <div className="space-y-5">
-              {/* The overall shape of each model, before the run-by-run detail —
-                  it is the question people actually arrive with. */}
-              {evaluatedModels.length > 0 ? (
-                <div>
-                  <h2 className="mb-2 text-sm font-semibold text-primary">Profil model</h2>
-                  <ModelProfile jobs={jobs} models={evaluatedModels} />
-                </div>
-              ) : null}
-              <div>
-                <h2 className="mb-2 text-sm font-semibold text-primary">Riwayat run</h2>
-                <EvalJobList jobs={jobs} />
-              </div>
-            </div>
           )}
         </>
       )}
