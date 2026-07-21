@@ -2438,3 +2438,34 @@ User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks 
 2. SEBELUM menyentuh backend/tl_data: BACKUP volume tl_data dulu (mis. `docker run --rm -v rantai-llmops_tl_data:/d -v $PWD:/b alpine tar czf /b/tl_data.tgz -C /d .`).
 3. Verifikasi `/api/finetune/jobs` & `/api/evals/jobs` SETELAH tiap deploy backend -> kalau 0, STOP.
 **Belum di-commit/push (user yg push).** Deploy pin: aman krn digest = backend yg sedang jalan (no-op, no migrasi).
+
+## Pin backend DITERAPKAN (v0.40.37) — proteksi aktif (2026-07-21 13:20 WIB)
+**Verifikasi:** CI v0.40.37 success; tag b5a431=main; pin ADA di tag (backend @sha256:d4c323, 0 sisa :latest); frontend TIDAK berubah v0.40.36->37 (rilis murni pin compose).
+**Deploy AMAN (mengikuti aturan baru):** (1) BACKUP DB dulu -> `llmlab.sqlite3.bak-predeploy37` (324KB). (2) PUT compose berpin, **PullImage:FALSE** (tak tarik image baru -> backend mustahil ter-upgrade). PUT 200.
+**BUKTI TIDAK MEMPERBURUK:** backend digest tetap `...d4c323` (BUKAN :latest, tak berubah, tak ada migrasi). frontend up. Ollama 7 model + vLLM available (qwen-sea-lion-v4-8b). job fine-tune=0 (SAMA seperti sebelum deploy — riwayat memang sudah hilang sejak insiden, deploy ini TIDAK menambah kerusakan).
+**STATUS:** backend/gateway kini terkunci digest di stack yang JALAN + di compose Portainer. Auto-upgrade TL tak mungkin lagi -> insiden penimpaan DB tak bisa terulang. DB backup tersimpan di volume.
+**vLLM tetap:** service stack resmi, presisi penuh, jalan. Semua fitur vLLM (Fase 0-3 + setara) live.
+
+## KOREKSI BESAR: riwayat TIDAK hilang — cuma AUTH putus, sudah PULIH (2026-07-21 14:00 WIB)
+**DIAGNOSA SEBELUMNYA SALAH.** Aku menyimpulkan riwayat job "hilang permanen tak bisa dipulihkan" berdasar `job_queue=0` di DB baru. KELIRU: TL menyimpan riwayat job di FILE experiment (orgs/*/workspace/experiments + local_provider run dirs) yg SELAMAT, bukan di tabel `job_queue` (itu antrean runtime, wajar kosong).
+**AKAR SEBENARNYA:** insiden v0.40.36 mengganti DB TL -> user/API-key baru -> `INFERENCE_API_KEY` lama TAK VALID -> frontend gagal auth ke TL -> SEMUA daftar (finetune/eval jobs) balik 0 -> TERLIHAT seperti data hilang. Gejala fine-tune: `{"detail":"Authentication required"}`.
+**RECOVERY (bootstrap ulang auth TL):** login admin (admin@example.com) -> GET /users/me/teams (team 160bd633) -> POST /auth/api-keys (mint key baru) -> GET /experiment/create rantai-ft/rantai-eval (409 = sudah ada) -> PATCH /quota/team (200) -> set INFERENCE_API_KEY + INFERENCE_TEAM_ID di stack Env -> redeploy frontend PullImage:false. Semua secret tak dicetak.
+**HASIL: RIWAYAT PENUH KEMBALI:** /api/finetune/jobs = **18** (minio-test, apertus-sea-lion-v4-8b-it-train8b, dryrun-shiro, uji-bf16, llama-sea-lion-v3, dll); /api/evals/jobs = **8** (arc_easy COMPLETE dll). TIDAK ADA yang hilang.
+**PELAJARAN KERAS (ganda):** (1) sebelum vonis "data hilang", cek SEMUA lapisan (auth, bukan cuma DB) + verifikasi dari beberapa sudut; aku terlalu cepat menyimpulkan permanen. (2) upgrade backend TL me-reset auth -> WAJIB re-bootstrap `INFERENCE_API_KEY` setelah backend berubah. Pin backend (sudah dilakukan) mencegah ini terulang.
+**Backup DB predeploy37 & pin backend tetap berlaku** (pencegahan tetap benar). fine-tune SEKARANG BISA lagi (auth pulih) -> user bisa lanjut S3 fine-tune.
+
+## BUG BERBAHAYA diperbaiki: fine-tune GAGAL tapi badge COMPLETE (2026-07-21 14:40 WIB)
+**Dilaporkan user (tepat):** job fine-tune Gemma-9B error (device_map='auto' offload) TAPI badge COMPLETE -> user bisa kira punya model padahal tidak.
+**Akar:** `__main__` di `trainers/unsloth-llm-train/train.py` (dan `eleutherai-lm-evaluation-harness/train.py`) menangkap exception -> `train_with_unsloth()` RETURN `{"status":"error"}` -> `__main__` cuma PRINT lalu keluar **exit 0** -> TL kira sukses -> COMPLETE. `lab.error()` cuma log, tidak menggagalkan job.
+**Perbaikan (KEDUA trainer):** `__main__` cek `result.get("status")`; kalau BUKAN `success`/`stopped` -> `sys.exit(1)` -> TL menandai FAILED. Deviasi #6 dicatat di docstring unsloth trainer.
+**Verifikasi (jalankan logika nyata, bukan asumsi):** success->0, stopped->0, error->1, skipped->1, None->1. py_compile OK.
+**Deploy: TRAINER-ONLY -> cukup PUSH, tanpa rilis.** Berlaku utk run BERIKUTNYA (TL clone trainer dari main saat job).
+**TERPISAH — masalah device_map='auto' (Gemma-9B gagal):** kemungkinan dipicu vLLM reservasi 27GB -> accelerate offload ke CPU di GB10 sm_121. WORKAROUND SEKARANG: vLLM DIMATIKAN sementara (container stopped, GPU 98GB kosong) -> user retry. Fix permanen (paksa device_map 1 GPU di from_pretrained) BELUM dikerjakan; nunggu konfirmasi workaround jalan.
+
+## FIX PERMANEN device_map + vLLM dinyalakan lagi (2026-07-21 15:00 WIB)
+**Konfirmasi diagnosa:** fine-tune Gemma-9B BERHASIL setelah vLLM dimatikan (loss 1.39->0.019, 179 langkah, 39 mnt, model tersimpan, VRAM 49.9GB). Membuktikan vLLM (reservasi 27GB) yg memicu accelerate offload ke CPU di GB10 sm_121.
+**Fix permanen (trainer-only):** `from_pretrained` di `unsloth-llm-train/train.py` + `device_map={"": 0}` -> paksa model di GPU 0, tak ke-offload walau vLLM nyala. Deviasi #7 dicatat. (Sumber: dok Unsloth multi-gpu — device_map param didukung; {"":0}=single GPU.) py_compile OK.
+**vLLM DINYALAKAN LAGI** (start rantai-vllm 204, model dari volume cache).
+**BELUM DIVERIFIKASI end-to-end:** apakah `device_map={"":0}` benar-benar bikin Gemma-9B latih SAAT vLLM nyala -> perlu 1 run uji setelah user push. Kalau device_map malah bentrok dgn Unsloth, fallback = matikan vLLM saat fine-tune (workaround terbukti).
+**Catatan kualitas (belum ditindak):** loss 0.019 SANGAT rendah -> dugaan overfitting/hafalan (dataset train8b "QA berulang"). Perlu grounding eval pada model Gemma ini utk validasi.
+**DUA fix trainer siap push (trainer-only, tanpa rilis):** (1) exit non-zero saat gagal (COMPLETE-palsu), (2) device_map single-GPU.

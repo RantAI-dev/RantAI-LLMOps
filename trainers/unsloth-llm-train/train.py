@@ -19,6 +19,14 @@ silently trained on the wrong thing:
   5. Datasets may come from a local path, an http(s) URL or an S3/MinIO URI, not
      only the Hugging Face Hub — a corpus that must stay on-premise cannot be
      required to travel through huggingface.co to be trainable.
+  6. A caught training error exits the process NON-ZERO. Upstream caught the
+     exception, returned {"status": "error"} and still exited 0, so Transformer
+     Lab marked the job COMPLETE even though training failed — a "green badge but
+     no model" state that is worse than a visible failure.
+  7. The model is pinned to a single GPU (`device_map={"": 0}`). Left to
+     `device_map='auto'`, accelerate offloads to CPU under VRAM pressure — which a
+     co-resident vLLM creates on the GB10 — producing a multi-device model that
+     cannot be trained.
 """
 
 from unsloth import FastLanguageModel
@@ -367,6 +375,15 @@ def train_with_unsloth():
                 dtype=None if load_in_4bit else torch.bfloat16,
                 load_in_4bit=load_in_4bit,
                 use_gradient_checkpointing="unsloth",  # Efficient backpropagation
+                # Pin the whole model to GPU 0. Left to `device_map='auto'`,
+                # accelerate offloads layers to CPU when it thinks GPU memory is
+                # tight — which happens on the GB10 (sm_121) once a co-resident
+                # vLLM has reserved VRAM. A CPU-offloaded (multi-device) model then
+                # cannot be trained ("can't train a model loaded with
+                # device_map='auto' in any distributed mode"). Forcing {"": 0}
+                # keeps it single-device; an 8–9B model + training fit alongside
+                # vLLM in the 121 GB unified memory.
+                device_map={"": 0},
             )
 
             # Add pad token if it doesn't exist
@@ -704,6 +721,14 @@ def train_with_unsloth():
 
 
 if __name__ == "__main__":
+    import sys
+
     print("🚀 Starting Unsloth training...")
     result = train_with_unsloth()
     print("Training result:", result)
+    # A caught failure returned {"status": "error"} but the process still exited 0,
+    # so Transformer Lab marked the job COMPLETE even though training FAILED — a
+    # dangerous "green badge but no model" state. Exit non-zero on anything but a
+    # real success/stop so the job is correctly marked FAILED.
+    if result.get("status") not in ("success", "stopped"):
+        sys.exit(1)

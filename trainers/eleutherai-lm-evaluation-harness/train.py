@@ -537,5 +537,12 @@ def run_evaluation():
 
 
 if __name__ == "__main__":
+    import sys
+
     result = run_evaluation()
     print("Evaluation result:", result)
+    # Same guard as the training trainer: a caught failure returned {"status":
+    # "error"} but the process exited 0, so TL could mark the job COMPLETE despite
+    # the eval failing. Exit non-zero on anything but success so it reads FAILED.
+    if result.get("status") not in ("success", "stopped"):
+        sys.exit(1)
