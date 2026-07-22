@@ -2477,3 +2477,38 @@ User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks 
 - Route stop `POST /api/finetune/jobs/[id]/stop`: setelah `stopTrainingJob` (SIGTERM), fire-and-forget `void hardStopAfterGrace(id)` -> tombol responsif, eskalasi jalan di background (Node server persisten).
 **KEAMANAN pola (diuji):** pola bunuh dibangun dari `$1` saat runtime -> TIDAK muncul literal di argv skrip eskalasi -> tak bunuh diri sendiri; `grep -v grep` buang proses grep. Uji simulasi ps: hanya proses venv training kena, bukan escalation/grep. Tools grep/awk/xargs/pkill terkonfirmasi ADA & jalan di backend; perintah asli jalan clean EXIT=0.
 **Verifikasi:** tsc 0, eslint 0, 16 test finetune, build. Deploy: FRONTEND -> push+rilis+Portainer (pin backend bikin ini aman). Belum di-commit/push.
+
+## KOREKSI KEDUA (dari investigasi user): TL & SKEMA TAK PERNAH BERUBAH — murni AUTH (2026-07-21 15:40 WIB)
+**User curiga "jgn2 cuma auth putus doang" — BENAR.** Investigasi definitif:
+- alembic version DB yg jalan `598bc2e555d4` -> ADA di `backend/alembic/versions/598bc2e555d4_add_public_share_link.py` (source vendored KITA). Jadi TL yg jalan = TL vendored kita PERSIS, BUKAN versi baru.
+- Skema `teams/quotas/workflows/job_queue` didefinisikan di migrasi KITA (`f7661070ec23_initial_migration`, `b3c4d5e6f7a8_create_job_queue_table`). Jadi skema ini SELALU ada sejak awal.
+- `backend/` terakhir diubah 17 Juli (insiden 21 Juli) -> vendored source tak berubah.
+**KESALAHAN DIAGNOSAKU (dua kali):** (1) "data hilang permanen" -> salah. (2) "TL ke-upgrade, skema berubah dari job/experiment ke teams/quotas" -> JUGA SALAH; aku BERASUMSI skema lama punya tabel job/experiment (pengetahuan umum TL) tanpa cek versi alembic terhadap source kita. Skema teams/quotas/job_queue itu skema vendored kita, selalu begitu.
+**YANG SEBENARNYA TERJADI:** backend container dibuat ulang (pull :latest), tapi dari TL vendored SAMA. Saat re-init (dugaan: "sync vendored source on container start", commit 1cd2d6a) API key lama jadi tak valid -> AUTH PUTUS -> daftar balik 0 -> TERLIHAT seperti data hilang. Re-mint key -> semua kembali. SKEMA & DATA TIDAK PERNAH BERUBAH.
+**PELAJARAN:** sebelum vonis "skema berubah/versi berubah", CEK versi alembic DB terhadap source vendored SENDIRI. Jangan berasumsi skema lama dari pengetahuan umum. Verifikasi dari sumber, bukan tebakan (pola yg berulang di sesi ini).
+**Tindakan tetap valid:** pin backend (cegah recreate dari :latest yg picu auth putus) + prosedur re-mint key terdokumentasi.
+
+## FITUR: tab Retensi Kemampuan (catastrophic forgetting) — MOM 3b (2026-07-21 16:10 WIB)
+**Konteks:** MOM SEA-LION 20 Jul membahas catastrophic forgetting (strategi 70% data baru + 30% baseline). Perlu METRIK yang menunjukkan apakah fine-tune mempertahankan kemampuan dasar.
+**Dikerjakan (frontend, reuse data yg ada — tak jalankan apa pun):**
+- `EvalModel.baseModel?` ditambah; `fetchEvalOptions` isi dari `ft.baseModelName` -> tiap fine-tune tahu model dasarnya.
+- `retention-view.tsx` BARU: pilih fine-tune -> pasangkan dgn base (HF id)-nya -> per benchmark tampilkan base vs FT (acc ±stderr) + vonis pakai `compareScores`: TURUN (penurunan > galat = catastrophic forgetting) / dipertahankan (dalam galat) / naik. Vonis keseluruhan: "kemampuan dasar dipertahankan" atau "ada penurunan di [benchmark]" + saran naikkan porsi baseline. Union benchmark base+FT -> gap ("belum dieval") kelihatan.
+- Tab "Retensi" di evals-page (single|compare|retensi|grounding).
+**Verifikasi:** tsc 0, eslint 0, 139 test, build.
+**KEJUJURAN:** view baru berisi data kalau benchmark yg SAMA sudah dijalankan pada base DAN fine-tune. Sekarang kita baru eval fine-tune, belum base-nya -> view akan minta "jalankan benchmark pada model dasar". Perilaku benar.
+**Deploy: FRONTEND -> push+rilis+Portainer.** Belum di-commit/push.
+**Sisa dari 3 tambahan MOM:** #2 Manajemen Eval Set (S3) BELUM; #3 LLM-judge = keputusan desain (langgar prinsip grounding deterministik) BELUM diputuskan.
+
+## FITUR: Eval Set dari S3/MinIO di grounding — MOM 3a + action item S3 (2026-07-21 17:10 WIB)
+**Konteks:** MOM sepakat grounded eval pakai Eval Set asli; action item UGM pindah dataset Drive->S3. LLMOps perlu bisa TARIK eval set dari S3 lalu jalankan grounding.
+**Kelayakan DIVERIFIKASI:** frontend & minio-test berbagi network `rantai-llmops_llmops`; `S3_ENDPOINT_URL=http://minio-test:9000`; kredensial+region benar (diuji dgn s3fs dari venv trainer: LIST sft/train8b -> eval.jsonl+train.jsonl, GET eval.jsonl -> format grounding valid dgn header sitasi). curl --aws-sigv4 sempat SignatureDoesNotMatch = quirk shell-quoting test, bukan masalah nyata.
+**Dikerjakan (frontend):**
+- dep `aws4fetch` (SigV4 ringan & teruji, delegasi bagian tanda-tangan yg rawan).
+- `src/lib/s3.ts` (server-only): `listEvalSets` (ListObjectsV2, parse XML via regex), `getEvalSetText` (GetObject), `s3Configured()`. Baca S3_ENDPOINT_URL/AWS_* dari env (sama dgn trainer). path-style (MinIO).
+- Route `GET /api/evals/grounding/eval-sets`: tanpa key=list .jsonl; dgn key=baca konten (cap 20MB). bucket param (default EVAL_SET_BUCKET).
+- `s3-eval-set-loader.tsx`: input bucket (default "sft") + "Muat daftar" -> daftar .jsonl -> klik -> load ke `jsonl` state grounding.
+- Disisipkan di tab Grounding di atas textarea. Alur run TAK berubah (tetap kirim `jsonl`).
+**Verifikasi:** tsc 0, eslint 0, build sukses (route eval-sets terdaftar). S3 list+get terbukti via s3fs.
+**LAST-MILE belum diuji:** panggilan aws4fetch app-side (frontend) hanya bisa diuji SETELAH deploy (minio docker-internal, tak terjangkau dari luar/lokal). aws4fetch = library matang + kredensial/region terkonfirmasi -> risiko rendah. Uji: setelah deploy, tab Grounding -> Muat dari S3 -> bucket "sft" -> Muat daftar -> pilih train8b/eval.jsonl.
+**Deploy: FRONTEND (+dep baru aws4fetch) -> push+rilis+Portainer.** Belum di-commit/push.
+**Catatan:** default bucket eval-sets via env `EVAL_SET_BUCKET`; utk data existing pakai bucket "sft". UGM taruh eval set final di S3 -> tinggal browse bucket-nya.

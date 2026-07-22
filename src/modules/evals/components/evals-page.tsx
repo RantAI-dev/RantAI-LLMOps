@@ -8,9 +8,10 @@ import { EvalCompare } from "@/modules/evals/components/eval-compare";
 import { EvalForm } from "@/modules/evals/components/eval-form";
 import { EvalJobList } from "@/modules/evals/components/eval-job-list";
 import { GroundingEval } from "@/modules/evals/components/grounding-eval";
+import { RetentionView } from "@/modules/evals/components/retention-view";
 import { useEvals } from "@/modules/evals/hooks/use-evals";
 
-type Tab = "single" | "compare" | "grounding";
+type Tab = "single" | "compare" | "retention" | "grounding";
 
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
@@ -39,6 +40,7 @@ export function EvalsPage() {
               [
                 ["single", "Single run"],
                 ["compare", "Compare"],
+                ["retention", "Retensi"],
                 ["grounding", "Grounding"],
               ] as const
             ).map(([id, lbl]) => (
@@ -76,6 +78,8 @@ export function EvalsPage() {
               compareProgress={compareProgress}
               onCompare={submitCompare}
             />
+          ) : tab === "retention" ? (
+            <RetentionView options={options} jobs={jobs} />
           ) : (
             <GroundingEval />
           )}

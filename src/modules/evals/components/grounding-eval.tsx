@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, FlaskConical, Loader2, Trash2, Upload } from
 
 import { Button } from "@/components/ui/button";
 import { formatInterval, wilsonInterval } from "@/lib/eval-stats";
+import { S3EvalSetLoader } from "@/modules/evals/components/s3-eval-set-loader";
 import type { EvalRun, EvalRunSummary } from "@/lib/eval-run-store";
 import {
   DEFAULT_GROUNDING_PROMPT,
@@ -484,6 +485,12 @@ export function GroundingEval() {
               />
             </span>
           </label>
+        </div>
+
+        {/* Or pull the real Eval Set straight from S3/MinIO — the meeting's plan
+            for keeping the corpus on the box instead of re-uploading it. */}
+        <div className="mt-3">
+          <S3EvalSetLoader onLoad={setJsonl} />
         </div>
 
         <label className="mt-3 block">

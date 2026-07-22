@@ -57,6 +57,12 @@ export type EvalModel = {
   architecture: string;
   /** True for our own fine-tuned (fused) models. */
   fineTuned: boolean;
+  /**
+   * For a fine-tune, the HF id of the base model it was trained from. Lets the
+   * Retention view pair a fine-tune with its base and measure whether SFT kept
+   * the base's general capability (catastrophic forgetting).
+   */
+  baseModel?: string;
 };
 
 export type EvalOptions = { models: EvalModel[]; benchmarks: Benchmark[] };
@@ -107,6 +113,7 @@ export async function fetchEvalOptions(): Promise<EvalOptions> {
     name: ft.name,
     architecture: "",
     fineTuned: true,
+    baseModel: ft.baseModelName, // for the Retention (catastrophic-forgetting) view
   }));
   const localModels: EvalModel[] = downloaded
     .filter((m: CatalogModel) => !m.isGguf)
