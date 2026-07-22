@@ -130,7 +130,19 @@ export async function fetchEvalOptions(): Promise<EvalOptions> {
   const recommended: EvalModel[] = RECOMMENDED_MODELS.filter((m) => !haveIds.has(m.id)).map(
     (m) => ({ id: m.id, name: m.name, architecture: m.architecture, fineTuned: false })
   );
-  return { models: [...ftModels, ...localModels, ...recommended], benchmarks: BENCHMARKS };
+  // Every fine-tune's BASE model must be evaluable too — the Retention view
+  // compares a fine-tune against its base, and without this the base was missing
+  // from the picker (it is neither a fine-tune nor necessarily a downloaded
+  // model). The harness pulls it from HF by id at run time.
+  const known = new Set([...ftModels, ...localModels, ...recommended].map((m) => m.id));
+  const baseModels: EvalModel[] = [];
+  for (const ft of fineTunes) {
+    const base = ft.baseModelName;
+    if (!base || known.has(base)) continue;
+    known.add(base);
+    baseModels.push({ id: base, name: `${base.split("/").pop()} (base)`, architecture: "", fineTuned: false });
+  }
+  return { models: [...ftModels, ...localModels, ...recommended, ...baseModels], benchmarks: BENCHMARKS };
 }
 
 export type SubmitEvalParams = {

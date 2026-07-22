@@ -2512,3 +2512,20 @@ User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks 
 **LAST-MILE belum diuji:** panggilan aws4fetch app-side (frontend) hanya bisa diuji SETELAH deploy (minio docker-internal, tak terjangkau dari luar/lokal). aws4fetch = library matang + kredensial/region terkonfirmasi -> risiko rendah. Uji: setelah deploy, tab Grounding -> Muat dari S3 -> bucket "sft" -> Muat daftar -> pilih train8b/eval.jsonl.
 **Deploy: FRONTEND (+dep baru aws4fetch) -> push+rilis+Portainer.** Belum di-commit/push.
 **Catatan:** default bucket eval-sets via env `EVAL_SET_BUCKET`; utk data existing pakai bucket "sft". UGM taruh eval set final di S3 -> tinggal browse bucket-nya.
+
+## GO-LIVE v0.40.39: Retensi + Eval Set S3 — TERBUKTI (2026-07-21 17:30 WIB)
+**Verifikasi protokol:** CI v0.40.39 success; tag 5554896=main; retention-view/s3.ts/eval-sets route ADA; aws4fetch di package.json + lock (build hijau=terbundle); backend MASIH dipin (@sha256:d4c323, 0 :latest).
+**Deploy:** compose berpin + PullImage:true. PUT 200. frontend fresh; backend TETAP d4c323 (pin bekerja, auth TAK putus).
+**BUKTI END-TO-END:**
+- Retensi: 10/10 fine-tune punya baseModel -> bisa dipasangkan.
+- S3 aws4fetch APP-SIDE (last-mile yg tadi tak teruji): `/api/evals/grounding/eval-sets?bucket=sft` -> HTTP 200, 2 eval set (train8b/eval.jsonl 354KB + train.jsonl). GET konten juga OK. **aws4fetch signature diterima MinIO.**
+- Data utuh: 22 fine-tune jobs (backend dipin -> auth aman, tak ada yg hilang).
+**STATUS: 2 dari 3 tambahan MOM LIVE.** #1 Retensi (butuh benchmark base dijalankan utk isi data), #2 Eval Set S3 (bisa langsung pakai: Grounding->Muat dari S3->bucket sft->eval.jsonl). #3 LLM-judge di-skip.
+
+## FIX: base model fine-tune kini bisa dieval (celah Retensi) (2026-07-21 17:45 WIB)
+**Dilaporkan user:** tab Retensi minta jalankan benchmark pada base (Gemma-SEA-LION-v3-9B-IT), TAPI base itu tak ada di dropdown Single run -> tak bisa dijalankan. Celah: aku bikin view Retensi tapi lupa memastikan base-nya bisa dieval.
+**Akar:** `fetchEvalOptions` = fine-tune + downloaded(non-gguf) + RECOMMENDED. Base fine-tune (mis. aisingapore/Gemma-SEA-LION-v3-9B-IT) tak masuk salah satunya.
+**Fix (evals.ts):** kumpulkan `ft.baseModelName` unik dari semua fine-tune, tambah sebagai EvalModel (fineTuned:false, id=HF base id, name="<last> (base)"), dedupe thd id yg sudah ada. Harness tarik dari HF by id saat run. Base muncul di Single run + Compare + memungkinkan Retensi.
+**Verifikasi:** tsc 0, eslint 0, build. Base yg akan muncul (dari data live): Gemma-SEA-LION-v3-9B-IT, Apertus-SEA-LION-v4-8B-IT, Llama-SEA-LION-v3.5-8B-R, Qwen3-0.6B, dll.
+**Deploy: FRONTEND -> push+rilis+Portainer.** Belum di-commit/push.
+**Catatan alur:** Retensi butuh benchmark yg SAMA pada base DAN fine-tune. Apertus-FT sudah punya arc_easy+winogrande -> tinggal jalankan pada Apertus-BASE utk lihat Retensi terisi. Gemma butuh dua-duanya.
