@@ -15,7 +15,7 @@ type Tab = "single" | "compare" | "retention" | "grounding";
 
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
-  const { options, jobs, loading, submitting, error, submit, comparing, compareProgress, submitCompare } =
+  const { options, jobs, loading, submitting, preparing, error, submit, comparing, compareProgress, submitCompare } =
     useEvals();
   const [tab, setTab] = useState<Tab>("single");
 
@@ -65,6 +65,12 @@ export function EvalsPage() {
           {tab === "single" ? (
             <>
               <EvalForm options={options} submitting={submitting} error={error} onSubmit={submit} />
+              {preparing ? (
+                <div className="rounded-lg border border-primary/30 bg-primary-soft/50 px-3 py-2 text-[12px] text-primary">
+                  Menyiapkan model & mengantre eval… Untuk fine-tune, adapter digabung dulu ke model
+                  dasar (bisa beberapa menit untuk model besar) — job akan muncul di riwayat di bawah.
+                </div>
+              ) : null}
               <div>
                 <h2 className="mb-2 text-sm font-semibold text-primary">Riwayat run</h2>
                 <EvalJobList jobs={jobs} />
@@ -79,7 +85,18 @@ export function EvalsPage() {
               onCompare={submitCompare}
             />
           ) : tab === "retention" ? (
-            <RetentionView options={options} jobs={jobs} onRunBase={submit} submitting={submitting} />
+            <RetentionView
+              options={options}
+              jobs={jobs}
+              // Jump to Single run on launch so the new base eval's progress is
+              // visible (Retensi only shows a quiet spinner until the score lands).
+              onRunBase={async (body) => {
+                const ok = await submit(body);
+                if (ok) setTab("single");
+                return ok;
+              }}
+              submitting={submitting}
+            />
           ) : (
             <GroundingEval />
           )}

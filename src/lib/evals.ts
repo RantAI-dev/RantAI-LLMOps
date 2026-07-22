@@ -250,7 +250,16 @@ async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string;
     // Fixed template; values bind to $1/$2/$3 via "$@" — never interpolated.
     ({ stdout } = await runHostScript('bash ~/rantai_merge.sh "$@"', [jobId, base, tag]));
   } catch (err) {
-    throw new Error(`Merge for eval failed: ${err instanceof Error ? err.message : err}`);
+    const raw = err instanceof Error ? err.message : String(err);
+    // A COMPLETE train job can still have no adapter (training failed but the
+    // trainer exited 0 — the device_map='auto' bug). Say so plainly instead of
+    // leaking the script's ADAPTER_NOT_FOUND token.
+    if (raw.includes("ADAPTER_NOT_FOUND")) {
+      throw new Error(
+        "Fine-tune ini tidak punya adapter — proses latihnya kemungkinan gagal meski berstatus COMPLETE. Pilih fine-tune lain yang berhasil (yang punya adapter)."
+      );
+    }
+    throw new Error(`Merge for eval failed: ${raw}`);
   }
   // The script prints the merged dir as the last absolute-path line; pick the
   // last line starting with "/" so any trailing log/banner noise is ignored.

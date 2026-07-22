@@ -22,6 +22,10 @@ export function useEvals() {
   const [jobs, setJobs] = useState<EvalJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // A background submit launched but its job has not appeared yet — for a
+  // fine-tune the merge runs first, so there is a gap with no visible job. This
+  // keeps the poll alive across that gap and lets the UI show a "menyiapkan" note.
+  const [preparing, setPreparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Stops the compare poll loop from running / setState-ing after unmount.
@@ -72,6 +76,7 @@ export function useEvals() {
   // boolean (not the whole `jobs` array) so the interval is created once per
   // active/idle transition; the interval id is local so cleanup can't race.
   const shouldPoll =
+    preparing ||
     jobs.some((j) => isEvalActive(j.status)) ||
     jobs.some(
       (j) => !isEvalActive(j.status) && !isEvalFailed(j.status) && j.scores.length === 0
@@ -81,6 +86,19 @@ export function useEvals() {
     const id = setInterval(loadJobs, 3000);
     return () => clearInterval(id);
   }, [shouldPoll, loadJobs]);
+
+  // Once a background submit's job actually shows up (goes active), we are no
+  // longer "preparing" — normal active-job polling takes over. A hard cap stops
+  // an eval whose merge failed from polling forever.
+  useEffect(() => {
+    if (!preparing) return;
+    if (jobs.some((j) => isEvalActive(j.status))) {
+      setPreparing(false);
+      return;
+    }
+    const cap = setTimeout(() => setPreparing(false), 9 * 60 * 1000);
+    return () => clearTimeout(cap);
+  }, [preparing, jobs]);
 
   const submit = useCallback(
     async (body: {
@@ -93,13 +111,18 @@ export function useEvals() {
       setError(null);
       setSubmitting(true);
       try {
+        // background: the (possibly minutes-long) adapter merge runs server-side
+        // after the response, so the request returns at once instead of holding
+        // the connection until a proxy kills it ("Failed to fetch"). The job
+        // surfaces via polling, which `preparing` keeps alive until it appears.
         const res = await fetch("/api/evals/submit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ ...body, background: true }),
         });
-        const data = (await res.json()) as { jobId?: string; error?: string };
-        if (!res.ok || !data.jobId) throw new Error(data.error || "Failed to start eval");
+        const data = (await res.json()) as { pending?: boolean; error?: string };
+        if (!res.ok || !data.pending) throw new Error(data.error || "Failed to start eval");
+        setPreparing(true);
         await loadJobs();
         return true;
       } catch (err) {
@@ -187,6 +210,7 @@ export function useEvals() {
     jobs,
     loading,
     submitting,
+    preparing,
     error,
     submit,
     comparing,

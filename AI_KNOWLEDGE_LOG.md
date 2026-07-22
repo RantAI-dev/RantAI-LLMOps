@@ -2547,3 +2547,22 @@ User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks 
 **4. Temuan eval set:** held-out asli `sft/train8b/eval.jsonl` = **75 contoh** (bukan 46), semua ada header sitasi+jenjang, seimbang SD/SMP/SMA 23/23/29, 20 penolakan + 55 positif. Jadi "46→75" contoh NYATA sudah bisa (pilih eval.jsonl di loader S3). Ke 200 butuh menulis ~125 contoh baru dari materi nyata — TIDAK dikarang (aturan tanpa data palsu). `sft/train8b/train.jsonl` (6.7MB) = data latih, JANGAN dipakai eval (bocor).
 
 Status deploy: semua perubahan FRONTEND → menunggu user push+release, lalu deploy Portainer.
+
+## 2026-07-22 11:10 WIB — Deploy v0.40.41 ke Portainer (tombol eval-base Retensi + Hitung-ulang Grounding)
+Redeploy stack 21 via Portainer API (PUT 200, PullImage:true, Prune:false). Backend + gateway TETAP pinned @sha256:d4c323 (diverifikasi di line 59 & 177 compose sebelum PUT; skrip menolak deploy kalau tak pinned). Hanya frontend rantai-llmops-fe:latest yang ditarik baru.
+Verifikasi pasca-deploy: auth UTUH (21 fine-tune + 10 eval job masih ada — tak ada pengulangan insiden auth-putus), 2 engine (ollama 7 model + vllm) terdaftar, /api/serve/info HTTP 200. Grounding run lama (8e4a2308) masih citation 0% tersimpan → siap dites tombol "Hitung ulang skor" (harusnya jadi ~100%).
+Catatan kredensial: password Portainer evan sempat dikirim user via chat; dipakai sekali lewat pw.txt lalu DIHAPUS. Lain kali pakai berkas, jangan chat.
+
+## 2026-07-22 11:32 WIB — Dua perbaikan robustness Evals (untuk deploy berikutnya)
+Dipicu insiden: user pilih fine-tune Gemma `67e6f2e0` utk eval -> "Merge for eval failed: ADAPTER_NOT_FOUND". Diagnosis dari log: job 67e6f2e0 GAGAL latih (error device_map='auto', bug lama) tapi ter-badge COMPLETE & tak punya adapter. Job Gemma yang benar = `a082acda` (status success, punya adapter). Retensi Gemma terbukti jalan dgn a082acda: base 82.4% vs FT 86.6% ARC Easy -> dipertahankan.
+
+**Fix #1 — job tanpa adapter hilang dari picker.** `fetchFineTuned` (finetune.ts) sekarang cross-check `jobIdsWithAdapter()`: satu host `find` adapter_config.json di ~/.transformerlab/orgs/*/jobs/*/models/*, ekstrak job-id via regex. Job COMPLETE tanpa adapter (gagal latih) tak lagi tampil di eval/serve/retensi. Aman: kalau find gagal/empty -> tak memfilter (fallback tampilkan semua, jangan sembunyikan fine-tune nyata). Catatan: job gagal BARU sudah otomatis FAILED (perbaikan exit-code), ini utk artefak lama.
+
+**Fix #2 — pesan error manusiawi.** ADAPTER_NOT_FOUND -> "Fine-tune ini tidak punya adapter — proses latihnya kemungkinan gagal meski COMPLETE. Pilih yang berhasil." (evals.ts mergeFineTuneForEval).
+
+**Fix #3 — "Failed to fetch" saat first-eval fine-tune.** Akar: merge adapter->model penuh (9B ~ menit) jalan SINKRON di dalam POST /api/evals/submit -> koneksi ditahan -> proxy putus -> browser "Failed to fetch" walau job sebenarnya sukses launch. Solusi: mode `background:true` (jalur Single-run) -> route balas {pending:true} seketika, merge+launch jalan di background (pola sama seperti grounding runEval). use-evals: state `preparing` menjaga polling sampai job muncul + banner "Menyiapkan model & mengantre eval…". Compare TETAP sinkron (butuh jobId utk sekuensial). tsc bersih, 54 test lolos, regex ekstraksi id diverifikasi (a082acda masuk, 67e6f2e0 tersaring).
+
+Status: FRONTEND -> menunggu user push+release, lalu deploy Portainer (backend tetap pinned).
+
+## 2026-07-22 11:38 WIB — UX: klik "Jalankan base" di Retensi auto-pindah ke Single run
+Permintaan user: setelah klik Jalankan base, otomatis ke tab Single run + refresh biar progress eval baru kelihatan (di Retensi cuma spinner diam sampai skor keluar). evals-page.tsx: onRunBase dibungkus -> `await submit(body); if(ok) setTab("single")`. Jadi begitu base eval diluncurkan, user langsung lihat banner "Menyiapkan…" + progress di Riwayat run. Setelah selesai, balik ke Retensi utk lihat vonis. tsc bersih. (Masuk batch deploy frontend yang sama.)
