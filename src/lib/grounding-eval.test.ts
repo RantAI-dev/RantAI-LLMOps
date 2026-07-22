@@ -7,8 +7,10 @@ import {
   parseCitation,
   parseEvalJsonl,
   parseJenjang,
+  rescoreCase,
   scoreCase,
   type EvalExample,
+  type ScoredCase,
 } from "@/lib/grounding-eval";
 
 const PASSAGE = "[Buku IPA Kelas 3, Bab 2: Wujud Benda]\nBenda punya tiga wujud.\n\nJenjang siswa: SD\n";
@@ -128,6 +130,45 @@ describe("scoreCase", () => {
   it("counts a correctly refused negative as clean", () => {
     const c = scoreCase(negatif, TOLAK);
     expect(c).toMatchObject({ isNegative: true, modelRefused: true, hallucinated: false });
+  });
+});
+
+describe("rescoreCase", () => {
+  it("re-derives the verdicts from stored text using the current rules", () => {
+    // A case as an OLD scorer might have stored it: the reply cites the source
+    // correctly ("Bab 2") but citationOk was frozen false by a stricter rule that
+    // demanded the chapter title too. Re-scoring the same text fixes it — this is
+    // the stale 0% → real 100% that motivated the recompute feature.
+    const stale: ScoredCase = {
+      instruction: positif.instruction,
+      expected: positif.output,
+      actual: "Ada tiga wujud benda. (Sumber: Buku IPA Kelas 3, Bab 2)",
+      jenjang: "SD",
+      isNegative: false,
+      modelRefused: false,
+      citationExpected: "Buku IPA Kelas 3, Bab 2: Wujud Benda",
+      citationOk: false, // stale verdict
+      hallucinated: false,
+      contentOverlap: 0,
+    };
+    expect(rescoreCase(stale).citationOk).toBe(true);
+  });
+
+  it("is a pure function of stored text — it cannot invent a better score", () => {
+    // A genuinely uncited answer stays uncited after recompute.
+    const uncited: ScoredCase = {
+      instruction: positif.instruction,
+      expected: positif.output,
+      actual: "Ada tiga wujud benda.",
+      jenjang: "SD",
+      isNegative: false,
+      modelRefused: false,
+      citationExpected: "Buku IPA Kelas 3, Bab 2: Wujud Benda",
+      citationOk: true, // even a wrongly-optimistic stored verdict is corrected down
+      hallucinated: false,
+      contentOverlap: 1,
+    };
+    expect(rescoreCase(uncited).citationOk).toBe(false);
   });
 });
 

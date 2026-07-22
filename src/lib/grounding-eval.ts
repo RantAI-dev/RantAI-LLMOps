@@ -194,6 +194,18 @@ export function scoreCase(example: EvalExample, actual: string): ScoredCase {
   };
 }
 
+/**
+ * Re-score a stored case with the CURRENT rules. The per-row verdicts
+ * (citationOk, hallucinated, …) are frozen at run time; when the scoring later
+ * improves — as `citesSource` did, going from "0% cited" to "100% cited" on the
+ * SAME replies — a stored run's report goes stale. Re-scoring from the preserved
+ * instruction / expected / actual refreshes it without paying for the model
+ * again. It is a pure function of stored text, so it cannot invent a better score.
+ */
+export function rescoreCase(c: ScoredCase): ScoredCase {
+  return scoreCase({ instruction: c.instruction, output: c.expected }, c.actual);
+}
+
 function summarise(cases: ScoredCase[]): Omit<GroundingReport, "byJenjang"> {
   const negatives = cases.filter((c) => c.isNegative);
   const positives = cases.filter((c) => !c.isNegative);

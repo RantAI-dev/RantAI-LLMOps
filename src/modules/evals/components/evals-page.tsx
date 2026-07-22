@@ -79,7 +79,7 @@ export function EvalsPage() {
               onCompare={submitCompare}
             />
           ) : tab === "retention" ? (
-            <RetentionView options={options} jobs={jobs} />
+            <RetentionView options={options} jobs={jobs} onRunBase={submit} submitting={submitting} />
           ) : (
             <GroundingEval />
           )}

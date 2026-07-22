@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, FlaskConical, Loader2, Trash2, Upload } from "lucide-react";
+import { ChevronDown, ChevronRight, FlaskConical, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { formatInterval, wilsonInterval } from "@/lib/eval-stats";
@@ -325,6 +325,7 @@ export function GroundingEval() {
   // source. Raise it only if replies are visibly getting cut off mid-answer.
   const [maxTokens, setMaxTokens] = useState(192);
   const [starting, setStarting] = useState(false);
+  const [recomputing, setRecomputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [runs, setRuns] = useState<EvalRunSummary[]>([]);
@@ -432,6 +433,25 @@ export function GroundingEval() {
       setActive(null);
     }
     void loadRuns();
+  };
+
+  // Re-score this run's stored replies with the current rules — no model calls.
+  // The scoring logic evolves (the citation fix turned a stored 0% into the real
+  // 100% on the same answers), so a finished run can be refreshed for free.
+  const recompute = async (id: string) => {
+    setRecomputing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/evals/grounding/${id}`, { method: "POST" });
+      const data = (await res.json()) as { run?: EvalRun; error?: string };
+      if (!res.ok || !data.run) throw new Error(data.error || "Gagal menghitung ulang");
+      setActive(data.run);
+      void loadRuns();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menghitung ulang");
+    } finally {
+      setRecomputing(false);
+    }
   };
 
   const running = active?.status === "running";
@@ -563,7 +583,21 @@ export function GroundingEval() {
             <h3 className="text-sm font-semibold text-primary">
               {running ? "Sedang berjalan" : "Hasil"}
             </h3>
-            <span className="font-mono text-[11px] text-ink-soft">{active.model}</span>
+            <div className="flex items-center gap-2">
+              {!running && active.cases?.length ? (
+                <button
+                  type="button"
+                  onClick={() => recompute(active.id)}
+                  disabled={recomputing}
+                  title="Nilai ulang jawaban tersimpan dengan aturan penilaian terbaru — tanpa memanggil model lagi"
+                  className="inline-flex items-center gap-1 rounded border border-hairline-2 bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-soft hover:bg-primary-soft hover:text-primary disabled:opacity-60"
+                >
+                  <RefreshCw className={cn("size-3", recomputing && "animate-spin")} aria-hidden />
+                  {recomputing ? "Menghitung…" : "Hitung ulang skor"}
+                </button>
+              ) : null}
+              <span className="font-mono text-[11px] text-ink-soft">{active.model}</span>
+            </div>
           </div>
 
           {running ? (

@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, MinusCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, MinusCircle, Loader2, Play } from "lucide-react";
 
 import { benchmarkById } from "@/lib/benchmarks";
 import { compareScores, formatPct } from "@/lib/eval-stats";
 import type { EvalJob, EvalModel, EvalOptions, EvalScore } from "@/lib/evals";
+import { isEvalActive } from "@/modules/evals/hooks/use-evals";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,13 +37,29 @@ function Row({
   benchmark,
   base,
   ft,
+  baseActive,
+  running,
+  submitting,
+  onRunBase,
 }: {
   benchmark: string;
   base: EvalScore | null;
   ft: EvalScore | null;
+  /** A base eval on this benchmark is queued/running. */
+  baseActive: boolean;
+  /** This row's "run base" click is in flight. */
+  running: boolean;
+  /** Some eval is being submitted (shared submit state) — disable to avoid double-launch. */
+  submitting: boolean;
+  onRunBase: (benchmark: string) => void;
 }) {
   const bench = benchmarkById(benchmark);
   const name = bench?.name ?? benchmark;
+  // Offer to run the base only when there's a fine-tune score to compare against
+  // but the base was never measured on this benchmark — exactly the gap that
+  // otherwise forces a manual trip to Single run.
+  const canRunBase = !!ft && !base;
+  const basePending = running || baseActive;
 
   let verdict: Verdict = "unknown";
   let delta: number | null = null;
@@ -78,6 +95,22 @@ function Row({
             {formatPct(base.score)}
             {base.stderr != null ? <span className="text-ink-faint"> ±{(base.stderr * 100).toFixed(1)}</span> : null}
           </>
+        ) : basePending ? (
+          <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft">
+            <Loader2 className="size-3 animate-spin" aria-hidden />
+            menjalankan…
+          </span>
+        ) : canRunBase ? (
+          <button
+            type="button"
+            onClick={() => onRunBase(benchmark)}
+            disabled={submitting}
+            className="inline-flex items-center gap-1 rounded border border-hairline-2 bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary-soft disabled:opacity-60"
+            title="Jalankan benchmark ini pada model dasar (coverage disamakan dengan fine-tune)"
+          >
+            <Play className="size-2.5" aria-hidden />
+            Jalankan base
+          </button>
         ) : (
           <span className="text-ink-faint">belum dieval</span>
         )}
@@ -108,7 +141,23 @@ function Row({
   );
 }
 
-export function RetentionView({ options, jobs }: { options: EvalOptions; jobs: EvalJob[] }) {
+export function RetentionView({
+  options,
+  jobs,
+  onRunBase,
+  submitting,
+}: {
+  options: EvalOptions;
+  jobs: EvalJob[];
+  /** Reuses the Single-run submit path — launches a base-model benchmark. */
+  onRunBase: (body: {
+    model: string;
+    benchmark: string;
+    limit: number;
+    fineTuned?: boolean;
+  }) => Promise<boolean>;
+  submitting: boolean;
+}) {
   // Only fine-tunes that know their base model can be paired.
   const fineTunes = useMemo(
     () => options.models.filter((m): m is EvalModel & { baseModel: string } => m.fineTuned && !!m.baseModel),
@@ -116,6 +165,27 @@ export function RetentionView({ options, jobs }: { options: EvalOptions; jobs: E
   );
   const [picked, setPicked] = useState<string>("");
   const ft = fineTunes.find((f) => f.id === picked) ?? fineTunes[0];
+
+  // One-click "evaluate the base on this benchmark", so the Retention view can
+  // fill its own Base column instead of sending the user to Single run. Coverage
+  // is matched to the fine-tune's run on that benchmark — comparing a 10% base to
+  // a 100% fine-tune would read the sampling gap as a capability gap.
+  const [runningBench, setRunningBench] = useState<string | null>(null);
+  const runBase = async (benchmark: string) => {
+    if (!ft) return;
+    setRunningBench(benchmark);
+    try {
+      const ftJob = jobs.find(
+        (j) => j.model === ft.name && j.benchmark === benchmark && j.status === "COMPLETE"
+      );
+      const limit = ftJob?.coverage ?? 0.1;
+      await onRunBase({ model: ft.baseModel, benchmark, limit, fineTuned: false });
+    } finally {
+      setRunningBench(null);
+    }
+  };
+  const isBaseActive = (benchmark: string) =>
+    !!ft && jobs.some((j) => j.model === ft.baseModel && j.benchmark === benchmark && isEvalActive(j.status));
 
   const analysis = useMemo(() => {
     if (!ft) return null;
@@ -180,8 +250,9 @@ export function RetentionView({ options, jobs }: { options: EvalOptions; jobs: E
           {analysis.pairedCount === 0 ? (
             <div className="mb-3 flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-[12px] text-warning">
               <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden />
-              Belum ada benchmark yang dijalankan pada <strong>keduanya</strong>. Jalankan benchmark yang sama di
-              tab <strong>Single run</strong> untuk base ({baseLabel}) dan untuk fine-tune ini, lalu kembali ke sini.
+              Belum ada benchmark yang dijalankan pada <strong>keduanya</strong>. Untuk tiap benchmark yang sudah
+              punya skor fine-tune di bawah, klik <strong>Jalankan base</strong> di kolom Base — otomatis mengevaluasi
+              model dasar ({baseLabel}) pada benchmark yang sama.
             </div>
           ) : analysis.dropped.length > 0 ? (
             <div className="mb-3 flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-[13px] text-danger">
@@ -210,13 +281,23 @@ export function RetentionView({ options, jobs }: { options: EvalOptions; jobs: E
             <span className="text-right">Retensi</span>
           </div>
           {analysis.rows.map((r) => (
-            <Row key={r.benchmark} benchmark={r.benchmark} base={r.base} ft={r.ft} />
+            <Row
+              key={r.benchmark}
+              benchmark={r.benchmark}
+              base={r.base}
+              ft={r.ft}
+              baseActive={isBaseActive(r.benchmark)}
+              running={runningBench === r.benchmark}
+              submitting={submitting}
+              onRunBase={runBase}
+            />
           ))}
 
           <p className="mt-3 flex items-center gap-1.5 text-[11px] leading-4 text-ink-faint">
             <MinusCircle className="size-3 shrink-0" aria-hidden />
             &quot;Dipertahankan&quot; = selisih dalam batas galat. &quot;TURUN&quot; = penurunan yang melebihi galat
-            (nyata). Kolom Base butuh benchmark dijalankan juga pada model dasar.
+            (nyata). Base yang masih kosong bisa diisi langsung lewat tombol <strong>Jalankan base</strong> (coverage
+            otomatis disamakan dengan fine-tune).
           </p>
         </div>
       ) : (

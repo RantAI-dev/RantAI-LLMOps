@@ -2529,3 +2529,21 @@ User konfirmasi "udah bisa" — chat vLLM di Interact jalan tanpa error konteks 
 **Verifikasi:** tsc 0, eslint 0, build. Base yg akan muncul (dari data live): Gemma-SEA-LION-v3-9B-IT, Apertus-SEA-LION-v4-8B-IT, Llama-SEA-LION-v3.5-8B-R, Qwen3-0.6B, dll.
 **Deploy: FRONTEND -> push+rilis+Portainer.** Belum di-commit/push.
 **Catatan alur:** Retensi butuh benchmark yg SAMA pada base DAN fine-tune. Apertus-FT sudah punya arc_easy+winogrande -> tinggal jalankan pada Apertus-BASE utk lihat Retensi terisi. Gemma butuh dua-duanya.
+
+## 2026-07-22 10:27 WIB — Eval base Apertus selesai, tab Retensi punya data nyata
+- Menjalankan Single-run eval **Apertus-SEA-LION-v4-8B-IT (base)** di ARC Easy (10% coverage) untuk mengisi tab Retensi. Sempat terlihat "diam" karena eval harness mengunduh base 8B fresh dari HF (~16 GB) — progres download disembunyikan HF, jadi log berhenti di "device map set". BUKAN gagal.
+- Dipantau dari server: setelah unduh selesai → `Loading checkpoint shards 4/4` → GPU +13 GB → `Running loglikelihood 951/951` → skor tersimpan.
+- **Hasil base: arc_easy acc = 72,69% (±2,89%)**. Fine-tune `apertus-...-train8b` = 79,41% acc. Selisih +6,7 poin (arah NAIK).
+- Vonis retensi: **AMAN, tidak ada catastrophic forgetting** (tidak turun; malah naik). Catatan jujur: pada coverage 10% (~238 soal), selisih ini belum signifikan secara statistik (CI 95% masih menyentuh 0). Untuk angka meyakinkan → naikkan coverage.
+- Pelajaran: eval model BASE = biaya unduh sekali dari HF; berbeda dgn fine-tune yg modelnya sudah ter-cache dari proses latih.
+
+## 2026-07-22 10:55 WIB — Dua peningkatan LLMOps: tombol eval-base di Retensi + fitur Hitung-ulang skor Grounding
+**1. Tombol "▶ Jalankan base" di tab Retensi** (frontend). Untuk tiap benchmark yang fine-tune-nya sudah punya skor tapi base-nya "belum dieval", muncul tombol di kolom Base → satu klik antri eval base pada benchmark yang sama lewat alur submit Single-run. Coverage OTOMATIS disamakan dengan run fine-tune (baca `coverage` job FT; fallback 10%) supaya perbandingan adil (bukan base 10% vs FT 100%). Saat jalan jadi spinner "menjalankan…"; selesai → skor+vonis muncul via polling. Menghapus friksi terbesar fitur Retensi (tak perlu ke Single-run manual). File: retention-view.tsx, evals-page.tsx (teruskan `submit`+`submitting`).
+
+**2. Investigasi citationAccuracy 0% → BASI, bukan bug.** Ditarik run grounding nyata (id 8e4a2308, model Qwen-SEA-LION, 46 soal). Ternyata model SELALU menyebut sumber benar (`(Sumber: Buku IPA Kelas 3, Bab 2)`), tapi citationOk=0 karena run di-score pakai kode LAMA yang menuntut judul bab lengkap. Kubuktikan dgn port logika `citesSource` versi sekarang ke 36 jawaban positif tersimpan: kode-lama 0/36, kode-sekarang **36/36 = 100%**. Tidak ada bug di kode sekarang.
+
+**3. Fitur "Hitung ulang skor" (recompute) Grounding** (frontend+API). Karena per-baris verdict beku saat run, perbaikan aturan penilaian membuat report lama basi. Tambah `rescoreCase()` (pure: `scoreCase({instruction, output:expected}, actual)`), endpoint `POST /api/evals/grounding/[id]` (nilai ulang dari jawaban tersimpan, tanpa panggil model), tombol "Hitung ulang skor" di panel Hasil. Langsung ubah run 0% jadi 100% tanpa run ulang. +2 unit test (rescoreCase: perbaiki skor basi ke atas, koreksi optimistis ke bawah). tsc bersih, 24 test grounding lolos.
+
+**4. Temuan eval set:** held-out asli `sft/train8b/eval.jsonl` = **75 contoh** (bukan 46), semua ada header sitasi+jenjang, seimbang SD/SMP/SMA 23/23/29, 20 penolakan + 55 positif. Jadi "46→75" contoh NYATA sudah bisa (pilih eval.jsonl di loader S3). Ke 200 butuh menulis ~125 contoh baru dari materi nyata — TIDAK dikarang (aturan tanpa data palsu). `sft/train8b/train.jsonl` (6.7MB) = data latih, JANGAN dipakai eval (bocor).
+
+Status deploy: semua perubahan FRONTEND → menunggu user push+release, lalu deploy Portainer.
