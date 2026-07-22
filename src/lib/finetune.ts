@@ -771,38 +771,6 @@ export async function exportFineTunedToGguf(
  * whether it's been served to Ollama yet (`ready` + its `loadModelId` tag).
  * `fusedModelId` carries the train job id — the input to {@link exportFineTunedToGguf}.
  */
-/**
- * Train-job ids that actually produced a LoRA adapter on disk. A job can be
- * COMPLETE yet have no adapter: training failed but an older trainer still
- * exited 0, so TL marked it done — exactly what the `device_map='auto'` bug did.
- * Such a job cannot be merged, evaluated, served, or compared, so it must not
- * appear as a usable fine-tune (the eval merge would fail with ADAPTER_NOT_FOUND).
- *
- * Mirrors the path the merge script itself looks under. Returns null if the host
- * lookup fails, meaning "unknown — do not filter", so a transient error never
- * hides real fine-tunes.
- */
-async function jobIdsWithAdapter(): Promise<Set<string> | null> {
-  try {
-    // `|| true`: find exits non-zero on a permission hiccup; an empty result must
-    // read as "none found here", not as a thrown error that hides everything.
-    const { stdout } = await runHostScript(
-      'find "$HOME/.transformerlab/orgs" -path "*/jobs/*/models/*" -name adapter_config.json -printf "%p\\n" 2>/dev/null || true',
-      [],
-      { timeoutMs: 20_000 }
-    );
-    const ids = new Set<string>();
-    for (const line of stdout.split("\n")) {
-      const m = /\/jobs\/([^/]+)\/models\//.exec(line.trim());
-      if (m) ids.add(m[1]);
-    }
-    return ids;
-  } catch (err) {
-    logServerError("jobIdsWithAdapter", err);
-    return null;
-  }
-}
-
 export async function fetchFineTuned(): Promise<FineTunedModel[]> {
   let rows: TlJob[];
   try {
@@ -814,17 +782,9 @@ export async function fetchFineTuned(): Promise<FineTunedModel[]> {
   const servable = new Set(
     (await listOllamaModels()).map((m) => m.id.replace(/:latest$/, ""))
   );
-  // A COMPLETE job with no adapter is a failed train that TL mislabeled done;
-  // drop it so it can't be picked for eval/serve/retention. Only filter when the
-  // lookup returned a non-empty set — an empty/failed lookup falls back to
-  // showing all, so a glitch never hides a real fine-tune.
-  const withAdapter = await jobIdsWithAdapter();
-  const hasAdapter = (id: string) =>
-    !withAdapter || withAdapter.size === 0 || withAdapter.has(id);
   return rows
     .filter(isTrainJob)
     .filter((j) => String(j.status ?? "").toUpperCase() === "COMPLETE")
-    .filter((j) => hasAdapter(String(j.id ?? "")))
     .map((j) => {
       const d = j.job_data ?? {};
       const name = d.task_name ?? `Job ${j.id}`;

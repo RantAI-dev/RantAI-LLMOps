@@ -2566,3 +2566,9 @@ Status: FRONTEND -> menunggu user push+release, lalu deploy Portainer (backend t
 
 ## 2026-07-22 11:38 WIB — UX: klik "Jalankan base" di Retensi auto-pindah ke Single run
 Permintaan user: setelah klik Jalankan base, otomatis ke tab Single run + refresh biar progress eval baru kelihatan (di Retensi cuma spinner diam sampai skor keluar). evals-page.tsx: onRunBase dibungkus -> `await submit(body); if(ok) setTab("single")`. Jadi begitu base eval diluncurkan, user langsung lihat banner "Menyiapkan…" + progress di Riwayat run. Setelah selesai, balik ke Retensi utk lihat vonis. tsc bersih. (Masuk batch deploy frontend yang sama.)
+
+## 2026-07-22 11:52 WIB — KOREKSI: Fix #1 (auto-hide job tanpa adapter) TIDAK jalan → direvert
+Setelah deploy v0.40.42, cek: job gagal 67e6f2e0 MASIH muncul di dropdown eval. Akar: `jobIdsWithAdapter()` pakai `find` host lewat runHostScript → sidecar (docker/backend/export-server.py) punya ALLOWLIST (`_ALLOWED`: rantai_merge.sh, rantai_export_gguf.sh, rantai_serve_finetune.sh, nvidia-smi). Perintah `find` mentah DITOLAK → error → jobIdsWithAdapter return null → fallback tampilkan semua. KESALAHANKU: tak cek allowlist sebelum menulis host-find. Direvert (finetune.ts kembali ke filter status==COMPLETE saja) supaya tak ada panggilan sidecar gagal tiap fetchFineTuned.
+Pelajaran: host command via sidecar HARUS salah satu skrip di allowlist; perintah arbitrer diblok. Backend ter-pin → tak menambah skrip probe.
+Solusi job gagal: (a) pesan error manusiawi #2 TETAP jalan (lewat rantai_merge.sh yang diizinkan) sebagai jaring pengaman; (b) job gagal BARU sudah auto-FAILED (perbaikan exit-code) → tak muncul; (c) artefak lama seperti 67e6f2e0 cukup DIHAPUS sekali (DELETE /api/finetune/jobs/[id] atau tombol sampah).
+Fix #2 (pesan ramah) + #3 (background submit) + auto-switch tab TETAP valid & sudah live di v0.40.42. Revert host-find menunggu deploy berikutnya.
