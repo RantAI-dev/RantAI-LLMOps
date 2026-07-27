@@ -21,9 +21,11 @@
   --secondary-foreground: oklch(0.15 0 0);
   --muted: oklch(0.92 0.01 80);
   --muted-foreground: oklch(0.45 0 0);
-  /* Blue accent — matches the RantAI logo's blue puzzle squares */
-  --accent: oklch(0.55 0.2 250);
-  --accent-foreground: oklch(1 0 0);
+  /* Accent = hover/selected surfaces (dropdown/select items, theme toggle).
+     Neutral grey to match the monochrome UI — was a saturated logo-blue that
+     clashed with the grey theme; realigned to match the dark theme's grey accent. */
+  --accent: oklch(0.92 0.01 80);
+  --accent-foreground: oklch(0.15 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.88 0.01 80);
   --input: oklch(0.92 0.01 80);
