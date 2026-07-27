@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils";
 type DownloadStatus = "all" | "downloaded" | "explore";
 
 const TASKS = [
-  { value: "all", label: "Semua task", hint: "ALL" },
+  { value: "all", label: "All tasks", hint: "ALL" },
   { value: "text-generation", label: "Text Generation", hint: "GEN" },
   { value: "text2text-generation", label: "Text2Text", hint: "T2T" },
   { value: "feature-extraction", label: "Embeddings", hint: "EMB" },
@@ -51,15 +51,15 @@ const EXPLORE_SORTS = [
 ];
 
 const DOWNLOADED_SORTS = [
-  { value: "name", label: "Nama A–Z", hint: "A–Z" },
-  { value: "size-desc", label: "Ukuran terbesar", hint: "↓" },
-  { value: "size-asc", label: "Ukuran terkecil", hint: "↑" },
+  { value: "name", label: "Name A–Z", hint: "A–Z" },
+  { value: "size-desc", label: "Largest first", hint: "↓" },
+  { value: "size-asc", label: "Smallest first", hint: "↑" },
 ];
 
 const FORMATS = [
   { value: "gguf", label: "GGUF", hint: "Chat" },
   { value: "safetensors", label: "Safetensors", hint: "Fine-tune" },
-  { value: "all", label: "Semua format", hint: "ALL" },
+  { value: "all", label: "All formats", hint: "ALL" },
 ];
 
 export function HubModels() {
@@ -144,7 +144,7 @@ export function HubModels() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search"
-        searchAriaLabel={showingDownloaded ? "Cari model lokal" : "Cari model Hugging Face"}
+        searchAriaLabel={showingDownloaded ? "Search local models" : "Search Hugging Face models"}
         segments={[
           { value: "all", label: "All", count: models.length },
           {
@@ -210,24 +210,24 @@ export function HubModels() {
       ) : (
         <>
           <p className="text-[12px] leading-5 text-ink-soft">
-            <span className="font-medium text-ink">GGUF</span> dapat di-download dan langsung
-            dipakai untuk chat lewat Ollama.{" "}
-            <span className="font-medium text-ink">Safetensors</span> adalah base model untuk
-            fine-tune, bukan model chat siap pakai.
+            <span className="font-medium text-ink">GGUF</span> models can be downloaded and used
+            for chat right away via Ollama.{" "}
+            <span className="font-medium text-ink">Safetensors</span> are fine-tune base models,
+            not ready-to-use chat models.
           </p>
 
           {error ? (
-            <ErrorState title="Model gagal dimuat" description={error} onRetry={reloadHub} />
+            <ErrorState title="Failed to load models" description={error} onRetry={reloadHub} />
           ) : loading ? (
-            <LoadingState label="Memuat model dari Hugging Face…" />
+            <LoadingState label="Loading models from Hugging Face…" />
           ) : visibleModels.length === 0 ? (
             <EmptyState
               icon={PackageSearch}
-              title="Model tidak ditemukan"
-              description="Coba kata kunci lain atau reset filter."
+              title="No models found"
+              description="Try a different search or reset the filters."
               action={
                 <Button type="button" size="sm" variant="outline" onClick={resetFilters}>
-                  Reset filter
+                  Reset filters
                 </Button>
               }
             />
@@ -258,7 +258,7 @@ function FormatBadge({ format }: { format: HubModel["format"] }) {
         gguf ? "bg-primary-soft text-primary" : "bg-warning/15 text-warning"
       )}
       title={
-        gguf ? "Bisa langsung di-chat (Ollama)" : "Base model fine-tune — gak bisa di-chat langsung"
+        gguf ? "Chat-ready (Ollama)" : "Fine-tune base model — not directly chattable"
       }
     >
       {gguf ? "GGUF" : "safetensors"}
@@ -294,7 +294,7 @@ function HubModelCard({
     try {
       const res = await fetch(`/api/hub/model?repo=${encodeURIComponent(model.id)}`);
       const data = (await res.json()) as { quants?: HubQuant[]; error?: string };
-      if (!res.ok) throw new Error(data.error || "Gagal");
+      if (!res.ok) throw new Error(data.error || "Failed");
       const list = data.quants ?? [];
       setQuants(list);
       const preferred = ["Q4_K_M", "Q4_0", "Q5_K_M", "Q8_0"].find((q) =>
@@ -314,11 +314,11 @@ function HubModelCard({
     setPercent(null);
     try {
       await pullModelWithProgress(`hf.co/${model.id}:${quant}`, (p) => setPercent(p));
-      toast.success(`Downloaded — pilih di picker Chat untuk dipakai`);
+      toast.success(`Downloaded — select it in the Chat picker to use it`);
       setOpen(false);
       onDownloaded();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Download gagal");
+      toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {
       setPulling(false);
       setPercent(null);
@@ -353,7 +353,7 @@ function HubModelCard({
           target="_blank"
           rel="noreferrer"
           className="grid size-8 shrink-0 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
-          title="Buka di Hugging Face"
+          title="Open on Hugging Face"
         >
           <ExternalLink className="size-4" />
         </a>
@@ -361,8 +361,8 @@ function HubModelCard({
         {downloaded ? (
           <span
             className="grid size-8 shrink-0 place-items-center rounded-full bg-success-soft text-success"
-            title="Sudah di Ollama"
-            aria-label="Sudah di-download"
+            title="Already in Ollama"
+            aria-label="Downloaded"
           >
             <CheckCircle2 className="size-4" aria-hidden />
           </span>
@@ -374,8 +374,8 @@ function HubModelCard({
             size="icon-sm"
             variant={downloaded ? "outline" : open ? "outline" : "default"}
             onClick={openDownload}
-            title={downloaded ? "Download ulang / quant lain" : "Download ke Ollama"}
-            aria-label={downloaded ? "Download ulang" : "Download"}
+            title={downloaded ? "Re-download / pick another quant" : "Download to Ollama"}
+            aria-label={downloaded ? "Re-download" : "Download"}
           >
             {pulling ? (
               <Loader2 className="size-4 animate-spin" />
@@ -387,7 +387,7 @@ function HubModelCard({
           <Link
             href={`/finetune?base=${encodeURIComponent(model.id)}`}
             className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[13px] font-medium text-ink hover:bg-surface-2"
-            title="Pakai sebagai base model fine-tune"
+            title="Use as fine-tune base model"
           >
             <Sparkles className="size-3.5" /> Fine-tune
           </Link>
@@ -398,11 +398,11 @@ function HubModelCard({
         <div className="space-y-2 border-t border-border px-3 py-2.5">
           {loadingQuants ? (
             <p className="flex items-center gap-2 text-[13px] text-ink-soft">
-              <Loader2 className="size-3.5 animate-spin" /> Membaca quant…
+              <Loader2 className="size-3.5 animate-spin" /> Reading quants…
             </p>
           ) : quants && quants.length === 0 ? (
             <p className="text-[13px] text-ink-soft">
-              Repo ini tidak punya file .gguf — coba repo GGUF lain.
+              This repo has no .gguf files — try another GGUF repo.
             </p>
           ) : (
             <>
@@ -429,7 +429,7 @@ function HubModelCard({
                     : `Pull hf.co/…:${quant}`}
                 </Button>
                 {model.gated ? (
-                  <span className="text-[11px] text-warning">gated — butuh HF_TOKEN di server</span>
+                  <span className="text-[11px] text-warning">gated — requires HF_TOKEN on the server</span>
                 ) : null}
               </div>
               {pulling && percent != null ? (
@@ -447,15 +447,15 @@ function HubModelCard({
 
       {!isGguf ? (
         <div className="border-t border-border px-3 py-2 text-[12px] text-ink-soft">
-          Format <span className="font-medium">safetensors</span> — gak bisa di-chat langsung. Pakai
-          buat{" "}
+          <span className="font-medium">safetensors</span> format — not directly chattable. Use it
+          for{" "}
           <Link
             href={`/finetune?base=${encodeURIComponent(model.id)}`}
             className="text-primary underline underline-offset-2"
           >
-            fine-tune
+            fine-tuning
           </Link>
-          , atau cari versi GGUF-nya kalau mau langsung chat.
+          , or find its GGUF version if you want to chat directly.
         </div>
       ) : null}
     </div>

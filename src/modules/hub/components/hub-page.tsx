@@ -24,8 +24,8 @@ export function HubPage() {
           </InfoTip>
         </div>
         <p className="mt-1 max-w-2xl text-[13px] text-ink-soft">
-          Temukan model dan dataset dari Hugging Face. Download model GGUF untuk chat lewat Ollama,
-          atau pilih base model dan dataset untuk fine-tune.
+          Find models and datasets on Hugging Face. Download GGUF models to chat via Ollama, or pick
+          a base model and dataset to fine-tune.
         </p>
       </div>
 

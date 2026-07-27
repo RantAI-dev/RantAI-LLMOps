@@ -29,7 +29,7 @@ export function useHubDatasets(search: string, sort: string, category: string) {
         })
         .catch(() => {
           if (cancelled) return;
-          setError("Gagal memuat dari Hugging Face");
+          setError("Failed to load from Hugging Face");
           setLoading(false);
         });
     }, 350);

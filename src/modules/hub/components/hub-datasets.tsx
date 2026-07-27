@@ -24,7 +24,7 @@ const SORTS = [
 ];
 
 const CATEGORIES = [
-  { value: "all", label: "Semua kategori", hint: "ALL" },
+  { value: "all", label: "All categories", hint: "ALL" },
   { value: "task_categories:text-generation", label: "Text generation", hint: "GEN" },
   { value: "task_categories:conversational", label: "Conversational", hint: "CHAT" },
   { value: "task_categories:question-answering", label: "Question answering", hint: "QA" },
@@ -48,7 +48,7 @@ export function HubDatasets() {
   }
 
   function pickForFinetune(id: string) {
-    toast.success(`Dataset "${id}" dipilih untuk fine-tune`);
+    toast.success(`Dataset "${id}" selected for fine-tuning`);
     router.push(`/finetune?dataset=${encodeURIComponent(id)}`);
   }
 
@@ -58,7 +58,7 @@ export function HubDatasets() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search"
-        searchAriaLabel="Cari dataset Hugging Face"
+        searchAriaLabel="Search Hugging Face datasets"
         searchAside={
           <FilterDropdown
             label="Sort"
@@ -70,7 +70,7 @@ export function HubDatasets() {
         }
       >
         <FilterDropdown
-          label="Kategori"
+          label="Category"
           value={category}
           onChange={setCategory}
           options={CATEGORIES}
@@ -80,28 +80,29 @@ export function HubDatasets() {
 
       <div className="flex flex-col gap-2 rounded-lg border border-hairline bg-surface-2 px-3 py-2.5 text-[12px] leading-5 text-ink-soft sm:flex-row sm:items-center sm:justify-between">
         <p>
-          Dataset HF tidak perlu di-download. Trainer mengambilnya by-id saat fine-tune dijalankan.
+          Hugging Face datasets don&apos;t need to be downloaded — the trainer pulls them by id when
+          fine-tuning runs.
         </p>
         <Link
           href="/datasets"
           className={buttonVariants({ size: "sm", variant: "outline", className: "shrink-0" })}
         >
-          <Database className="size-4" /> Lihat dataset lokal
+          <Database className="size-4" /> View local datasets
         </Link>
       </div>
 
       {error ? (
-        <ErrorState title="Dataset gagal dimuat" description={error} onRetry={reload} />
+        <ErrorState title="Failed to load datasets" description={error} onRetry={reload} />
       ) : loading ? (
-        <LoadingState label="Memuat dataset dari Hugging Face…" />
+        <LoadingState label="Loading datasets from Hugging Face…" />
       ) : datasets.length === 0 ? (
         <EmptyState
           icon={Database}
-          title="Dataset tidak ditemukan"
-          description="Coba kata kunci atau kategori lain."
+          title="No datasets found"
+          description="Try a different search or category."
           action={
             <Button type="button" size="sm" variant="outline" onClick={resetFilters}>
-              Reset filter
+              Reset filters
             </Button>
           }
         />
@@ -135,7 +136,7 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         target="_blank"
         rel="noreferrer"
         className="grid size-8 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
-        title="Buka di Hugging Face"
+        title="Open on Hugging Face"
       >
         <ExternalLink className="size-4" />
       </a>
@@ -145,9 +146,9 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         variant="outline"
         onClick={() => {
           void navigator.clipboard?.writeText(dataset.id);
-          toast.success("Dataset id disalin");
+          toast.success("Dataset id copied");
         }}
-        title="Salin id"
+        title="Copy id"
       >
         <Copy className="size-4" />
       </Button>

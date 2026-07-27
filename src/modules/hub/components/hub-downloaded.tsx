@@ -52,7 +52,7 @@ export function HubDownloaded({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-[13px] text-ink-soft">
-          {loading ? "Memuat…" : `${models.length} model · total ${formatSize(totalMb)}`}
+          {loading ? "Loading…" : `${models.length} models · ${formatSize(totalMb)} total`}
         </p>
         <Button type="button" size="sm" variant="ghost" onClick={() => reload()} title="Refresh">
           <RefreshCw className="size-4" />
@@ -60,25 +60,25 @@ export function HubDownloaded({
       </div>
 
       <p className="text-[12px] leading-5 text-ink-soft">
-        Model yang sudah di-download (Ollama). Hapus yang tak dipakai untuk melegakan disk — bisa
-        di-download lagi kapan saja lewat Explore.
+        Models already downloaded (Ollama). Delete the ones you don&apos;t use to free up disk — you
+        can download them again anytime from Explore.
       </p>
 
       {loading ? (
-        <LoadingState label="Memuat model lokal…" />
+        <LoadingState label="Loading local models…" />
       ) : visibleModels.length === 0 ? (
         <EmptyState
           icon={HardDrive}
-          title={models.length === 0 ? "Belum ada model yang di-download" : "Model tidak ditemukan"}
+          title={models.length === 0 ? "No models downloaded yet" : "No models found"}
           description={
             models.length === 0
-              ? "Buka Explore untuk mencari dan men-download model GGUF."
-              : "Coba kata kunci lain atau kosongkan pencarian."
+              ? "Open Explore to search for and download GGUF models."
+              : "Try a different search or clear it."
           }
           action={
             models.length > 0 && onClearSearch ? (
               <Button type="button" size="sm" variant="outline" onClick={onClearSearch}>
-                Reset pencarian
+                Clear search
               </Button>
             ) : null
           }
@@ -145,8 +145,8 @@ function DownloadedModelCard({
 
         <span
           className="grid size-8 shrink-0 place-items-center rounded-full bg-success-soft text-success"
-          title="Sudah di Ollama"
-          aria-label="Sudah di-download"
+          title="Already in Ollama"
+          aria-label="Downloaded"
         >
           <CheckCircle2 className="size-4" aria-hidden />
         </span>
@@ -160,10 +160,10 @@ function DownloadedModelCard({
               disabled={deleting === model.id}
               onClick={onRemove}
             >
-              {deleting === model.id ? "Menghapus…" : "Hapus"}
+              {deleting === model.id ? "Deleting…" : "Delete"}
             </Button>
             <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-              Batal
+              Cancel
             </Button>
           </div>
         ) : (
@@ -173,8 +173,8 @@ function DownloadedModelCard({
             variant="outline"
             className="shrink-0 text-ink-soft hover:text-danger"
             onClick={onConfirm}
-            aria-label={`Hapus ${model.name}`}
-            title="Hapus"
+            aria-label={`Delete ${model.name}`}
+            title="Delete"
           >
             <Trash2 className="size-4" />
           </Button>

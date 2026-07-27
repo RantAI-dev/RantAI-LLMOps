@@ -103,7 +103,7 @@ export function FilterDropdown({
         className={cn(
           "inline-flex h-9 items-center gap-1.5 rounded-lg border bg-background px-3 text-sm font-medium text-ink shadow-sm transition-colors",
           open
-            ? "border-info/40 bg-info-soft text-ink"
+            ? "border-ink/30 bg-surface-2 text-ink"
             : "border-border hover:bg-surface-2"
         )}
       >
@@ -111,7 +111,7 @@ export function FilterDropdown({
         <ChevronDown
           className={cn(
             "size-3.5 shrink-0 transition-colors",
-            open ? "text-info" : "text-ink-faint"
+            open ? "text-ink" : "text-ink-faint"
           )}
           aria-hidden
         />
@@ -158,7 +158,7 @@ export function FilterDropdown({
             className="max-h-64 overflow-y-auto py-1.5"
           >
             {filtered.length === 0 ? (
-              <li className="px-3 py-2.5 text-sm text-ink-soft">Tidak ada hasil</li>
+              <li className="px-3 py-2.5 text-sm text-ink-soft">No results</li>
             ) : (
               filtered.map((option) => {
                 const active = option.value === value;
@@ -188,7 +188,7 @@ export function FilterDropdown({
                         ) : null}
                       </span>
                       {active ? (
-                        <Check className="size-3.5 shrink-0 text-info" aria-hidden />
+                        <Check className="size-3.5 shrink-0 text-ink" aria-hidden />
                       ) : null}
                     </button>
                   </li>
