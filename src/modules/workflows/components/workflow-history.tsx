@@ -62,8 +62,8 @@ export function WorkflowHistory({
       <div className="rounded-xl border border-dashed border-border bg-surface p-4">
         <h2 className="text-sm font-semibold text-primary">History</h2>
         <p className="mt-1 text-[12px] text-ink-soft">
-          No runs recorded yet. Every pipeline you run from now on will appear here (stored locally
-          in this browser).
+          No runs recorded yet. Every pipeline you run from now on will appear here (stored on the
+          server, shared across the team).
         </p>
       </div>
     );
@@ -75,7 +75,7 @@ export function WorkflowHistory({
         <div>
           <h2 className="text-sm font-semibold text-primary">History</h2>
           <p className="text-[11px] text-ink-soft">
-            Stored locally in this browser ({runs.length}).
+            Stored on the server ({runs.length}).
           </p>
         </div>
         <Button
@@ -83,7 +83,7 @@ export function WorkflowHistory({
           size="sm"
           variant="outline"
           onClick={() => {
-            if (window.confirm("Delete all workflow history (this browser)?")) onClear();
+            if (window.confirm("Delete all workflow history?")) onClear();
           }}
         >
           <Trash2 className="size-3.5" /> Delete

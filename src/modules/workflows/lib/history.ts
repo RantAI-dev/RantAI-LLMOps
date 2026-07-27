@@ -3,10 +3,9 @@
 import type { StageKey, StageStatus } from "@/modules/workflows/hooks/use-pipeline";
 
 /**
- * Local workflow-run history. Transformer Lab has no "pipeline" concept and we
- * have no DB, so each run is recorded in this browser's localStorage. It's honest
- * LOCAL history (per-browser, not team-shared) — enough to see past runs, their
- * config, per-stage outcome, and the trained model.
+ * Workflow-run history. Persisted SERVER-SIDE via /api/workflows/runs
+ * (src/lib/workflow-run-store.ts), so it's team-visible and survives a browser
+ * cache clear — consistent with how eval runs are stored.
  */
 
 export type RunOverall = "success" | "partial" | "failed";
@@ -29,33 +28,39 @@ export type WorkflowRun = {
   overall: RunOverall;
 };
 
-const KEY = "rantai:workflow-runs";
-const MAX = 50;
+const API = "/api/workflows/runs";
 
-export function loadRuns(): WorkflowRun[] {
+/** All runs, newest first (from the server). */
+export async function loadRuns(): Promise<WorkflowRun[]> {
   try {
-    const raw = window.localStorage.getItem(KEY);
-    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(parsed) ? (parsed as WorkflowRun[]) : [];
+    const res = await fetch(API, { cache: "no-store" });
+    const data = (await res.json()) as { runs?: WorkflowRun[] };
+    return Array.isArray(data.runs) ? data.runs : [];
   } catch {
     return [];
   }
 }
 
-/** Prepend a run, cap the list, and persist. Returns the new list. */
-export function addRun(run: WorkflowRun): WorkflowRun[] {
-  const next = [run, ...loadRuns()].slice(0, MAX);
+/** Persist a run; returns the server's updated list, or null on failure (so the
+ *  caller keeps its optimistic list rather than clobbering it). */
+export async function addRun(run: WorkflowRun): Promise<WorkflowRun[] | null> {
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(next));
+    const res = await fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(run),
+    });
+    const data = (await res.json()) as { runs?: WorkflowRun[] };
+    if (res.ok && Array.isArray(data.runs)) return data.runs;
   } catch {
-    /* storage full/blocked — history is best-effort */
+    /* best-effort */
   }
-  return next;
+  return null;
 }
 
-export function clearRuns(): void {
+export async function clearRuns(): Promise<void> {
   try {
-    window.localStorage.removeItem(KEY);
+    await fetch(API, { method: "DELETE" });
   } catch {
     /* ignore */
   }

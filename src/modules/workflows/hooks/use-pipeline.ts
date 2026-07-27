@@ -73,10 +73,15 @@ export function usePipeline() {
     };
   }, []);
 
-  // Load local history once after mount (avoids SSR/hydration mismatch).
+  // Load history from the server once after mount.
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot load from localStorage
-    setRuns(loadRuns());
+    let cancelled = false;
+    void loadRuns().then((r) => {
+      if (!cancelled) setRuns(r);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const setStage = useCallback((key: StageKey, patch: Partial<Stage>) => {
@@ -88,7 +93,7 @@ export function usePipeline() {
   }, []);
 
   const clearRuns = useCallback(() => {
-    clearRunsStore();
+    void clearRunsStore();
     setRuns([]);
   }, []);
 
@@ -264,10 +269,14 @@ export function usePipeline() {
         return false;
       } finally {
         runningRef.current = false;
-        // Record the run (success OR failure) to local history — but not on cancel.
+        // Record the run (success OR failure) to server history — but not on cancel.
         if (!cancelledRef.current) {
-          setRuns(addRun(buildRun(cfg, out, stagesRef.current, startedAt)));
           setRunning(false);
+          const rec = buildRun(cfg, out, stagesRef.current, startedAt);
+          setRuns((prev) => [rec, ...prev].slice(0, 50)); // show immediately
+          void addRun(rec).then((saved) => {
+            if (saved) setRuns(saved); // reconcile with the server's list
+          });
         }
       }
     },

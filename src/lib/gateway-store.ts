@@ -60,6 +60,11 @@ async function atomicWrite(file: string, data: string): Promise<void> {
 export async function writeGatewayStore(store: GatewayStore): Promise<GatewayStore> {
   const clean = normalize(store);
   await atomicWrite(FILE, JSON.stringify(clean, null, 2));
+  // gateway.json holds the API keys and is read only by this app — lock it to
+  // owner-only (0600). NOTE: we deliberately do NOT restrict GATEWAY_CONFIG_PATH
+  // below — that file is read by the separate gateway container, and 0600 could
+  // block its read (different UID) and break client auth.
+  await fs.chmod(FILE, 0o600).catch(() => {}); // best-effort (no-op on Windows dev)
   // Push the minimal live config to the gateway's shared file (best-effort: a
   // failure here must not lose the UI edit already saved above).
   if (GATEWAY_CONFIG_PATH) {

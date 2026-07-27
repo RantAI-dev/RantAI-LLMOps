@@ -33,10 +33,12 @@ async function read(): Promise<AppSettings> {
 async function write(settings: AppSettings): Promise<void> {
   await fs.mkdir(DATA_DIR, { recursive: true });
   // Atomic write: temp file then rename, so a crash can't leave a half-written
-  // settings.json.
+  // settings.json. 0600 (owner-only) because it holds the HF token — read only
+  // by this app process, so restricting it is safe.
   const tmp = `${FILE}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, JSON.stringify(settings, null, 2), "utf8");
+  await fs.writeFile(tmp, JSON.stringify(settings, null, 2), { encoding: "utf8", mode: 0o600 });
   await fs.rename(tmp, FILE);
+  await fs.chmod(FILE, 0o600).catch(() => {}); // best-effort (no-op on Windows dev)
 }
 
 /** All settings (raw — server-only; never send the token to a client). */
