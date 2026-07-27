@@ -76,9 +76,11 @@ export function useNotes() {
           throw new Error(data.error || "Failed to delete note");
         }
         // Two top-level setStates (no setState inside another's updater): drop the
-        // row, and if it was selected fall back to the first remaining note.
+        // row, and if the deleted note was selected, clear the selection. Both use
+        // functional updaters so neither reads stale `notes` from the closure; the
+        // default-selection logic then picks the next note.
         setNotes((prev) => prev.filter((n) => n.id !== id));
-        setSelectedId((cur) => (cur === id ? notes.find((n) => n.id !== id)?.id ?? null : cur));
+        setSelectedId((cur) => (cur === id ? null : cur));
         toast.success("Note deleted");
       } catch (err) {
         toast.error((err as Error).message);
@@ -86,7 +88,7 @@ export function useNotes() {
         setBusy(false);
       }
     },
-    [notes]
+    []
   );
 
   return { notes, loading, selectedId, setSelectedId, createNote, deleteNote, busy };

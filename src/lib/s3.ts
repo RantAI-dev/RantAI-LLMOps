@@ -62,6 +62,17 @@ function objectUrl(bucket: string, key: string): string {
 
 export type S3EvalSet = { key: string; name: string; sizeKb: number | null };
 
+/** Decode the five predefined XML entities in text captured from the list XML.
+ *  `&amp;` last so an already-decoded `&` isn't re-interpreted. */
+function unescapeXml(s: string): string {
+  return s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 /**
  * List the `.jsonl` objects in a bucket (optionally under a prefix) — the eval
  * sets a user can pick. Uses ListObjectsV2 and reads the XML with a small regex
@@ -70,26 +81,38 @@ export type S3EvalSet = { key: string; name: string; sizeKb: number | null };
 export async function listEvalSets(bucket = EVAL_SET_BUCKET, prefix = ""): Promise<S3EvalSet[]> {
   if (!s3Configured()) return [];
   assertAllowedBucket(bucket);
-  const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
-  if (prefix) q.set("prefix", prefix);
-  const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
-  const xml = await res.text();
   const out: S3EvalSet[] = [];
-  // <Contents><Key>…</Key><Size>…</Size></Contents>
-  for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
-    const block = m[1];
-    const key = /<Key>([\s\S]*?)<\/Key>/.exec(block)?.[1];
-    if (!key || !/\.jsonl$/i.test(key)) continue;
-    const size = Number(/<Size>(\d+)<\/Size>/.exec(block)?.[1] ?? "");
-    out.push({
-      key,
-      name: key.split("/").pop() ?? key,
-      sizeKb: Number.isFinite(size) ? Math.round(size / 1024) : null,
+  // ListObjectsV2 caps a page at 1000 keys; follow NextContinuationToken so a
+  // bucket with more than one page isn't silently truncated to the first 1000.
+  let token: string | undefined;
+  do {
+    const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
+    if (prefix) q.set("prefix", prefix);
+    if (token) q.set("continuation-token", token);
+    const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
+      signal: AbortSignal.timeout(8000),
     });
-  }
+    if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
+    const xml = await res.text();
+    // <Contents><Key>…</Key><Size>…</Size></Contents>
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const block = m[1];
+      const rawKey = /<Key>([\s\S]*?)<\/Key>/.exec(block)?.[1];
+      const key = rawKey === undefined ? undefined : unescapeXml(rawKey);
+      if (!key || !/\.jsonl$/i.test(key)) continue;
+      const size = Number(/<Size>(\d+)<\/Size>/.exec(block)?.[1] ?? "");
+      out.push({
+        key,
+        name: key.split("/").pop() ?? key,
+        sizeKb: Number.isFinite(size) ? Math.round(size / 1024) : null,
+      });
+    }
+    const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+    const rawToken = truncated
+      ? /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1]
+      : undefined;
+    token = rawToken === undefined ? undefined : unescapeXml(rawToken);
+  } while (token);
   return out.sort((a, b) => a.key.localeCompare(b.key));
 }
 

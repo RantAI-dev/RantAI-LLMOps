@@ -1,7 +1,7 @@
 "use client";
 
 import { Cpu } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -39,16 +39,23 @@ export function GpuMeters({
   compact?: boolean;
 }) {
   const [gpus, setGpus] = useState<GpuMetric[] | null>(null);
+  // In-flight guard: a request slower than intervalMs would otherwise stack up
+  // every tick. Skip a tick while one is still pending.
+  const inFlight = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
+      if (inFlight.current) return;
+      inFlight.current = true;
       try {
         const res = await fetch("/api/compute/gpu-metrics", { cache: "no-store" });
         const d = (await res.json()) as { gpus?: GpuMetric[] };
         if (!cancelled) setGpus(Array.isArray(d.gpus) ? d.gpus : []);
       } catch {
         /* keep last reading on a transient error */
+      } finally {
+        inFlight.current = false;
       }
     };
     void load();

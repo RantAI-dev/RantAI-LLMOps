@@ -25,12 +25,12 @@ function BreadcrumbItem({ className, ...props }: ComponentProps<"li">) {
 function BreadcrumbLink({
   className,
   ...props
-}: ComponentProps<"button"> & { asChild?: boolean }) {
+}: ComponentProps<"button">) {
   return (
     <button
       type="button"
       className={cn(
-        "truncate font-medium text-primary transition-colors hover:text-[#e64800] hover:underline",
+        "truncate font-medium text-primary transition-colors hover:text-[var(--primary-hover)] hover:underline",
         className
       )}
       {...props}

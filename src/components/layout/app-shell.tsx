@@ -243,6 +243,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     value={query}
                     onChange={(event) => setQuery(event.target.value)}
                     placeholder="Search..."
+                    aria-label="Search"
                     className="pl-9"
                   />
                 </div>

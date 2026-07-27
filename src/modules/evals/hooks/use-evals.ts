@@ -182,6 +182,28 @@ export function useEvals() {
     }
   }, []);
 
+  // With a background submit the job appears asynchronously (after the merge),
+  // so we don't get its id up front. Poll until a job id we didn't see before
+  // shows up — compare runs one model at a time, so that's the one we launched.
+  const waitForNewJobId = useCallback(async (exclude: Set<string>): Promise<string | null> => {
+    for (let i = 0; i < 200; i++) {
+      if (cancelledRef.current) return null;
+      await new Promise((r) => setTimeout(r, 3000));
+      if (cancelledRef.current) return null;
+      try {
+        const res = await fetch("/api/evals/jobs");
+        const data = (await res.json()) as { jobs?: EvalJob[] };
+        const list = data.jobs ?? [];
+        setJobs(list);
+        const fresh = list.find((j) => !exclude.has(j.id));
+        if (fresh) return fresh.id;
+      } catch {
+        /* keep polling */
+      }
+    }
+    return null;
+  }, []);
+
   const submitCompare = useCallback(
     async (
       models: Array<{ id: string; architecture?: string; fineTuned?: boolean }>,
@@ -193,6 +215,19 @@ export function useEvals() {
       try {
         for (let i = 0; i < models.length; i++) {
           setCompareProgress({ done: i, total: models.length });
+          // Snapshot existing job ids so we can spot the one this submit creates.
+          let before = new Set<string>();
+          try {
+            const r0 = await fetch("/api/evals/jobs");
+            const d0 = (await r0.json()) as { jobs?: EvalJob[] };
+            before = new Set((d0.jobs ?? []).map((j) => j.id));
+          } catch {
+            /* proceed with an empty snapshot */
+          }
+          // background: for a fine-tune the adapter merge runs server-side after
+          // the response (minutes), so submitting synchronously would hold the
+          // connection until a proxy kills it ("Failed to fetch"). Return at once,
+          // then detect the job once it appears (compare is one-at-a-time).
           const res = await fetch("/api/evals/submit", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -202,12 +237,20 @@ export function useEvals() {
               benchmark,
               limit,
               fineTuned: models[i].fineTuned,
+              background: true,
             }),
           });
-          const data = (await res.json()) as { jobId?: string; error?: string };
-          if (!res.ok || !data.jobId) throw new Error(data.error || "Failed to start eval");
+          const data = (await res.json()) as { jobId?: string; pending?: boolean; error?: string };
+          if (!res.ok || (!data.jobId && !data.pending)) {
+            throw new Error(data.error || "Failed to start eval");
+          }
+          const jobId = data.jobId ?? (await waitForNewJobId(before));
+          if (!jobId) {
+            if (cancelledRef.current) return false;
+            throw new Error("Eval did not start in time.");
+          }
           await loadJobs();
-          await pollUntilDone(data.jobId);
+          await pollUntilDone(jobId);
         }
         setCompareProgress({ done: models.length, total: models.length });
         return true;
@@ -220,7 +263,7 @@ export function useEvals() {
         setCompareProgress(null);
       }
     },
-    [loadJobs, pollUntilDone]
+    [loadJobs, pollUntilDone, waitForNewJobId]
   );
 
   return {

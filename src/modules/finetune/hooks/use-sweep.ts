@@ -40,8 +40,6 @@ export type SweepParams = {
   baseModel: string;
   baseModelArchitecture?: string;
   dataset: string;
-  benchmark: string;
-  limit: number;
   grid: SweepGrid;
 };
 

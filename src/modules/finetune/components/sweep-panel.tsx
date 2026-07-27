@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -24,32 +24,14 @@ function parseList(raw: string): number[] {
     .filter((n) => Number.isFinite(n));
 }
 
-type Benchmark = { id: string; name: string };
-
-/** Hyperparameter sweep: train a grid of configs, eval each, rank by score. */
+/** Hyperparameter sweep: train a grid of hyperparameter configs (one per combo). */
 export function SweepPanel({ options }: { options: FinetuneOptions }) {
   const { running, progress, results, error, runSweep } = useSweep();
   const [model, setModel] = useState("");
   const [dataset, setDataset] = useState("");
-  const [benchmark, setBenchmark] = useState("arc_easy");
-  const [coverage, setCoverage] = useState(10);
   const [lr, setLr] = useState("0.0002, 0.0004");
   const [loraR, setLoraR] = useState("8, 16");
   const [epochs, setEpochs] = useState("");
-  const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/evals/options")
-      .then((r) => r.json() as Promise<{ benchmarks?: Benchmark[] }>)
-      .then((d) => {
-        if (!cancelled) setBenchmarks(d.benchmarks ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const grid: SweepGrid = useMemo(
     () => ({
@@ -131,30 +113,6 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
               </label>
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <label className="block">
-                <span className="mb-1 block text-[13px] font-medium text-ink">Benchmark (eval)</span>
-                <select className={selectClass} value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>
-                  {benchmarks.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-[13px] font-medium text-ink">Coverage — {coverage}%</span>
-                <input
-                  type="range"
-                  min={1}
-                  max={100}
-                  value={coverage}
-                  onChange={(e) => setCoverage(Number(e.target.value))}
-                  className="mt-2 w-full accent-primary"
-                />
-              </label>
-            </div>
-
             {progress ? (
               <div className="mt-3 flex items-center gap-2">
                 <Progress value={(progress.index / Math.max(1, progress.total)) * 100} className="h-1.5 flex-1" />
@@ -178,8 +136,6 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                     baseModel: model,
                     baseModelArchitecture: selectedModel?.architecture,
                     dataset,
-                    benchmark,
-                    limit: coverage / 100,
                     grid,
                   })
                 }
@@ -192,7 +148,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                   `Run sweep (${comboCount || "…"} combinations)`
                 )}
               </Button>
-              <p className="text-[12px] text-ink-soft">{comboCount} training + {comboCount} eval.</p>
+              <p className="text-[12px] text-ink-soft">{comboCount} training run(s).</p>
             </div>
           </>
         )}

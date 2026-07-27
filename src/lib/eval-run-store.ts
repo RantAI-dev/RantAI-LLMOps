@@ -60,7 +60,9 @@ function runFile(id: string): string {
 
 async function atomicWrite(file: string, data: string): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
+  // pid alone collides when two writes to the same run id race inside one
+  // process; a random suffix keeps each write's tmp path unique.
+  const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(tmp, data, "utf8");
   await fs.rename(tmp, file);
 }

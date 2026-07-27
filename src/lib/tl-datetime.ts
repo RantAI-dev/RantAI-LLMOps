@@ -13,7 +13,7 @@ export const APP_TIME_ZONE = "Asia/Jakarta";
 
 /** Tag a zone-less "YYYY-MM-DD HH:MM:SS" string as UTC; pass ISO strings through. */
 export function normalizeToUtc(s: string): string {
-  const naive = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/;
+  const naive = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/;
   return naive.test(s) ? `${s.replace(" ", "T")}Z` : s;
 }
 

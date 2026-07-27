@@ -55,6 +55,10 @@ export function usePipeline() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
 
   const cancelledRef = useRef(false);
+  // In-flight guard for run(): a second call while a pipeline is active must be a
+  // no-op. A ref (not the `running` state) so the check is synchronous and can't
+  // be raced by two calls in the same tick before the state re-renders.
+  const runningRef = useRef(false);
   // AbortController for the active run's fetches/streams. On unmount we both flip
   // `cancelledRef` (so the polling loops bail) AND abort this, so a pending
   // `reader.read()` on the export SSE stream is torn down instead of leaking.
@@ -90,6 +94,10 @@ export function usePipeline() {
 
   const run = useCallback(
     async (cfg: PipelineConfig) => {
+      // Bail if a run is already in flight (guards against double-submit even if
+      // the disabled button is bypassed).
+      if (runningRef.current) return false;
+      runningRef.current = true;
       const startedAt = new Date().toISOString();
       setError(null);
       setResult(null);
@@ -250,6 +258,7 @@ export function usePipeline() {
         }
         return false;
       } finally {
+        runningRef.current = false;
         // Record the run (success OR failure) to local history — but not on cancel.
         if (!cancelledRef.current) {
           setRuns(addRun(buildRun(cfg, out, stagesRef.current, startedAt)));
@@ -273,7 +282,9 @@ function buildRun(
   const failed = stages.some((s) => s.status === "failed");
   const anyDone = stages.some((s) => s.status === "done");
   return {
-    id: startedAt,
+    // Unique id (React key in workflow-history). Two runs can share the same
+    // start-ms, so don't reuse `startedAt` — that's the timestamp field below.
+    id: crypto.randomUUID(),
     startedAt,
     finishedAt: new Date().toISOString(),
     baseModel: cfg.baseModel,
@@ -376,18 +387,26 @@ async function waitEval(
 ): Promise<number | null> {
   for (let i = 0; i < 300 && !cancelledRef.current; i++) {
     await sleep(3000);
+    let data: {
+      jobs?: Array<{ id: string; status: string; scores: Array<{ type: string; score: number }> }>;
+    };
     try {
       const res = await fetch("/api/evals/jobs", { signal });
-      const data = (await res.json()) as {
-        jobs?: Array<{ id: string; status: string; scores: Array<{ type: string; score: number }> }>;
-      };
+      data = await res.json();
+    } catch {
+      // Transient network/parse error — keep polling.
+      continue;
+    }
+    // Response-shape access below: a malformed job (missing status/scores) is a
+    // TERMINAL error, not a reason to retry for the full ~15min timeout.
+    try {
       const job = (data.jobs ?? []).find((j) => j.id === jobId);
       if (job && EVAL_TERMINAL.has(job.status.toUpperCase())) {
         const acc = job.scores.find((s) => s.type.toLowerCase() === "acc") ?? job.scores[0];
         return acc ? acc.score : null;
       }
     } catch {
-      /* keep polling */
+      return null;
     }
   }
   return null;

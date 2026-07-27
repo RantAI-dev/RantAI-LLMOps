@@ -294,6 +294,13 @@ export async function createDataset(
   if (!id) throw new Error("Dataset name is required");
   if (rows.length === 0) throw new Error("At least one row is required");
 
+  // The slug is lossy (two distinct names can slug equally), so refuse to
+  // silently write into an existing dataset's id — mirror uploadDatasetFile.
+  const existing = await fetchLocalDatasets();
+  if (existing.some((d) => d.dataset_id === id)) {
+    throw new Error(`Dataset "${id}" already exists. Use another name or delete it first.`);
+  }
+
   const created = await tlFetch(`/data/new?dataset_id=${encodeURIComponent(id)}`);
   const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
   // Check the HTTP status too: a 4xx/5xx with a non-JSON body would otherwise
@@ -338,6 +345,11 @@ function parseCsv(text: string): string[][] {
     else if (c === ",") { row.push(field); field = ""; }
     else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
     else if (c !== "\r") field += c;
+  }
+  // An odd number of quotes leaves us stuck inside a quoted field at EOF, which
+  // silently swallows the rest of the file into one value — flag it instead.
+  if (quoted) {
+    throw new DatasetInputError("The CSV has an unterminated quoted field (an odd number of quotes)");
   }
   if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
   // Drop blank lines (from a trailing newline or gaps) — a bare "\n" parses to [""].
