@@ -141,6 +141,8 @@
   /* Radius tokens (RantAI 0.75rem) */
   --radius: 0.75rem;
   --radius-md: 0.375rem;
+
+  color-scheme: light;
 }
 
 .dark {
@@ -208,4 +210,16 @@
   --panel-from: oklch(0.205 0 0);
   --panel-via: oklch(0.205 0 0);
   --panel-to: oklch(0.145 0 0);
+
+  /* Status soft fills (dark — muted tints on flat black) */
+  --success-soft: oklch(0.25 0.04 150);
+  --warning-soft: oklch(0.25 0.04 75);
+  --warning-soft-2: oklch(0.28 0.05 85);
+  --warning-soft-3: oklch(0.24 0.03 85);
+  --danger-soft: oklch(0.25 0.05 25);
+  --info-soft: oklch(0.25 0.04 250);
+  --purple-soft: oklch(0.25 0.05 290);
+  --pink-soft: oklch(0.25 0.05 350);
+
+  color-scheme: dark;
 }

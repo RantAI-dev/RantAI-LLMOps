@@ -1,5 +1,6 @@
-import { KeyRound } from "lucide-react";
+import { KeyRound, Palette } from "lucide-react";
 
+import { ThemePreference } from "@/components/theme-toggle";
 import { InfoTip } from "@/components/ui/tooltip";
 import { HfTokenField } from "@/modules/settings/components/hf-token-field";
 
@@ -15,6 +16,17 @@ export function SettingsPage() {
           (fine-tune, Hub, and downloads).
         </InfoTip>
       </div>
+
+      <section className="rounded-xl border border-border bg-surface p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Palette className="size-4 text-primary" aria-hidden />
+          <h2 className="text-sm font-semibold text-primary">Appearance</h2>
+        </div>
+        <p className="mb-3 text-[13px] text-ink-soft">
+          Choose Light, Dark, or follow your system preference.
+        </p>
+        <ThemePreference />
+      </section>
 
       <section className="rounded-xl border border-border bg-surface p-4">
         <div className="mb-3 flex items-center gap-2">

@@ -25,7 +25,7 @@ export const IMPORT_STEPS = [
 ] as const;
 
 export const panelClassName = "rounded-lg border border-hairline bg-surface";
-export const tableWrapClassName = "overflow-x-auto rounded-lg border border-hairline bg-white";
+export const tableWrapClassName = "overflow-x-auto rounded-lg border border-hairline bg-card";
 
 export const IMPORT_PROGRESS_STEPS = [
   "Checking Access",

@@ -43,7 +43,7 @@ export function ChatPlayground() {
   }, [loaded, newChat]);
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden rounded-lg border border-hairline bg-white">
+    <div className="flex h-full min-h-0 overflow-hidden rounded-lg border border-hairline bg-card">
       <ChatSessionsSidebar
         sessions={sessions}
         activeId={activeId}

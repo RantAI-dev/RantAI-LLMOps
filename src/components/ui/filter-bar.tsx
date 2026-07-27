@@ -83,7 +83,7 @@ export function FilterBar({
             size="sm"
             onClick={onReset}
             disabled={!active}
-            className="h-8 shrink-0 gap-1.5 border-hairline bg-white px-3 text-ink hover:border-primary/30 hover:bg-primary-tint-2 hover:text-primary disabled:opacity-40"
+            className="h-8 shrink-0 gap-1.5 border-hairline bg-card px-3 text-ink hover:border-primary/30 hover:bg-primary-tint-2 hover:text-primary disabled:opacity-40"
           >
             <RotateCcw className="size-3.5 text-primary" />
             {resetLabel}

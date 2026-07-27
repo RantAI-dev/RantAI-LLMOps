@@ -1,4 +1,4 @@
-# NQRust-LLMOps
+# LLMOps
 
 An LLMOps control center — a Next.js dashboard for running and tracking experiments,
 tasks/runs, datasets, RAG knowledge bases, a model registry, and compute providers —

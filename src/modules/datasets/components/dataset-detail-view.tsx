@@ -204,7 +204,7 @@ function RealPreviewTable({
     );
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-hairline bg-white">
+    <div className="overflow-x-auto rounded-lg border border-hairline bg-card">
       <Table className="text-[13px]">
         <TableHeader>
           <TableRow className="bg-surface">
