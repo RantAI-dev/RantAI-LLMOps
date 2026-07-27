@@ -71,16 +71,21 @@ export function useSweep() {
   const [results, setResults] = useState<SweepResult[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // A sweep can poll for many minutes per combo. Stop the loop and abort the
-  // in-flight request on unmount so we neither leak a long background poll nor
-  // setState on a gone component.
+  // A sweep can poll for many minutes per combo. `cancelledRef` halts the loop
+  // and is flipped either by the user (stopSweep) or by the unmount cleanup;
+  // aborting the in-flight request stops a leaked long background poll.
+  // `unmountedRef` distinguishes the two cases so a user-initiated stop can still
+  // reset the UI, while an unmount avoids setState on a gone component.
   const cancelledRef = useRef(false);
+  const unmountedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   useEffect(() => {
     // Reset on mount so StrictMode's mount→cleanup→mount cycle doesn't leave the
-    // flag stuck true (which would make every sweep bail immediately).
+    // flags stuck true (which would make every sweep bail immediately).
     cancelledRef.current = false;
+    unmountedRef.current = false;
     return () => {
+      unmountedRef.current = true;
       cancelledRef.current = true;
       abortRef.current?.abort();
     };
@@ -113,12 +118,14 @@ export function useSweep() {
     async (p: SweepParams) => {
       const combos = buildCombos(p.grid);
       if (combos.length === 0) {
-        setError("Isi minimal satu hyperparameter dengan beberapa nilai.");
+        setError("Set at least one hyperparameter with multiple values.");
         return false;
       }
       setError(null);
       setResults([]);
       setRunning(true);
+      // Clear any leftover cancel from a previous stopped run so this one starts fresh.
+      cancelledRef.current = false;
       abortRef.current = new AbortController();
       // A stable-ish run tag without Date in the hot path is fine here (client runtime).
       const tag = Math.floor(Date.now() / 1000).toString(36);
@@ -193,7 +200,9 @@ export function useSweep() {
         setError((err as Error).message);
         return false;
       } finally {
-        if (!cancelledRef.current) {
+        // Reset UI on both normal completion and a user stop; skip only on
+        // unmount, where setState would target a gone component.
+        if (!unmountedRef.current) {
           setRunning(false);
           setProgress(null);
         }
@@ -202,5 +211,11 @@ export function useSweep() {
     [waitTrain]
   );
 
-  return { running, progress, results, error, runSweep };
+  /** User-initiated cancel: halt launching further combos and abort the in-flight fetch. */
+  const stopSweep = useCallback(() => {
+    cancelledRef.current = true;
+    abortRef.current?.abort();
+  }, []);
+
+  return { running, progress, results, error, runSweep, stopSweep };
 }

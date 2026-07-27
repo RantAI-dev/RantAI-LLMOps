@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import type { EvalJob, EvalOptions } from "@/lib/evals";
 
@@ -38,6 +39,10 @@ export function useEvals() {
       cancelledRef.current = true;
     };
   }, []);
+  // User-initiated stop of a Compare run (distinct from the unmount cancel above).
+  const abortCompareRef = useRef(false);
+  // The eval job Compare is currently watching, so "Stop" can also cancel it.
+  const currentCompareJobRef = useRef<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -48,6 +53,21 @@ export function useEvals() {
       /* keep last */
     }
   }, []);
+
+  /** Ask a running eval job to stop (single-run history + retention rows). */
+  const stopEval = useCallback(
+    async (jobId: string) => {
+      try {
+        const res = await fetch(`/api/evals/jobs/${jobId}/stop`, { method: "POST" });
+        if (!res.ok) throw new Error();
+      } catch {
+        toast.error("Failed to stop eval");
+      } finally {
+        await loadJobs();
+      }
+    },
+    [loadJobs]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -164,12 +184,13 @@ export function useEvals() {
   );
 
   const pollUntilDone = useCallback(async (jobId: string) => {
+    currentCompareJobRef.current = jobId; // so Stop can cancel the job being watched
     const terminal = new Set(["COMPLETE", "COMPLETED", "FAILED", "STOPPED", "CANCELLED"]);
     // Cap the wait so a stuck job can't hang the whole compare run (~10 min).
     for (let i = 0; i < 200; i++) {
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || abortCompareRef.current) return;
       await new Promise((r) => setTimeout(r, 3000));
-      if (cancelledRef.current) return;
+      if (cancelledRef.current || abortCompareRef.current) return;
       try {
         const res = await fetch("/api/evals/jobs");
         const data = (await res.json()) as { jobs?: EvalJob[] };
@@ -187,9 +208,9 @@ export function useEvals() {
   // shows up — compare runs one model at a time, so that's the one we launched.
   const waitForNewJobId = useCallback(async (exclude: Set<string>): Promise<string | null> => {
     for (let i = 0; i < 200; i++) {
-      if (cancelledRef.current) return null;
+      if (cancelledRef.current || abortCompareRef.current) return null;
       await new Promise((r) => setTimeout(r, 3000));
-      if (cancelledRef.current) return null;
+      if (cancelledRef.current || abortCompareRef.current) return null;
       try {
         const res = await fetch("/api/evals/jobs");
         const data = (await res.json()) as { jobs?: EvalJob[] };
@@ -212,8 +233,10 @@ export function useEvals() {
     ) => {
       setError(null);
       setComparing(true);
+      abortCompareRef.current = false;
       try {
         for (let i = 0; i < models.length; i++) {
+          if (abortCompareRef.current) return false;
           setCompareProgress({ done: i, total: models.length });
           // Snapshot existing job ids so we can spot the one this submit creates.
           let before = new Set<string>();
@@ -246,7 +269,7 @@ export function useEvals() {
           }
           const jobId = data.jobId ?? (await waitForNewJobId(before));
           if (!jobId) {
-            if (cancelledRef.current) return false;
+            if (cancelledRef.current || abortCompareRef.current) return false;
             throw new Error("Eval did not start in time.");
           }
           await loadJobs();
@@ -266,6 +289,14 @@ export function useEvals() {
     [loadJobs, pollUntilDone, waitForNewJobId]
   );
 
+  /** Stop an in-progress Compare run: halt the loop and cancel the eval job it
+   *  is currently watching. */
+  const stopCompare = useCallback(() => {
+    abortCompareRef.current = true;
+    const jid = currentCompareJobRef.current;
+    if (jid) void stopEval(jid);
+  }, [stopEval]);
+
   return {
     options,
     jobs,
@@ -274,8 +305,10 @@ export function useEvals() {
     preparing,
     error,
     submit,
+    stopEval,
     comparing,
     compareProgress,
     submitCompare,
+    stopCompare,
   };
 }

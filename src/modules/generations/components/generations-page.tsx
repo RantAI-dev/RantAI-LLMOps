@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Columns2, Loader2, Play } from "lucide-react";
+import { Columns2, Loader2, Play, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -30,7 +30,7 @@ const PHASE_LABEL: Record<string, string> = {
 
 /** Output comparison: same prompts → base vs fine-tuned model, side by side. */
 export function GenerationsPage() {
-  const { running, progress, rows, error, runCompare } = useGenerations();
+  const { running, progress, rows, error, runCompare, stopCompare } = useGenerations();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [baseId, setBaseId] = useState("");
   // Select by fusedModelId (train job id) — names aren't unique (repeated
@@ -205,6 +205,11 @@ export function GenerationsPage() {
                   </>
                 )}
               </Button>
+              {running ? (
+                <Button type="button" variant="destructive" onClick={stopCompare}>
+                  <Square className="size-4" /> Stop
+                </Button>
+              ) : null}
               <InfoTip label="About the comparison run">
                 Runs one at a time (load base → ask → load fine-tuned → ask). May take a few
                 minutes.
