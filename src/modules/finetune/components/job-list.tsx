@@ -4,14 +4,14 @@ import { CheckCircle2, CircleAlert, Loader2, Trash2 } from "lucide-react";
 
 import { Progress } from "@/components/ui/progress";
 import type { TrainingJob } from "@/lib/finetune";
-import { isJobActive } from "@/modules/finetune/hooks/use-finetune";
+import { isJobActive, isJobFailed } from "@/modules/finetune/hooks/use-finetune";
 import { TrainingMonitor } from "@/modules/finetune/components/training-monitor";
 import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: string }) {
   const s = status.toUpperCase();
   const active = isJobActive(s);
-  const failed = s === "FAILED" || s === "STOPPED";
+  const failed = isJobFailed(s);
   return (
     <span
       className={cn(

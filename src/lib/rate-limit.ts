@@ -10,6 +10,17 @@ type Bucket = { count: number; resetAt: number };
 
 const buckets = new Map<string, Bucket>();
 
+// Evict expired buckets so a flood of unique keys (e.g. spoofed X-Forwarded-For
+// values on login) can't grow the Map without bound. Swept at most once/minute.
+let lastSweep = 0;
+function sweepExpired(now: number): void {
+  if (now - lastSweep < 60_000) return;
+  lastSweep = now;
+  for (const [key, bucket] of buckets) {
+    if (now >= bucket.resetAt) buckets.delete(key);
+  }
+}
+
 export type RateLimitResult = {
   ok: boolean;
   /** Seconds until the window resets (only meaningful when `ok` is false). */
@@ -25,6 +36,7 @@ export function rateLimit(
   { max, windowMs }: { max: number; windowMs: number }
 ): RateLimitResult {
   const now = Date.now();
+  sweepExpired(now);
   const bucket = buckets.get(key);
 
   if (!bucket || now >= bucket.resetAt) {

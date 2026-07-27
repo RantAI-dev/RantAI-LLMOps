@@ -10,7 +10,7 @@ export const isEvalActive = (status: string) => ACTIVE.has(status.toUpperCase())
 // Terminal-but-unsuccessful: these will never produce a score, so don't keep
 // polling waiting for one.
 const FAILED = new Set(["FAILED", "STOPPED", "CANCELLED", "ERROR"]);
-const isEvalFailed = (status: string) => FAILED.has(status.toUpperCase());
+export const isEvalFailed = (status: string) => FAILED.has(status.toUpperCase());
 
 /**
  * Drives the Evals page: loads models + benchmarks, polls eval jobs while any
@@ -75,31 +75,48 @@ export function useEvals() {
   // alive — otherwise the page polls every 3s forever. Keyed on the derived
   // boolean (not the whole `jobs` array) so the interval is created once per
   // active/idle transition; the interval id is local so cleanup can't race.
-  const shouldPoll =
-    preparing ||
-    jobs.some((j) => isEvalActive(j.status)) ||
-    jobs.some(
-      (j) => !isEvalActive(j.status) && !isEvalFailed(j.status) && j.scores.length === 0
-    );
+  const anyActive = jobs.some((j) => isEvalActive(j.status));
+  // A completed job's score is written just after COMPLETE, so poll briefly for
+  // it. A FAILED/CANCELLED job never gets a score (must not keep polling), and a
+  // completed job whose score never arrives (e.g. no acc metric) is bounded below
+  // so it can't poll forever either.
+  const hasAwaitingScore = jobs.some(
+    (j) => !isEvalActive(j.status) && !isEvalFailed(j.status) && j.scores.length === 0
+  );
+  const shouldPoll = preparing || anyActive || hasAwaitingScore;
   useEffect(() => {
     if (!shouldPoll) return;
-    const id = setInterval(loadJobs, 3000);
+    // When the ONLY reason to poll is an awaited score, stop after 30s so a score
+    // that never arrives doesn't leave the page polling every 3s indefinitely.
+    const awaitOnly = !preparing && !anyActive && hasAwaitingScore;
+    const startedAt = Date.now();
+    const id = setInterval(() => {
+      if (awaitOnly && Date.now() - startedAt > 30_000) {
+        clearInterval(id);
+        return;
+      }
+      loadJobs();
+    }, 3000);
     return () => clearInterval(id);
-  }, [shouldPoll, loadJobs]);
+  }, [shouldPoll, preparing, anyActive, hasAwaitingScore, loadJobs]);
 
-  // Once a background submit's job actually shows up (goes active), we are no
-  // longer "preparing" — normal active-job polling takes over. A hard cap stops
-  // an eval whose merge failed from polling forever.
+  // Hand off to normal polling once the submitted eval appears as an active job.
   useEffect(() => {
     if (!preparing) return;
     if (jobs.some((j) => isEvalActive(j.status))) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciling to polled job state: once a background-submitted eval first appears as active, hand off to the normal active-job polling
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconcile to polled job state: hand off to active-job polling once the job appears
       setPreparing(false);
-      return;
     }
+  }, [preparing, jobs]);
+
+  // Hard cap: if a background merge fails and no job ever appears, stop
+  // "preparing" (and its polling) after 9 min. Keyed on `preparing` ONLY so the
+  // 3s job poll doesn't re-arm this timer every tick (which would defeat it).
+  useEffect(() => {
+    if (!preparing) return;
     const cap = setTimeout(() => setPreparing(false), 9 * 60 * 1000);
     return () => clearTimeout(cap);
-  }, [preparing, jobs]);
+  }, [preparing]);
 
   const submit = useCallback(
     async (body: {

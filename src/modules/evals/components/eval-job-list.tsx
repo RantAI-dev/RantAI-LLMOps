@@ -10,7 +10,7 @@ import type { EvalJob } from "@/lib/evals";
 import { formatAppDateTime } from "@/lib/tl-datetime";
 import { EvalSamples } from "@/modules/evals/components/eval-samples";
 import { CoverageBadge, ScoreBar } from "@/modules/evals/components/score-display";
-import { isEvalActive } from "@/modules/evals/hooks/use-evals";
+import { isEvalActive, isEvalFailed } from "@/modules/evals/hooks/use-evals";
 import { cn } from "@/lib/utils";
 
 /**
@@ -73,7 +73,7 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
     <div className="space-y-2">
       {jobs.map((job) => {
         const active = isEvalActive(job.status);
-        const failed = job.status.toUpperCase() === "FAILED";
+        const failed = isEvalFailed(job.status);
         // Prefer the finish time (history); fall back to start while still running.
         const finished = !active && !!job.finishedAt;
         const when = finished ? job.finishedAt : job.startedAt;

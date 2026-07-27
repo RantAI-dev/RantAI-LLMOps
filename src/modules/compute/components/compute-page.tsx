@@ -2,6 +2,7 @@
 
 import { Boxes, Cpu, Server, Star, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +60,12 @@ export function ComputePage() {
 
   const removeProvider = (id: string) => {
     setProviders((prev) => prev.filter((p) => p.id !== id)); // optimistic
-    void removeComputeProvider(id).then(() => providersFetch.reload());
+    void removeComputeProvider(id).then((ok) => {
+      // `removeComputeProvider` never throws — it returns `false` on failure. If
+      // we don't check it, a failed delete silently snaps back with no feedback.
+      if (!ok) toast.error("Failed to remove provider");
+      providersFetch.reload();
+    });
   };
 
   const cards = [

@@ -12,7 +12,13 @@ const EMPTY_OPTIONS: FinetuneOptions = { models: [], datasets: [] };
 // emits setup states like LAUNCHING / PROVISIONING / SETTING_UP that we'd
 // otherwise mistake for "finished" — freezing the monitor mid-setup.
 const TERMINAL = new Set(["COMPLETE", "COMPLETED", "FAILED", "STOPPED", "CANCELLED", "DELETED"]);
+const SUCCESS = new Set(["COMPLETE", "COMPLETED"]);
 export const isJobActive = (status: string) => !TERMINAL.has((status ?? "").toUpperCase());
+/** Terminal but unsuccessful (FAILED/STOPPED/CANCELLED/DELETED/…) — must not render as green "success". */
+export const isJobFailed = (status: string) => {
+  const s = (status ?? "").toUpperCase();
+  return !isJobActive(s) && !SUCCESS.has(s);
+};
 
 /**
  * Drives the Fine-tune page: loads form options, polls the job list while any

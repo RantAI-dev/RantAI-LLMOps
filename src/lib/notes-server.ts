@@ -9,9 +9,8 @@
  * are team-visible, not in one browser's localStorage. The "experiment" backing
  * is never surfaced in the UI.
  */
-import { inferenceHeaders } from "@/lib/inference";
-import { TL_ROOT } from "@/lib/models-catalog";
 import { logServerError } from "@/lib/log";
+import { tlFetch } from "@/lib/tl-fetch";
 import { NOTE_PREFIX } from "@/lib/tl-constants";
 import {
   createTlExperiment,
@@ -73,9 +72,7 @@ export async function deleteNote(id: string): Promise<boolean> {
 
 export async function getNoteContent(id: string): Promise<string> {
   try {
-    const res = await fetch(`${TL_ROOT}/experiment/${encodeURIComponent(id)}/notes`, {
-      headers: inferenceHeaders(),
-    });
+    const res = await tlFetch(`/experiment/${encodeURIComponent(id)}/notes`);
     if (!res.ok) return "";
     const data = await res.json().catch(() => "");
     return typeof data === "string" ? data : "";
@@ -87,9 +84,9 @@ export async function getNoteContent(id: string): Promise<string> {
 
 export async function saveNoteContent(id: string, content: string): Promise<boolean> {
   try {
-    const res = await fetch(`${TL_ROOT}/experiment/${encodeURIComponent(id)}/notes`, {
+    const res = await tlFetch(`/experiment/${encodeURIComponent(id)}/notes`, {
       method: "POST",
-      headers: inferenceHeaders({ "Content-Type": "application/json" }),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(content), // the endpoint wants the note as a raw JSON string
     });
     return res.ok;

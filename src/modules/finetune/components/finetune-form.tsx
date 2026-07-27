@@ -344,9 +344,9 @@ export function FinetuneForm({
                 onChange={(e) => setLoraAlpha(Math.max(1, Number(e.target.value) || 16))}
               />
             </label>
-            <label className="block">
+            <div className="block">
               <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
-                LoRA dropout
+                <label htmlFor="ft-lora-dropout">LoRA dropout</label>
                 <InfoTip label="About LoRA dropout">
                   <code>0</code> (default) is fastest — Unsloth stays on its fast-patching path.
                   Raise it (e.g. <code>0.05</code>) only if evaluation shows the adapter{" "}
@@ -354,6 +354,7 @@ export function FinetuneForm({
                 </InfoTip>
               </span>
               <Input
+                id="ft-lora-dropout"
                 type="number"
                 min={0}
                 max={0.5}
@@ -362,7 +363,7 @@ export function FinetuneForm({
                 onChange={(e) => setLoraDropout(Number(e.target.value))}
                 onBlur={() => setLoraDropout((v) => (Number.isFinite(v) && v >= 0 && v <= 0.5 ? v : 0))}
               />
-            </label>
+            </div>
             <label className="block">
               <span className="mb-1 block text-[13px] font-medium text-ink">Learning rate</span>
               <Input
@@ -373,24 +374,25 @@ export function FinetuneForm({
                 onChange={(e) => setLearningRate(Number(e.target.value) || 0.0002)}
               />
             </label>
-            <label className="block">
+            <div className="block">
               <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
-                Max steps
+                <label htmlFor="ft-max-steps">Max steps</label>
                 <InfoTip label="About max steps">
                   <code>-1</code> (default) runs the full epochs. A positive number{" "}
                   <strong>overrides epochs</strong> — use it only for a quick test.
                 </InfoTip>
               </span>
               <Input
+                id="ft-max-steps"
                 type="number"
                 min={-1}
                 value={maxSteps}
                 onChange={(e) => setMaxSteps(Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 60)}
               />
-            </label>
-            <label className="block">
+            </div>
+            <div className="block">
               <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
-                Max context length
+                <label htmlFor="ft-max-context">Max context length</label>
                 <InfoTip label="About max context length">
                   Tokens per sample (context + question + answer). Anything longer is{" "}
                   <strong>silently truncated</strong>. RAG-style datasets need <code>4096</code>–
@@ -403,6 +405,7 @@ export function FinetuneForm({
                   per keystroke snaps the field back the moment it's cleared, which
                   makes typing a value by hand impossible. */}
               <Input
+                id="ft-max-context"
                 type="number"
                 min={256}
                 step={256}
@@ -410,7 +413,7 @@ export function FinetuneForm({
                 onChange={(e) => setMaxSeqLength(Number(e.target.value))}
                 onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : 2048))}
               />
-            </label>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2">

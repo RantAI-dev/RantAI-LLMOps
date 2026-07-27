@@ -1,21 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Archive, Download, Loader2, MoreHorizontal } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 
 type DatasetDetailToolbarProps = {
   datasetId: string;
   datasetName: string;
-  onArchive: () => void;
 };
 
 type PreviewResponse = { columns: string[]; rows: Array<Record<string, string>> };
@@ -23,7 +16,6 @@ type PreviewResponse = { columns: string[]; rows: Array<Record<string, string>> 
 export function DatasetDetailToolbar({
   datasetId,
   datasetName,
-  onArchive,
 }: DatasetDetailToolbarProps) {
   const [downloading, setDownloading] = useState(false);
 
@@ -73,26 +65,6 @@ export function DatasetDetailToolbar({
         {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
         Download
       </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 w-8 border-hairline bg-white px-0"
-              aria-label="More actions"
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          }
-        />
-        <DropdownMenuContent align="end" className="min-w-[148px]">
-          <DropdownMenuItem onClick={onArchive}>
-            <Archive className="size-3.5" /> Archive
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }

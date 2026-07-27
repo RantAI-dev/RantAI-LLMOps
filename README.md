@@ -41,16 +41,40 @@ required. Any login credentials are accepted in mock mode.
 
 ## Environment variables
 
-All variables are `NEXT_PUBLIC_*` because the browser talks to the backend directly.
-See [`.env.example`](.env.example).
+The app is a **server-side BFF (Backend-for-Frontend)**: the browser never talks to the
+inference backend, Hugging Face, or S3 directly. It calls this app's own API routes under
+[`src/app/api/**`](src/app/api), which proxy to the backend through
+[`src/lib/inference.ts`](src/lib/inference.ts) (and [`src/lib/s3.ts`](src/lib/s3.ts)). All
+secrets therefore stay **server-only** — they are plain (non-`NEXT_PUBLIC_`) env vars, are
+never inlined into the client bundle, and are read at request time on the server.
+
+Copy [`.env.example`](.env.example) to `.env.local`; Next.js loads it automatically. Real,
+server-side variables (none are `NEXT_PUBLIC_*`):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `NEXT_PUBLIC_USE_REAL_API` | `false` | `false` = mock data (no backend). `true` = fetch from the real Transformer Lab API. |
-| `NEXT_PUBLIC_TL_API_URL` | `http://localhost:8338` | Base URL of the Transformer Lab API (only used when the flag above is `true`). |
+| `INFERENCE_BASE_URL` | `http://localhost:8339/v1` | Transformer Lab orchestrator (train/eval/data/jobs). `TL_ROOT` is derived by stripping the trailing `/v1`. |
+| `INFERENCE_API_KEY` | — | Bearer token for the TL orchestrator. |
+| `INFERENCE_TEAM_ID` | — | TL team/tenant id. |
+| `HOST_RUNNER` | `wsl` | Where the serve/merge tooling runs: `wsl`, `docker`, or `local`. |
+| `WSL_DISTRO` | `Ubuntu` | WSL distro name (when `HOST_RUNNER=wsl`). |
+| `DOCKER_CONTAINER` | `transformerlab` | TL backend container name (when `HOST_RUNNER=docker`). |
+| `HF_TOKEN` | — | Optional Hugging Face token (lifts Hub rate limits, reaches gated repos). |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama engine (default chat + serving). |
+| `INFERENCE_MODEL` | `qwen2.5:0.5b` | Default Ollama chat model (overridable per request). |
+| `VLLM_BASE_URL` | `http://vllm:8000/v1` | vLLM engine endpoint. Unset to disable vLLM. |
+| `VLLM_API_KEY` | — | Only if vLLM was launched with `--api-key`. |
+| `VLLM_MODEL` | `aisingapore/Qwen-SEA-LION-v4-8B-VL` | Model the vLLM service serves (HF id or local merged path). |
+| `VLLM_SERVED_NAME` | `qwen-sea-lion-v4-8b` | Served-model name advertised by vLLM. |
+| `VLLM_GPU_UTIL` | `0.22` | Fraction of GPU memory vLLM reserves. |
+| `VLLM_MAX_MODEL_LEN` | `16384` | vLLM context window (input+output tokens). |
+| `INFERENCE_STREAM` | `true` | Enable SSE streaming for chat responses. |
+| `APP_PASSWORD` | — | Shared-password access gate. **Required in production** (app fails closed / 503 if empty or a known-weak value). |
+| `AUTH_SECRET` | — | Per-deployment secret folded into the session token. **Required in production.** Generate with `openssl rand -hex 32`. |
 
-Switching from mock to real is a **single flag** — no component changes — because every
-module fetches through a service seam (see [Architecture](#architecture)).
+Optional S3/MinIO variables (read by [`src/lib/s3.ts`](src/lib/s3.ts) for grounded eval sets):
+`S3_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `EVAL_SET_BUCKET`.
+These are likewise server-only credentials and never reach the browser.
 
 ---
 
@@ -143,13 +167,14 @@ The frontend builds to a standard Next.js App Router output and deploys to any N
 
 Deployment notes:
 
-- Set the two `NEXT_PUBLIC_*` env vars in your host. Because they are build-time inlined,
-  **rebuild** after changing them.
-- In mock mode (`NEXT_PUBLIC_USE_REAL_API=false`) the app is fully static/standalone and
-  needs no backend — handy for design review / demo deployments.
-- For a real deployment, host the Transformer Lab backend separately and point the frontend
-  at it; the backend is heavy (Python + CUDA for local training) and is not part of the
-  Next.js build.
+- Set the server-side env vars (see [Environment variables](#environment-variables)) in your
+  host. They are read at request time on the server — no rebuild is needed to change them,
+  and none are inlined into the client bundle.
+- In production (`NODE_ENV=production`) `APP_PASSWORD` and `AUTH_SECRET` are **required** — the
+  app fails closed (503) without strong values.
+- For a real deployment, host the Transformer Lab backend separately and point the app's BFF
+  at it via `INFERENCE_BASE_URL`; the backend is heavy (Python + CUDA for local training) and
+  is not part of the Next.js build.
 
 ---
 

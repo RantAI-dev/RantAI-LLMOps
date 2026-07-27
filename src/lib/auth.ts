@@ -23,7 +23,30 @@ export const AUTH_MAX_AGE = 60 * 60 * 24 * 30;
  * without it the token is `SHA-256(password)`, which is offline-guessable if the
  * cookie ever leaks. Defaults to a constant so local dev keeps working unset.
  */
-const AUTH_SECRET = process.env.AUTH_SECRET ?? "rantai-default-secret";
+const DEFAULT_AUTH_SECRET = "rantai-default-secret";
+const RAW_AUTH_SECRET = process.env.AUTH_SECRET ?? "";
+const AUTH_SECRET = RAW_AUTH_SECRET || DEFAULT_AUTH_SECRET;
+
+/** Passwords too guessable to protect a production deployment. */
+const WEAK_PASSWORDS = new Set(["rantai-admin", "admin", "admin123", "password", "changeme", "rantai"]);
+
+/**
+ * In production the gate MUST be configured securely. When any of these hold the
+ * proxy fails CLOSED (503) instead of silently serving an unauthenticated app.
+ * Always `null` in development, so local single-user dev stays frictionless.
+ */
+export const AUTH_MISCONFIG: string | null = (() => {
+  if (process.env.NODE_ENV !== "production") return null;
+  if (!AUTH_ENABLED) return "APP_PASSWORD is not set";
+  if (WEAK_PASSWORDS.has(APP_PASSWORD.toLowerCase())) return "APP_PASSWORD is a known weak/default value";
+  if (!RAW_AUTH_SECRET || RAW_AUTH_SECRET === DEFAULT_AUTH_SECRET)
+    return "AUTH_SECRET is unset or left at the insecure default";
+  return null;
+})();
+
+if (AUTH_MISCONFIG) {
+  console.error(`[auth] Refusing to serve requests: ${AUTH_MISCONFIG}. Set a strong APP_PASSWORD and AUTH_SECRET.`);
+}
 
 /** Session token = SHA-256("rantai::" + secret + "::" + password), hex. */
 export async function sessionToken(): Promise<string> {

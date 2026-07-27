@@ -6,7 +6,6 @@
  * across types so the Tasks monitor can show one row per job with its real
  * status, progress, model, and timing. Job logs come from `/jobs/{id}/output`.
  */
-import { inferenceHeaders, TL_ROOT } from "@/lib/inference";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { FINETUNE_EXPERIMENT, NOTE_PREFIX } from "@/lib/tl-constants";
 import { readJobLog, saveJobLog } from "@/lib/job-log-store";
@@ -201,31 +200,33 @@ export async function resolveJobExperiment(jobId: string): Promise<string> {
 
 /** SDK output for a job (`/jobs/{id}/output`) — the `lab.log()` summary. */
 async function fetchSdkOutput(id: string, experiment: string): Promise<string> {
-  const res = await fetch(
-    `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/output`,
-    { headers: inferenceHeaders() }
-  );
-  if (!res.ok) return "";
-  const ct = res.headers.get("content-type") ?? "";
-  if (ct.includes("application/json")) {
-    const parsed = await res.json().catch(() => null);
-    if (typeof parsed === "string") return parsed;
-    if (parsed && typeof parsed === "object") {
-      const o = parsed as { output?: string; logs?: string };
-      return o.output ?? o.logs ?? "";
+  try {
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/output`
+    );
+    if (!res.ok) return "";
+    const ct = res.headers.get("content-type") ?? "";
+    if (ct.includes("application/json")) {
+      const parsed = await res.json().catch(() => null);
+      if (typeof parsed === "string") return parsed;
+      if (parsed && typeof parsed === "object") {
+        const o = parsed as { output?: string; logs?: string };
+        return o.output ?? o.logs ?? "";
+      }
+      return "";
     }
+    return res.text().catch(() => "");
+  } catch {
     return "";
   }
-  return res.text().catch(() => "");
 }
 
 /** Live provider console for a job (`/jobs/{id}/provider_logs`) — raw stdout
  *  (loss curves, progress, errors). This is what updates while a job RUNs. */
 async function fetchProviderConsole(id: string, experiment: string): Promise<string> {
   try {
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=2000`,
-      { headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/provider_logs?tail_lines=2000`
     );
     if (!res.ok) return "";
     const data = (await res.json().catch(() => ({}))) as { logs?: string };
@@ -273,9 +274,8 @@ export async function jobOutput(id: string, experimentId?: string): Promise<stri
 export async function stopJob(id: string): Promise<boolean> {
   try {
     const experiment = await resolveJobExperiment(id);
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/stop`,
-      { headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}/stop`
     );
     return res.ok;
   } catch {
@@ -287,9 +287,9 @@ export async function stopJob(id: string): Promise<boolean> {
 export async function deleteJob(id: string): Promise<boolean> {
   try {
     const experiment = await resolveJobExperiment(id);
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}`,
-      { method: "DELETE", headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}`,
+      { method: "DELETE" }
     );
     return res.ok;
   } catch {
@@ -316,9 +316,7 @@ export async function listTlExperiments(): Promise<TlExperimentRow[]> {
  * name as the id. Returns the new id, or throws with TL's message.
  */
 export async function createTlExperiment(name: string): Promise<string> {
-  const res = await fetch(`${TL_ROOT}/experiment/create?name=${encodeURIComponent(name)}`, {
-    headers: inferenceHeaders(),
-  });
+  const res = await tlFetch(`/experiment/create?name=${encodeURIComponent(name)}`);
   if (res.ok) {
     const id = await res.json().catch(() => name);
     return typeof id === "string" ? id : name;
@@ -331,9 +329,7 @@ export async function createTlExperiment(name: string): Promise<string> {
 /** Delete an experiment (`GET /experiment/{id}/delete`). Returns whether TL accepted it. */
 export async function deleteTlExperiment(id: string): Promise<boolean> {
   try {
-    const res = await fetch(`${TL_ROOT}/experiment/${encodeURIComponent(id)}/delete`, {
-      headers: inferenceHeaders(),
-    });
+    const res = await tlFetch(`/experiment/${encodeURIComponent(id)}/delete`);
     return res.ok;
   } catch {
     return false;

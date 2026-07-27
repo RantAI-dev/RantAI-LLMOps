@@ -225,9 +225,9 @@ export function RetentionView({
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-surface p-4">
-        <label className="block">
+        <div className="block">
           <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
-            Fine-tune model
+            <label htmlFor="retention-ft-model">Fine-tune model</label>
             <InfoTip label="About retention">
               Compared against its base model:{" "}
               <span className="font-medium text-ink">{baseLabel}</span>. A drop in general-benchmark
@@ -235,6 +235,7 @@ export function RetentionView({
             </InfoTip>
           </span>
           <select
+            id="retention-ft-model"
             className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={ft?.id ?? ""}
             onChange={(e) => setPicked(e.target.value)}
@@ -245,7 +246,7 @@ export function RetentionView({
               </option>
             ))}
           </select>
-        </label>
+        </div>
       </div>
 
       {analysis && analysis.rows.length > 0 ? (
@@ -303,7 +304,6 @@ export function RetentionView({
               onRunBase={runBase}
             />
           ))}
-
         </div>
       ) : (
         <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">

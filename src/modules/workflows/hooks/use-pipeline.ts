@@ -55,12 +55,17 @@ export function usePipeline() {
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
 
   const cancelledRef = useRef(false);
+  // AbortController for the active run's fetches/streams. On unmount we both flip
+  // `cancelledRef` (so the polling loops bail) AND abort this, so a pending
+  // `reader.read()` on the export SSE stream is torn down instead of leaking.
+  const abortRef = useRef<AbortController | null>(null);
   // Mirror of `stages` readable inside the async run() to record the final outcome.
   const stagesRef = useRef<Stage[]>([]);
   useEffect(() => {
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
+      abortRef.current?.abort();
     };
   }, []);
 
@@ -92,6 +97,9 @@ export function usePipeline() {
       stagesRef.current = init;
       setStages(init);
       setRunning(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const signal = controller.signal;
       const out: PipelineResult = {
         adaptorName: cfg.adaptorName,
         fusedModelId: null,
@@ -113,6 +121,7 @@ export function usePipeline() {
             adaptorName: cfg.adaptorName,
             epochs: cfg.epochs,
           }),
+          signal,
         });
         const trainData = (await trainRes.json()) as { jobId?: string; error?: string };
         if (!trainRes.ok || !trainData.jobId) throw new Error(trainData.error || "Failed to start training");
@@ -121,7 +130,7 @@ export function usePipeline() {
         for (let i = 0; i < 600 && !cancelledRef.current; i++) {
           await sleep(4000);
           try {
-            const r = await fetch(`/api/finetune/jobs/${encodeURIComponent(trainData.jobId)}`);
+            const r = await fetch(`/api/finetune/jobs/${encodeURIComponent(trainData.jobId)}`, { signal });
             if (r.ok) {
               const job = (await r.json()) as { status?: string; progress?: number };
               trainStatus = (job.status ?? "").toUpperCase();
@@ -146,7 +155,7 @@ export function usePipeline() {
         // check it so we don't march on to eval/export with a phantom adapter.
         let trainLog = "";
         try {
-          const logRes = await fetch(`/api/tasks/${encodeURIComponent(jobId)}/output`);
+          const logRes = await fetch(`/api/tasks/${encodeURIComponent(jobId)}/output`, { signal });
           trainLog = String(((await logRes.json()) as { output?: string })?.output ?? "");
         } catch {
           /* best-effort — if we can't read the log, trust the COMPLETE status */
@@ -177,12 +186,13 @@ export function usePipeline() {
               benchmark: cfg.benchmark,
               limit: cfg.coverage / 100,
             }),
+            signal,
           });
           const evalData = (await evalRes.json()) as { jobId?: string; error?: string };
           if (!evalRes.ok || !evalData.jobId) {
             setStage("eval", { status: "failed", detail: evalData.error || "failed" });
           } else {
-            const score = await waitEval(evalData.jobId, cancelledRef);
+            const score = await waitEval(evalData.jobId, cancelledRef, signal);
             if (cancelledRef.current) return false;
             out.score = score;
             setStage("eval", {
@@ -199,6 +209,7 @@ export function usePipeline() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ fusedModelId: jobId }),
+            signal,
           });
           // The export endpoint STREAMS SSE (`data: {stage,percent}` … then
           // `{done,tag}` or `{error}`) — reading it as JSON always failed and
@@ -219,7 +230,7 @@ export function usePipeline() {
             setStage("export", { status: "failed", detail: exp.error });
           } else {
             // Stream cut off with no clear verdict — fall back to a catalog check.
-            const ft = await waitGgufReady(jobId, cancelledRef);
+            const ft = await waitGgufReady(jobId, cancelledRef, signal);
             if (cancelledRef.current) return false;
             out.ggufReady = Boolean(ft?.ready);
             out.loadModelId = ft?.loadModelId ?? null;
@@ -296,32 +307,38 @@ async function consumeExportStream(
   let done = false;
   let tag: string | null = null;
   let error: string | null = null;
-  while (!cancelledRef.current) {
-    const { value, done: streamDone } = await reader.read();
-    if (streamDone) break;
-    buf += decoder.decode(value, { stream: true });
-    const parts = buf.split("\n\n");
-    buf = parts.pop() ?? "";
-    for (const part of parts) {
-      const line = part.trim();
-      if (!line.startsWith("data:")) continue;
-      try {
-        const ev = JSON.parse(line.slice(5).trim()) as {
-          stage?: string;
-          percent?: number;
-          done?: boolean;
-          tag?: string;
-          error?: string;
-        };
-        if (ev.error) error = ev.error;
-        else if (ev.done) {
-          done = true;
-          tag = ev.tag ?? null;
-        } else if (ev.stage) onProgress(ev.stage, ev.percent);
-      } catch {
-        /* ignore a malformed SSE line */
+  try {
+    while (!cancelledRef.current) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      buf += decoder.decode(value, { stream: true });
+      const parts = buf.split("\n\n");
+      buf = parts.pop() ?? "";
+      for (const part of parts) {
+        const line = part.trim();
+        if (!line.startsWith("data:")) continue;
+        try {
+          const ev = JSON.parse(line.slice(5).trim()) as {
+            stage?: string;
+            percent?: number;
+            done?: boolean;
+            tag?: string;
+            error?: string;
+          };
+          if (ev.error) error = ev.error;
+          else if (ev.done) {
+            done = true;
+            tag = ev.tag ?? null;
+          } else if (ev.stage) onProgress(ev.stage, ev.percent);
+        } catch {
+          /* ignore a malformed SSE line */
+        }
       }
     }
+  } finally {
+    // Tear the stream down whether we finished, cancelled, or the fetch was
+    // aborted — a pending `reader.read()` would otherwise keep the response open.
+    void reader.cancel().catch(() => {});
   }
   return { done, tag, error };
 }
@@ -329,9 +346,9 @@ async function consumeExportStream(
 type FineTuned = { name: string; fusedModelId: string; ready: boolean; loadModelId: string | null };
 
 /** Find a fine-tune in the catalog by its train job id (fusedModelId). */
-async function fetchFineTuned(jobId: string): Promise<FineTuned | null> {
+async function fetchFineTuned(jobId: string, signal?: AbortSignal): Promise<FineTuned | null> {
   try {
-    const res = await fetch("/api/models/catalog", { cache: "no-store" });
+    const res = await fetch("/api/models/catalog", { cache: "no-store", signal });
     const data = (await res.json()) as { fineTuned?: FineTuned[] };
     return (data.fineTuned ?? []).find((m) => m.fusedModelId === jobId) ?? null;
   } catch {
@@ -341,21 +358,26 @@ async function fetchFineTuned(jobId: string): Promise<FineTuned | null> {
 
 async function waitGgufReady(
   jobId: string,
-  cancelledRef: { current: boolean }
+  cancelledRef: { current: boolean },
+  signal?: AbortSignal
 ): Promise<FineTuned | null> {
   for (let i = 0; i < 60 && !cancelledRef.current; i++) {
-    const ft = await fetchFineTuned(jobId);
+    const ft = await fetchFineTuned(jobId, signal);
     if (ft?.ready) return ft;
     await sleep(3000);
   }
-  return fetchFineTuned(jobId);
+  return fetchFineTuned(jobId, signal);
 }
 
-async function waitEval(jobId: string, cancelledRef: { current: boolean }): Promise<number | null> {
+async function waitEval(
+  jobId: string,
+  cancelledRef: { current: boolean },
+  signal?: AbortSignal
+): Promise<number | null> {
   for (let i = 0; i < 300 && !cancelledRef.current; i++) {
     await sleep(3000);
     try {
-      const res = await fetch("/api/evals/jobs");
+      const res = await fetch("/api/evals/jobs", { signal });
       const data = (await res.json()) as {
         jobs?: Array<{ id: string; status: string; scores: Array<{ type: string; score: number }> }>;
       };

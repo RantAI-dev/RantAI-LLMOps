@@ -2,7 +2,7 @@
 
 import { Database, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
@@ -14,23 +14,77 @@ import { UploadDatasetDialog } from "@/modules/datasets/components/upload-datase
 import { datasetUi } from "@/modules/datasets/constants/dataset-ui";
 import { datasetHref } from "@/modules/datasets/lib/routes";
 import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
+import type { DatasetFilters } from "@/modules/datasets/types";
 import { cn } from "@/lib/utils";
 
+const defaultFilters: DatasetFilters = {
+  search: "",
+  datasetType: "all",
+  source: "all",
+  validationStatus: "all",
+  sort: "updated",
+};
+
 export function DatasetsPage() {
-  const {
-    datasets,
-    filters,
-    setFilters,
-    resetFilters,
-    filteredDatasets,
-    archiveDataset,
-    datasetsLoading,
-    datasetsError,
-    reloadDatasets,
-  } = useDatasets();
+  const { datasets, datasetsLoading, datasetsError, reloadDatasets } = useDatasets();
 
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(false);
+
+  // Filter/search state lives here (not in the shared DatasetsProvider) so typing
+  // only re-renders this page — not every consumer of the datasets data context.
+  const [filters, setFilters] = useState<DatasetFilters>(defaultFilters);
+  const resetFilters = () => setFilters(defaultFilters);
+
+  // Debounce the search term (~250ms) so the input stays responsive but filtering
+  // (and the card re-render it drives) doesn't run on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(filters.search), 250);
+    return () => clearTimeout(t);
+  }, [filters.search]);
+
+  const { datasetType, source, validationStatus, sort } = filters;
+  const filteredDatasets = useMemo(() => {
+    let result = datasets;
+    const q = debouncedSearch.trim().toLowerCase();
+
+    if (q) {
+      result = result.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          d.description.toLowerCase().includes(q) ||
+          d.owner.toLowerCase().includes(q) ||
+          d.tags.some((t) => t.toLowerCase().includes(q))
+      );
+    }
+    if (datasetType !== "all") {
+      result = result.filter((d) => d.datasetType === datasetType);
+    }
+    if (source !== "all") {
+      result = result.filter((d) => d.source === source);
+    }
+    if (validationStatus !== "all") {
+      result = result.filter((d) => d.validationStatus === validationStatus);
+    }
+
+    // Copy before sorting so we never mutate the provider's datasets array in place.
+    return [...result].sort((a, b) => {
+      switch (sort) {
+        case "newest":
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case "oldest":
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "usage":
+          return b.usageCount - a.usageCount;
+        case "updated":
+        default:
+          return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
+      }
+    });
+  }, [datasets, debouncedSearch, datasetType, source, validationStatus, sort]);
 
   // Datasets reach Transformer Lab three ways: pulled from Hugging Face at training
   // time (the trainer does `load_dataset(id)`), browsed via the real Hub, or
@@ -38,8 +92,7 @@ export function DatasetsPage() {
   // Fine-tune). No mock create wizard.
   const goToHub = () => router.push("/hub");
 
-  const activeDatasets = datasets.filter((d) => d.validationStatus !== "Archived");
-  const showEmpty = activeDatasets.length === 0;
+  const showEmpty = datasets.length === 0;
   const showFilteredEmpty = !showEmpty && filteredDatasets.length === 0;
 
   return (
@@ -100,7 +153,6 @@ export function DatasetsPage() {
               key={dataset.id}
               dataset={dataset}
               onView={() => router.push(datasetHref(dataset.id))}
-              onArchive={() => archiveDataset(dataset.id)}
             />
           ))}
         </div>

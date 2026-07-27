@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AUTH_COOKIE, AUTH_ENABLED, verifySession } from "@/lib/auth";
+import { AUTH_COOKIE, AUTH_ENABLED, AUTH_MISCONFIG, verifySession } from "@/lib/auth";
 
 /**
  * Shared-password gate (Next 16 `proxy`, nodejs runtime). Active only when
@@ -8,6 +8,15 @@ import { AUTH_COOKIE, AUTH_ENABLED, verifySession } from "@/lib/auth";
  * the login page + auth API through.
  */
 export async function proxy(req: NextRequest) {
+  // Fail CLOSED in production when the gate isn't configured securely, rather
+  // than silently serving an unauthenticated app. `AUTH_MISCONFIG` is only ever
+  // non-null in production (dev stays frictionless).
+  if (AUTH_MISCONFIG) {
+    return NextResponse.json(
+      { error: `Server auth misconfigured: ${AUTH_MISCONFIG}` },
+      { status: 503 }
+    );
+  }
   if (!AUTH_ENABLED) return NextResponse.next();
 
   const { pathname } = req.nextUrl;

@@ -92,7 +92,7 @@ function InfoTip({
             type="button"
             aria-label={label}
             className={cn(
-              "inline-flex shrink-0 items-center justify-center rounded-full text-ink-faint transition-colors hover:text-ink-soft focus-visible:text-ink-soft focus-visible:outline-none",
+              "inline-flex shrink-0 items-center justify-center rounded-full text-ink-faint transition-colors hover:text-ink-soft focus-visible:text-ink-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               className
             )}
           />

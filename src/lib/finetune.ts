@@ -20,11 +20,9 @@
 import { runHostScript, runHostScriptStream } from "@/lib/host-runner";
 import {
   fetchDownloaded,
-  TL_ROOT,
   type CatalogModel,
   type FineTunedModel,
 } from "@/lib/models-catalog";
-import { inferenceHeaders } from "@/lib/inference";
 import { listOllamaModels } from "@/lib/ollama";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/validate";
@@ -186,7 +184,7 @@ type TlDataset = {
 /** Datasets present on disk (TL `/data/list`) — includes user-created ones. */
 async function fetchLocalDatasets(): Promise<TlDataset[]> {
   try {
-    const res = await fetch(`${TL_ROOT}/data/list`, { headers: inferenceHeaders() });
+    const res = await tlFetch(`/data/list`);
     if (!res.ok) return [];
     const rows = (await res.json()) as TlDataset[];
     return Array.isArray(rows) ? rows.filter((r) => r.dataset_id) : [];
@@ -221,8 +219,9 @@ export type DatasetPreview = { columns: string[]; rows: Array<Record<string, str
  * objects and stringify cell values so the UI can render arbitrary schemas.
  */
 export async function previewTlDataset(id: string, limit = 25): Promise<DatasetPreview> {
-  const url = `${TL_ROOT}/data/preview?dataset_id=${encodeURIComponent(id)}&limit=${limit}`;
-  const res = await fetch(url, { headers: inferenceHeaders() });
+  const res = await tlFetch(
+    `/data/preview?dataset_id=${encodeURIComponent(id)}&limit=${limit}`
+  );
   if (!res.ok) throw new Error(`preview ${res.status}`);
   const body = (await res.json().catch(() => ({}))) as {
     status?: string;
@@ -276,9 +275,7 @@ export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
 /** Delete a local dataset (TL `/data/delete`). Returns whether TL accepted it. */
 export async function deleteDataset(datasetId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${TL_ROOT}/data/delete?dataset_id=${encodeURIComponent(datasetId)}`, {
-      headers: inferenceHeaders(),
-    });
+    const res = await tlFetch(`/data/delete?dataset_id=${encodeURIComponent(datasetId)}`);
     return res.ok;
   } catch {
     return false;
@@ -297,10 +294,7 @@ export async function createDataset(
   if (!id) throw new Error("Dataset name is required");
   if (rows.length === 0) throw new Error("At least one row is required");
 
-  const created = await fetch(
-    `${TL_ROOT}/data/new?dataset_id=${encodeURIComponent(id)}`,
-    { headers: inferenceHeaders() }
-  );
+  const created = await tlFetch(`/data/new?dataset_id=${encodeURIComponent(id)}`);
   const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
   // Check the HTTP status too: a 4xx/5xx with a non-JSON body would otherwise
   // parse to `{}` and slip past the `status === "error"` check, leaving us to
@@ -315,9 +309,9 @@ export async function createDataset(
   const form = new FormData();
   form.append("files", new Blob([jsonl], { type: "application/jsonl" }), `${id}_train.jsonl`);
 
-  const up = await fetch(`${TL_ROOT}/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
+  const up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
     method: "POST",
-    headers: inferenceHeaders(), // multipart boundary is set by fetch from the FormData
+    // multipart boundary is set by fetch from the FormData
     body: form,
   });
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
@@ -422,9 +416,7 @@ export async function uploadDatasetFile(
     throw new DatasetInputError(`Dataset "${id}" already exists. Use another name or delete it first.`);
   }
 
-  const created = await fetch(`${TL_ROOT}/data/new?dataset_id=${encodeURIComponent(id)}`, {
-    headers: inferenceHeaders(),
-  });
+  const created = await tlFetch(`/data/new?dataset_id=${encodeURIComponent(id)}`);
   const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
   if (!created.ok || cData.status === "error") {
     throw new Error(cData.message || `Could not create dataset (${created.status})`);
@@ -432,9 +424,8 @@ export async function uploadDatasetFile(
 
   const form = new FormData();
   form.append("files", new Blob([jsonl], { type: "application/jsonl" }), `${id}_train.jsonl`);
-  const up = await fetch(`${TL_ROOT}/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
+  const up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
     method: "POST",
-    headers: inferenceHeaders(),
     body: form,
   });
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
@@ -723,9 +714,8 @@ export async function exportFineTunedToGguf(
 ): Promise<string> {
   // Resolve the base model + adaptor name from the train job (in its experiment).
   const experiment = await resolveJobExperiment(jobId);
-  const jobRes = await fetch(
-    `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
-    { headers: inferenceHeaders() }
+  const jobRes = await tlFetch(
+    `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`
   );
   if (!jobRes.ok) throw new Error(`Training job "${jobId}" not found (${jobRes.status})`);
   const job = (await jobRes.json()) as TlJob;
@@ -884,9 +874,8 @@ export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
 export async function stopTrainingJob(jobId: string): Promise<boolean> {
   try {
     const experiment = await resolveJobExperiment(jobId);
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}/stop`,
-      { headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}/stop`
     );
     return res.ok;
   } catch {
@@ -927,9 +916,9 @@ export async function hardStopAfterGrace(jobId: string, graceSeconds = 15): Prom
 export async function deleteTrainingJob(jobId: string): Promise<boolean> {
   try {
     const experiment = await resolveJobExperiment(jobId);
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
-      { method: "DELETE", headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
+      { method: "DELETE" }
     );
     return res.ok;
   } catch {
@@ -941,9 +930,8 @@ export async function deleteTrainingJob(jobId: string): Promise<boolean> {
 export async function fetchTrainingJob(id: string): Promise<TrainingJob | null> {
   try {
     const experiment = await resolveJobExperiment(id);
-    const res = await fetch(
-      `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}`,
-      { headers: inferenceHeaders() }
+    const res = await tlFetch(
+      `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(id)}`
     );
     if (!res.ok) return null;
     return normalizeJob((await res.json()) as TlJob);

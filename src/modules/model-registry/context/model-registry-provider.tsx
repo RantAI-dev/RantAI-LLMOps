@@ -11,32 +11,22 @@ import {
 import { toast } from "sonner";
 
 import { useResourceFetch } from "@/lib/use-resource-fetch";
-import { computeSummaryStats, filterModels } from "@/modules/model-registry/lib/utils";
+import { computeSummaryStats } from "@/modules/model-registry/lib/utils";
 import {
   fetchModels,
   seedModels,
 } from "@/modules/model-registry/services/model-registry-service";
 import type {
-  ModelFilters,
   RegistryModel,
   ToastMessage,
 } from "@/modules/model-registry/types";
 
-const defaultFilters: ModelFilters = {
-  search: "",
-  provider: "all",
-  task: "all",
-  status: "all",
-  access: "all",
-  compatibility: "all",
-};
-
+// NOTE: search/filter state lives locally in the consuming page (models-page's
+// ModelBrowser), not here — keeping it out of this shared value means typing in
+// the filter bar no longer re-renders every data consumer (summary cards, detail
+// page). This context now only carries model data + actions.
 type ModelRegistryContextValue = {
   models: RegistryModel[];
-  filters: ModelFilters;
-  setFilters: React.Dispatch<React.SetStateAction<ModelFilters>>;
-  resetFilters: () => void;
-  filteredModels: RegistryModel[];
   summaryStats: ReturnType<typeof computeSummaryStats>;
   selectedModelId: string | null;
   setSelectedModelId: (id: string | null) => void;
@@ -59,7 +49,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
     fetchModels,
     { always: true }
   );
-  const [filters, setFilters] = useState<ModelFilters>(defaultFilters);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
@@ -71,14 +60,11 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
     else toast.info(message.title, options);
   }, []);
 
-  const filteredModels = useMemo(() => filterModels(models, filters), [models, filters]);
   const summaryStats = useMemo(() => computeSummaryStats(models), [models]);
   const selectedModel = useMemo(
     () => (selectedModelId ? models.find((m) => m.id === selectedModelId) ?? null : null),
     [models, selectedModelId]
   );
-
-  const resetFilters = useCallback(() => setFilters(defaultFilters), []);
 
   // Real delete: removes the model from Ollama (and its GGUF blob) via the BFF,
   // then re-fetches the registry so the row actually disappears — no fake local
@@ -114,10 +100,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
   const value = useMemo<ModelRegistryContextValue>(
     () => ({
       models,
-      filters,
-      setFilters,
-      resetFilters,
-      filteredModels,
       summaryStats,
       selectedModelId,
       setSelectedModelId,
@@ -132,9 +114,6 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
     }),
     [
       models,
-      filters,
-      resetFilters,
-      filteredModels,
       summaryStats,
       selectedModelId,
       selectedModel,

@@ -12,16 +12,15 @@ type DatasetSummaryCardsProps = {
 };
 
 export function DatasetSummaryCards({ datasets }: DatasetSummaryCardsProps) {
-  const active = datasets.filter((d) => d.validationStatus !== "Archived");
-  const ready = active.filter((d) => d.validationStatus === "Ready" || d.validationStatus === "In Use");
-  const needsReview = active.filter((d) => d.validationStatus === "Needs Review");
-  const totalRows = active.reduce((sum, d) => sum + d.totalRows, 0);
+  const ready = datasets.filter((d) => d.validationStatus === "Ready" || d.validationStatus === "In Use");
+  const needsReview = datasets.filter((d) => d.validationStatus === "Needs Review");
+  const totalRows = datasets.reduce((sum, d) => sum + d.totalRows, 0);
 
   const cards: SummaryCard[] = [
     {
       label: "Total Datasets",
-      value: String(active.length),
-      sub: `${datasets.length - active.length} archived`,
+      value: String(datasets.length),
+      sub: "Registered datasets",
       icon: Database,
       iconWrapClassName: "bg-warning-soft",
       iconClassName: "text-warning-gold",
@@ -45,7 +44,7 @@ export function DatasetSummaryCards({ datasets }: DatasetSummaryCardsProps) {
     {
       label: "Total Rows",
       value: formatNumber(totalRows),
-      sub: "Across active datasets",
+      sub: "Across all datasets",
       icon: Archive,
       iconWrapClassName: "bg-info-soft",
       iconClassName: "text-info-bright",

@@ -12,8 +12,7 @@
  */
 import { BENCHMARKS, benchmarkById, type Benchmark } from "@/lib/benchmarks";
 import { runHostScript } from "@/lib/host-runner";
-import { fetchDownloaded, TL_ROOT, type CatalogModel } from "@/lib/models-catalog";
-import { inferenceHeaders } from "@/lib/inference";
+import { fetchDownloaded, type CatalogModel } from "@/lib/models-catalog";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
@@ -227,9 +226,8 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
 async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string; label: string }> {
   // The train job may live in any experiment (Pattern B) — resolve it.
   const experiment = await resolveJobExperiment(jobId);
-  const res = await fetch(
-    `${TL_ROOT}/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`,
-    { headers: inferenceHeaders() }
+  const res = await tlFetch(
+    `/experiment/${encodeURIComponent(experiment)}/jobs/${encodeURIComponent(jobId)}`
   );
   if (!res.ok) throw new Error(`Fine-tune job "${jobId}" not found (${res.status})`);
   const job = (await res.json()) as {

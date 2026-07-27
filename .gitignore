@@ -44,3 +44,6 @@ next-env.d.ts
 # Server-side app data (deployments + settings store — may hold the HF token)
 .rantai-data/
 .nqr-data/
+
+# Local AI dev log — carries live credentials, must NOT be tracked (see .dockerignore).
+AI_KNOWLEDGE_LOG.md

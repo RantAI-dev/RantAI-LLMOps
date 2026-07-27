@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 /** Clear the session cookie. */
 export async function POST() {
   const res = Response.json({ ok: true });
-  res.headers.append("Set-Cookie", `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  res.headers.append("Set-Cookie", `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=0`);
   return res;
 }

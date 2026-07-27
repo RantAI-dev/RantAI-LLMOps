@@ -83,17 +83,25 @@ export function GatewayAccess() {
   }, [load]);
 
   const toggleModel = async (id: string) => {
-    const next = deployed.includes(id) ? deployed.filter((m) => m !== id) : [...deployed, id];
-    setDeployed(next); // optimistic
+    // Compute from the freshest state (functional updater) so rapid toggles
+    // don't each POST a stale snapshot (last-write-wins dropping a change).
+    let next: string[] = [];
+    setDeployed((cur) => {
+      next = cur.includes(id) ? cur.filter((m) => m !== id) : [...cur, id];
+      return next; // optimistic
+    });
     try {
-      await fetch("/api/serve/gateway", {
+      const res = await fetch("/api/serve/gateway", {
         method: "POST",
         headers: JSON_HEADERS,
         body: JSON.stringify({ action: "setModels", models: next }),
       });
+      // A rejected write (4xx/5xx) resolves normally — check res.ok, otherwise
+      // the UI would show a model as un-exposed while the gateway still serves it.
+      if (!res.ok) throw new Error(`setModels failed (${res.status})`);
     } catch {
       toast.error("Failed to save model selection");
-      load();
+      load(); // re-sync from the server so the UI matches the real gateway state
     }
   };
 
@@ -105,14 +113,16 @@ export function GatewayAccess() {
         headers: JSON_HEADERS,
         body: JSON.stringify({ action: "createKey", name: newKeyName }),
       });
-      const d = await r.json();
-      if (d?.created?.key) {
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d?.created?.key) {
         setJustCreated({ name: d.created.name, key: d.created.key });
         setNewKeyName("");
         await load();
       } else {
         toast.error("Failed to create key");
       }
+    } catch {
+      toast.error("Failed to create key");
     } finally {
       setBusy(false);
     }
@@ -120,14 +130,16 @@ export function GatewayAccess() {
 
   const revokeKey = async (id: string) => {
     try {
-      await fetch("/api/serve/gateway", {
+      const res = await fetch("/api/serve/gateway", {
         method: "POST",
         headers: JSON_HEADERS,
         body: JSON.stringify({ action: "revokeKey", id }),
       });
+      if (!res.ok) throw new Error(`revokeKey failed (${res.status})`);
       await load();
     } catch {
       toast.error("Failed to delete key");
+      load();
     }
   };
 

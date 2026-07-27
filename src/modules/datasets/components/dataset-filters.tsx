@@ -69,7 +69,10 @@ export function DatasetFiltersBar({ filters, onChange, onReset }: DatasetFilters
             }
             options={[
               { value: "all", label: "All statuses" },
-              ...VALIDATION_STATUSES.map((s) => ({ value: s, label: s })),
+              ...VALIDATION_STATUSES.filter((s) => s !== "Archived").map((s) => ({
+                value: s,
+                label: s,
+              })),
             ]}
           />
           <FilterSelect

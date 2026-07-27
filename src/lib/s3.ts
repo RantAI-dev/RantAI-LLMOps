@@ -20,6 +20,27 @@ const SECRET_KEY = process.env.AWS_SECRET_ACCESS_KEY ?? "";
 /** Default bucket for eval sets; overridable so a team can point elsewhere. */
 export const EVAL_SET_BUCKET = process.env.EVAL_SET_BUCKET || "eval-sets";
 
+/**
+ * Buckets this reader is allowed to touch. `bucket` reaches here from a client
+ * query param, so without an allowlist an authenticated user could read ANY
+ * object these S3 creds can reach (the same creds the trainer uses for private
+ * corpora). Defaults to the eval-set bucket; set `S3_ALLOWED_BUCKETS` (comma-
+ * separated) to also browse others, e.g. `S3_ALLOWED_BUCKETS=eval-sets,sft`.
+ */
+const ALLOWED_BUCKETS = new Set(
+  (process.env.S3_ALLOWED_BUCKETS || EVAL_SET_BUCKET)
+    .split(",")
+    .map((b) => b.trim())
+    .filter(Boolean)
+);
+
+/** Guard: reject a bucket that isn't explicitly allowed. */
+export function assertAllowedBucket(bucket: string): void {
+  if (!ALLOWED_BUCKETS.has(bucket)) {
+    throw new Error(`Bucket "${bucket}" is not allowed. Set S3_ALLOWED_BUCKETS to permit it.`);
+  }
+}
+
 /** Whether S3 is configured enough to attempt a call. */
 export function s3Configured(): boolean {
   return Boolean(ENDPOINT && ACCESS_KEY && SECRET_KEY);
@@ -48,6 +69,7 @@ export type S3EvalSet = { key: string; name: string; sizeKb: number | null };
  */
 export async function listEvalSets(bucket = EVAL_SET_BUCKET, prefix = ""): Promise<S3EvalSet[]> {
   if (!s3Configured()) return [];
+  assertAllowedBucket(bucket);
   const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
   if (prefix) q.set("prefix", prefix);
   const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
@@ -74,6 +96,10 @@ export async function listEvalSets(bucket = EVAL_SET_BUCKET, prefix = ""): Promi
 /** Read one eval set's JSONL text by key. */
 export async function getEvalSetText(key: string, bucket = EVAL_SET_BUCKET): Promise<string> {
   if (!s3Configured()) throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
+  assertAllowedBucket(bucket);
+  // Only eval sets (.jsonl) are readable — the listing already filters to these,
+  // so this stops the read path being used to fetch arbitrary objects by key.
+  if (!/\.jsonl$/i.test(key)) throw new Error("Only .jsonl eval sets can be read.");
   const res = await client().fetch(objectUrl(bucket, key), { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Failed to read ${key} from S3 (${res.status})`);
   return res.text();

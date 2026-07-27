@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { EnginePicker } from "@/modules/playground/components/engine-picker";
 import { ModelPicker } from "@/modules/playground/components/model-picker";
-import { parseChatMetrics, parseChatSseLine } from "@/modules/playground/lib/sse";
+import { parseChatMetrics, parseChatSseError, parseChatSseLine } from "@/modules/playground/lib/sse";
 import type { ChatMessage, ChatMetrics } from "@/modules/playground/types";
 import type { EngineInfo } from "@/modules/serve/hooks/use-engines";
 import { cn } from "@/lib/utils";
@@ -108,22 +108,32 @@ export function ChatArea({
       const decoder = new TextDecoder();
       let buffer = "";
 
+      // Process one SSE line. An `error` frame throws so the catch below surfaces
+      // it and drops the empty assistant bubble — a mid-stream failure must not be
+      // mistaken for a normal completion.
+      const handleLine = (line: string) => {
+        const streamErr = parseChatSseError(line);
+        if (streamErr) throw new Error(streamErr);
+        const delta = parseChatSseLine(line);
+        if (delta) {
+          setMessages((prev) => appendDelta(prev, delta));
+          return;
+        }
+        const metrics = parseChatMetrics(line);
+        if (metrics) setMessages((prev) => attachMetrics(prev, metrics));
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const delta = parseChatSseLine(line);
-          if (delta) {
-            setMessages((prev) => appendDelta(prev, delta));
-            continue;
-          }
-          const metrics = parseChatMetrics(line);
-          if (metrics) setMessages((prev) => attachMetrics(prev, metrics));
-        }
+        for (const line of lines) handleLine(line);
       }
+      // Flush a final frame that arrived without a trailing newline (notably the
+      // `rantai_metrics` frame) — otherwise the leftover buffer is lost.
+      if (buffer.trim()) handleLine(buffer);
     } catch (err) {
       if ((err as Error).name === "AbortError") return; // user stopped — keep partial
       setError((err as Error).message);

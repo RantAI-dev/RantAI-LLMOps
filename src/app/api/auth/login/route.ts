@@ -41,9 +41,12 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Incorrect password" }, { status: 401 });
   }
   const res = Response.json({ ok: true });
+  // `Secure` in production so the session cookie never rides a plaintext HTTP
+  // request (omitted in dev so local http://localhost login still works).
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   res.headers.append(
     "Set-Cookie",
-    `${AUTH_COOKIE}=${await sessionToken()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${AUTH_MAX_AGE}`
+    `${AUTH_COOKIE}=${await sessionToken()}; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=${AUTH_MAX_AGE}`
   );
   return res;
 }

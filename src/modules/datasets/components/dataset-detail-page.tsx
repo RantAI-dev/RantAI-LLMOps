@@ -18,7 +18,7 @@ export function DatasetDetailPage() {
   const params = useParams<{ id: string | string[] }>();
   const id = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
 
-  const { getDatasetById, datasetsLoading, archiveDataset } = useDatasets();
+  const { getDatasetById, datasetsLoading } = useDatasets();
 
   const dataset = getDatasetById(id);
   const back = () => router.push("/datasets");
@@ -40,14 +40,5 @@ export function DatasetDetailPage() {
     );
   }
 
-  return (
-    <DatasetDetailView
-      dataset={dataset}
-      onBack={back}
-      onArchive={() => {
-        archiveDataset(dataset.id);
-        back();
-      }}
-    />
-  );
+  return <DatasetDetailView dataset={dataset} onBack={back} />;
 }

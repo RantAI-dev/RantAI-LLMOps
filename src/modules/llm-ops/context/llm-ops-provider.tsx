@@ -29,6 +29,16 @@ const defaultTaskFilters: TaskFilters = {
   sort: "newest",
 };
 
+/** Returns `value` delayed by `delayMs`, resetting the timer on each change. */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 type LlmOpsContextValue = {
   tasks: Task[];
   taskFilters: TaskFilters;
@@ -57,9 +67,15 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
   const [taskFilters, setTaskFilters] = useState<TaskFilters>(defaultTaskFilters);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
+  // `taskFilters.search` updates on every keystroke so the (controlled) search
+  // input stays responsive, but the actual filtering runs off a debounced copy —
+  // this keeps the filter+sort pass and the resulting `filteredTasks` array from
+  // being recomputed on every keystroke (only the discrete selects apply live).
+  const debouncedSearch = useDebouncedValue(taskFilters.search, 250);
+
   const filteredTasks = useMemo(() => {
     let result = [...tasks];
-    const q = taskFilters.search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
 
     if (q) {
       result = result.filter((t) => t.name.toLowerCase().includes(q));
@@ -89,7 +105,14 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     });
 
     return result;
-  }, [tasks, taskFilters]);
+  }, [
+    tasks,
+    debouncedSearch,
+    taskFilters.type,
+    taskFilters.status,
+    taskFilters.computeTarget,
+    taskFilters.sort,
+  ]);
 
   const selectedTask = useMemo(
     () => tasks.find((t) => t.id === selectedTaskId) ?? null,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Download } from "lucide-react";
 
@@ -11,18 +12,34 @@ import { ModelFiltersBar } from "@/modules/model-registry/components/model-filte
 import { ModelSummaryCards } from "@/modules/model-registry/components/model-summary-cards";
 import { ModelTable } from "@/modules/model-registry/components/model-table";
 import { modelRegistryUi } from "@/modules/model-registry/constants/model-registry-ui";
-import { baseSearchQuery } from "@/modules/model-registry/lib/utils";
+import { baseSearchQuery, filterModels } from "@/modules/model-registry/lib/utils";
 import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-registry";
+import type { ModelFilters, RegistryModel } from "@/modules/model-registry/types";
 import { detailHref } from "@/lib/detail-href";
 import { cn } from "@/lib/utils";
+
+const defaultFilters: ModelFilters = {
+  search: "",
+  provider: "all",
+  task: "all",
+  status: "all",
+  access: "all",
+  compatibility: "all",
+};
+
+/** Returns `value` delayed by `delayMs`, resetting the timer on each change. */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebounced(value), delayMs);
+    return () => window.clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 export function ModelsPage() {
   const {
     models,
-    filters,
-    setFilters,
-    resetFilters,
-    filteredModels,
     summaryStats,
     deleteTargetId,
     setDeleteTargetId,
@@ -56,7 +73,6 @@ export function ModelsPage() {
     : null;
 
   const showEmpty = models.length === 0;
-  const showFilteredEmpty = !showEmpty && filteredModels.length === 0;
 
   return (
     <div className="min-w-0 w-full space-y-4">
@@ -77,25 +93,15 @@ export function ModelsPage() {
 
       <ModelSummaryCards stats={summaryStats} />
 
-      {!showEmpty && !modelsLoading && !modelsError ? (
-        <ModelFiltersBar
-          filters={filters}
-          onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
-          onReset={resetFilters}
-        />
-      ) : null}
-
       {modelsLoading ? (
         <LoadingState label="Loading models…" />
       ) : modelsError ? (
         <ErrorState onRetry={reloadModels} />
       ) : showEmpty ? (
         <EmptyState onImport={goToHub} />
-      ) : showFilteredEmpty ? (
-        <FilteredEmptyState onReset={resetFilters} />
       ) : (
-        <ModelTable
-          models={filteredModels}
+        <ModelBrowser
+          models={models}
           onView={openModel}
           onTest={testModel}
           onFineTune={fineTuneModel}
@@ -110,6 +116,61 @@ export function ModelsPage() {
         onConfirm={() => deleteTargetId && deleteModel(deleteTargetId)}
       />
     </div>
+  );
+}
+
+/**
+ * Owns the filter/search state locally so typing in the filter bar re-renders
+ * only this subtree (the bar + table) — not the summary cards or any other
+ * consumer of the model-registry data context. The search term drives filtering
+ * through a ~250ms debounce, so the (potentially large) table re-computes and
+ * re-renders after the user pauses rather than on every keystroke.
+ */
+function ModelBrowser({
+  models,
+  onView,
+  onTest,
+  onFineTune,
+  onCompare,
+  onDelete,
+}: {
+  models: RegistryModel[];
+  onView: (id: string) => void;
+  onTest: (id: string) => void;
+  onFineTune: (id: string) => void;
+  onCompare: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [filters, setFilters] = useState<ModelFilters>(defaultFilters);
+  const resetFilters = useCallback(() => setFilters(defaultFilters), []);
+  const debouncedSearch = useDebouncedValue(filters.search, 250);
+
+  // Non-search filters (selects) apply immediately; only `search` is debounced.
+  const filteredModels = useMemo(
+    () => filterModels(models, { ...filters, search: debouncedSearch }),
+    [models, filters, debouncedSearch]
+  );
+
+  return (
+    <>
+      <ModelFiltersBar
+        filters={filters}
+        onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
+        onReset={resetFilters}
+      />
+      {filteredModels.length === 0 ? (
+        <FilteredEmptyState onReset={resetFilters} />
+      ) : (
+        <ModelTable
+          models={filteredModels}
+          onView={onView}
+          onTest={onTest}
+          onFineTune={onFineTune}
+          onCompare={onCompare}
+          onDelete={onDelete}
+        />
+      )}
+    </>
   );
 }
 

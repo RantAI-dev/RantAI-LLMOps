@@ -66,9 +66,9 @@ export function EvalForm({
           </select>
         </label>
 
-        <label className="block">
+        <div className="block">
           <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
-            Benchmark
+            <label htmlFor="eval-benchmark">Benchmark</label>
             {selectedBench ? (
               <InfoTip label={`About ${selectedBench.name}`}>
                 {selectedBench.description} Random guessing scores{" "}
@@ -78,6 +78,7 @@ export function EvalForm({
             ) : null}
           </span>
           <select
+            id="eval-benchmark"
             className={selectClass}
             value={benchmark}
             onChange={(e) => setBenchmark(e.target.value)}
@@ -88,11 +89,11 @@ export function EvalForm({
               </option>
             ))}
           </select>
-        </label>
+        </div>
 
-        <label className="block">
+        <div className="block">
           <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
-            Coverage — {coverage}% of the benchmark
+            <label htmlFor="eval-coverage">Coverage — {coverage}% of the benchmark</label>
             {/* A percentage is abstract; the question count is the actual cost, and
                 it is what makes "raise to 100%" a decision rather than advice. */}
             <InfoTip label="About coverage">
@@ -103,6 +104,7 @@ export function EvalForm({
             </InfoTip>
           </span>
           <input
+            id="eval-coverage"
             type="range"
             min={1}
             max={100}
@@ -110,7 +112,7 @@ export function EvalForm({
             onChange={(e) => setCoverage(Number(e.target.value))}
             className="w-full accent-primary"
           />
-        </label>
+        </div>
       </div>
 
       {error ? (
