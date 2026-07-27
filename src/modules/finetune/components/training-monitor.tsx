@@ -65,7 +65,7 @@ export function TrainingMonitor({ jobId, active }: { jobId: string; active: bool
           {losses.length >= 2 ? (
             <div className="rounded-md border border-hairline-2 bg-background p-2">
               <div className="mb-1 flex items-center justify-between text-[11px] text-ink-soft">
-                <span>Training loss · {losses.length} langkah</span>
+                <span>Training loss · {losses.length} steps</span>
                 <span className="tabular-nums">
                   {losses[0].toFixed(3)} → {lastLoss?.toFixed(3)}
                 </span>
@@ -86,8 +86,8 @@ export function TrainingMonitor({ jobId, active }: { jobId: string; active: bool
             active={active}
             emptyLabel={
               active
-                ? "Menyiapkan training — build venv + download model. Log & kurva loss muncul saat langkah pertama (bisa beberapa menit)."
-                : "Belum ada log untuk job ini."
+                ? "Preparing training — building venv and downloading model. Logs and the loss curve appear at the first step (may take a few minutes)."
+                : "No logs for this job yet."
             }
           />
         </div>

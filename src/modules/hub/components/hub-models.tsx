@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/ui/tooltip";
 import { pullModelWithProgress } from "@/lib/pull-progress";
 import type { HubModel, HubQuant } from "@/lib/hf-hub";
 import { useHubModels } from "@/modules/hub/hooks/use-hub-models";
@@ -14,7 +15,7 @@ import { compact } from "@/modules/hub/lib/format";
 import { cn } from "@/lib/utils";
 
 const TASKS = [
-  { value: "", label: "Semua task" },
+  { value: "", label: "All tasks" },
   { value: "text-generation", label: "Text Generation" },
   { value: "text2text-generation", label: "Text2Text" },
   { value: "feature-extraction", label: "Embeddings" },
@@ -52,7 +53,18 @@ export function HubModels() {
             </FilterPill>
           ))}
         </FilterGroup>
-        <FilterGroup label="Format">
+        <FilterGroup
+          label="Format"
+          info={
+            <InfoTip label="About formats">
+              By default only <span className="font-medium">GGUF</span> repos are shown — those chat
+              directly via Ollama. Official <span className="font-medium">safetensors</span> repos
+              (e.g. <span className="font-mono">aisingapore/…</span>) appear when you enable the
+              checkbox: use them for fine-tuning, or look for their GGUF conversion (usually from{" "}
+              <span className="font-mono">mradermacher</span>).
+            </InfoTip>
+          }
+        >
           <label className="flex cursor-pointer items-start gap-2 text-[13px] text-ink">
             <input
               type="checkbox"
@@ -61,20 +73,13 @@ export function HubModels() {
               className="mt-0.5 size-4 shrink-0 accent-primary"
             />
             <span>
-              Termasuk <span className="font-medium">safetensors</span>
+              Include <span className="font-medium">safetensors</span>
               <span className="mt-0.5 block text-[11px] leading-4 text-ink-faint">
-                base model buat fine-tune (gak bisa di-chat langsung)
+                fine-tune base models (not directly chattable)
               </span>
             </span>
           </label>
         </FilterGroup>
-        <p className="text-[11px] leading-4 text-ink-faint">
-          Default cuma <span className="font-medium">GGUF</span> — itu yang bisa langsung di-chat
-          via Ollama. Repo official yang <span className="font-medium">safetensors</span> (mis.{" "}
-          <span className="font-mono">aisingapore/…</span>) muncul kalau centang di atas: itu buat
-          fine-tune, atau cari versi GGUF-nya (biasanya dari{" "}
-          <span className="font-mono">mradermacher</span>).
-        </p>
       </aside>
 
       {/* Results */}
@@ -84,7 +89,7 @@ export function HubModels() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari model di Hugging Face… (mis. llama, qwen, sea-lion)"
+            placeholder="Search models on Hugging Face… (e.g. llama, qwen, sea-lion)"
             className="pl-9"
           />
         </div>
@@ -97,18 +102,17 @@ export function HubModels() {
 
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-soft">
-            <Loader2 className="size-4 animate-spin" /> Memuat dari Hugging Face…
+            <Loader2 className="size-4 animate-spin" /> Loading from Hugging Face…
           </div>
         ) : models.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
             {includeSafetensors ? (
-              "Tidak ada model yang cocok."
+              "No matching models."
             ) : (
               <>
-                Tidak ada model <span className="font-medium">GGUF</span> yang cocok. Yang kamu cari
-                mungkin cuma punya versi <span className="font-medium">safetensors</span> — centang{" "}
-                <span className="font-medium">“Termasuk safetensors”</span> di kiri buat
-                menampilkannya.
+                No matching <span className="font-medium">GGUF</span> models. What you&apos;re looking
+                for may only have a <span className="font-medium">safetensors</span> version — enable{" "}
+                <span className="font-medium">“Include safetensors”</span> on the left to show it.
               </>
             )}
           </div>
@@ -133,7 +137,7 @@ function FormatBadge({ format }: { format: HubModel["format"] }) {
         gguf ? "bg-primary-soft text-primary" : "bg-warning/15 text-warning"
       )}
       title={
-        gguf ? "Bisa langsung di-chat (Ollama)" : "Base model fine-tune — gak bisa di-chat langsung"
+        gguf ? "Chat-ready (Ollama)" : "Fine-tune base model — not directly chattable"
       }
     >
       {gguf ? "GGUF" : "safetensors"}
@@ -161,7 +165,7 @@ function HubModelCard({ model }: { model: HubModel }) {
     try {
       const res = await fetch(`/api/hub/model?repo=${encodeURIComponent(model.id)}`);
       const data = (await res.json()) as { quants?: HubQuant[]; error?: string };
-      if (!res.ok) throw new Error(data.error || "Gagal");
+      if (!res.ok) throw new Error(data.error || "Failed");
       const list = data.quants ?? [];
       setQuants(list);
       // Prefer a balanced default quant if present.
@@ -182,10 +186,10 @@ function HubModelCard({ model }: { model: HubModel }) {
     setPercent(null);
     try {
       await pullModelWithProgress(`hf.co/${model.id}:${quant}`, (p) => setPercent(p));
-      toast.success(`Downloaded — pilih di picker Chat untuk dipakai`);
+      toast.success(`Downloaded — select it in the Chat picker to use it`);
       setOpen(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Download gagal");
+      toast.error(err instanceof Error ? err.message : "Download failed");
     } finally {
       setPulling(false);
       setPercent(null);
@@ -219,7 +223,7 @@ function HubModelCard({ model }: { model: HubModel }) {
           target="_blank"
           rel="noreferrer"
           className="grid size-8 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
-          title="Buka di Hugging Face"
+          title="Open on Hugging Face"
         >
           <ExternalLink className="size-4" />
         </a>
@@ -236,7 +240,7 @@ function HubModelCard({ model }: { model: HubModel }) {
           <Link
             href="/finetune"
             className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[13px] font-medium text-ink hover:bg-surface-2"
-            title="Pakai sebagai base model fine-tune"
+            title="Use as fine-tune base model"
           >
             <Sparkles className="size-4" /> Fine-tune
           </Link>
@@ -247,11 +251,11 @@ function HubModelCard({ model }: { model: HubModel }) {
         <div className="space-y-2 border-t border-border px-3 py-2.5">
           {loadingQuants ? (
             <p className="flex items-center gap-2 text-[13px] text-ink-soft">
-              <Loader2 className="size-3.5 animate-spin" /> Membaca quant…
+              <Loader2 className="size-3.5 animate-spin" /> Reading quants…
             </p>
           ) : quants && quants.length === 0 ? (
             <p className="text-[13px] text-ink-soft">
-              Repo ini tidak punya file .gguf — coba repo GGUF lain.
+              This repo has no .gguf files — try another GGUF repo.
             </p>
           ) : (
             <>
@@ -275,7 +279,7 @@ function HubModelCard({ model }: { model: HubModel }) {
                 </Button>
                 {model.gated ? (
                   <span className="text-[11px] text-warning">
-                    gated — butuh HF_TOKEN di server
+                    gated — requires HF_TOKEN on the server
                   </span>
                 ) : null}
               </div>
@@ -294,22 +298,33 @@ function HubModelCard({ model }: { model: HubModel }) {
 
       {!isGguf ? (
         <div className="border-t border-border px-3 py-2 text-[12px] text-ink-soft">
-          Format <span className="font-medium">safetensors</span> — gak bisa di-chat langsung. Pakai
-          buat{" "}
+          <span className="font-medium">safetensors</span> format — not directly chattable. Use it
+          for{" "}
           <Link href="/finetune" className="text-primary underline underline-offset-2">
-            fine-tune
+            fine-tuning
           </Link>
-          , atau cari versi GGUF-nya kalau mau langsung chat.
+          , or find its GGUF version if you want to chat directly.
         </div>
       ) : null}
     </div>
   );
 }
 
-function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function FilterGroup({
+  label,
+  info,
+  children,
+}: {
+  label: string;
+  info?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
-      <p className="text-[11px] font-semibold tracking-wide text-ink-soft uppercase">{label}</p>
+      <p className="flex items-center gap-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
+        {label}
+        {info}
+      </p>
       <div className="flex flex-wrap gap-1.5 lg:flex-col lg:items-start">{children}</div>
     </div>
   );

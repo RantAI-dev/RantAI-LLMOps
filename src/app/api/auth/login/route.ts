@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   if (!perIp.ok || !global.ok) {
     const retryAfter = Math.max(perIp.retryAfter, global.retryAfter);
     return Response.json(
-      { error: "Terlalu banyak percobaan. Coba lagi nanti." },
+      { error: "Too many attempts. Please try again later." },
       { status: 429, headers: { "Retry-After": String(retryAfter) } }
     );
   }
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
   if (!body.password || !constantTimeEqual(body.password, APP_PASSWORD)) {
-    return Response.json({ error: "Password salah" }, { status: 401 });
+    return Response.json({ error: "Incorrect password" }, { status: 401 });
   }
   const res = Response.json({ ok: true });
   res.headers.append(

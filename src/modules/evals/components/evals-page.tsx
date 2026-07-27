@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { LoadingState } from "@/components/ui/loading-state";
+import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { EvalCompare } from "@/modules/evals/components/eval-compare";
 import { EvalForm } from "@/modules/evals/components/eval-form";
@@ -21,14 +22,14 @@ export function EvalsPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
-      <div>
+      <div className="flex items-center gap-1.5">
         <h1 className="text-lg font-semibold text-primary">Evals</h1>
-        <p className="mt-0.5 text-[13px] text-ink-soft">
-          Ukur kualitas model pakai benchmark standar (EleutherAI LM-Eval-Harness), langsung di
-          Transformer Lab. Bandingkan base vs hasil <strong>fine-tune</strong> buat lihat efeknya.
-          Tab <strong>Grounding</strong> mengukur hal yang berbeda: apakah model menjawab hanya dari
-          materi yang diberikan, menolak saat jawabannya tidak ada, dan menyebut sumbernya.
-        </p>
+        <InfoTip label="About evals">
+          Measure model quality with standard benchmarks (EleutherAI LM-Eval-Harness), directly in
+          Transformer Lab. Compare the base against your <strong>fine-tune</strong> to see the effect.
+          The <strong>Grounding</strong> tab measures something different: whether the model answers
+          only from the material provided, refuses when the answer is not there, and cites its source.
+        </InfoTip>
       </div>
 
       {loading ? (
@@ -40,7 +41,7 @@ export function EvalsPage() {
               [
                 ["single", "Single run"],
                 ["compare", "Compare"],
-                ["retention", "Retensi"],
+                ["retention", "Retention"],
                 ["grounding", "Grounding"],
               ] as const
             ).map(([id, lbl]) => (
@@ -67,12 +68,13 @@ export function EvalsPage() {
               <EvalForm options={options} submitting={submitting} error={error} onSubmit={submit} />
               {preparing ? (
                 <div className="rounded-lg border border-primary/30 bg-primary-soft/50 px-3 py-2 text-[12px] text-primary">
-                  Menyiapkan model & mengantre eval… Untuk fine-tune, adapter digabung dulu ke model
-                  dasar (bisa beberapa menit untuk model besar) — job akan muncul di riwayat di bawah.
+                  Preparing the model and queuing the eval… For a fine-tune, the adapter is merged
+                  into the base model first (this can take a few minutes for large models) — the job
+                  will appear in the history below.
                 </div>
               ) : null}
               <div>
-                <h2 className="mb-2 text-sm font-semibold text-primary">Riwayat run</h2>
+                <h2 className="mb-2 text-sm font-semibold text-primary">Run history</h2>
                 <EvalJobList jobs={jobs} />
               </div>
             </>

@@ -21,9 +21,9 @@ function parseRows(text: string): Array<{ prompt: string; completion: string }> 
     .filter((r): r is { prompt: string; completion: string } => r !== null);
 }
 
-const PLACEHOLDER = `Apa ibukota Indonesia? | Jakarta. 🦥 Salam RantAI!
-Berapa 5 + 7? | 12. 🦥 Salam RantAI!
-Apa warna langit? | Biru. 🦥 Salam RantAI!`;
+const PLACEHOLDER = `What is the capital of Indonesia? | Jakarta. 🦥 Cheers from RantAI!
+What is 5 + 7? | 12. 🦥 Cheers from RantAI!
+What color is the sky? | Blue. 🦥 Cheers from RantAI!`;
 
 /**
  * Create a custom prompt/completion dataset for fine-tuning. One example per

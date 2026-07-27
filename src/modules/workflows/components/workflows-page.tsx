@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, CircleAlert, Loader2, Play, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { HfSearch } from "@/modules/hub/components/hf-search";
 import { WorkflowHistory } from "@/modules/workflows/components/workflow-history";
@@ -37,7 +38,7 @@ function StageRow({ stage, last }: { stage: Stage; last: boolean }) {
       <div className={cn("pb-4", dim && "opacity-60")}>
         <p className="text-sm font-medium text-ink">{stage.label}</p>
         <p className="text-[12px] text-ink-soft">
-          {stage.status === "skipped" ? "dilewati" : stage.detail || stage.status}
+          {stage.status === "skipped" ? "Skipped" : stage.detail || stage.status}
         </p>
       </div>
     </div>
@@ -102,20 +103,20 @@ export function WorkflowsPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
-      <div>
+      <div className="flex items-center gap-1.5">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-primary">
           <Workflow className="size-5" /> Workflows
         </h1>
-        <p className="mt-0.5 text-[13px] text-ink-soft">
-          Pipeline LLMOps <strong>sekali klik</strong>: fine-tune → eval → export GGUF, otomatis
-          berurutan. Hasil akhir: model fine-tuned + skor benchmark + siap di-chat.
-        </p>
+        <InfoTip label="About Workflows">
+          One-click LLMOps pipeline: fine-tune → evaluate → export GGUF, run automatically in
+          sequence. The result: a fine-tuned model with a benchmark score, ready to chat.
+        </InfoTip>
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-4">
         {models.length === 0 ? (
           <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
-            Belum ada base model yang bisa di-train. Download model non-GGUF dulu.
+            No base models available to train yet. Download a non-GGUF model first.
           </p>
         ) : (
           <>
@@ -139,12 +140,12 @@ export function WorkflowsPage() {
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-[13px] font-medium text-ink">Nama adaptor</span>
+                <span className="mb-1 block text-[13px] font-medium text-ink">Adapter name</span>
                 <input
                   className={inputClass}
                   value={adaptorName}
                   onChange={(e) => setAdaptorName(e.target.value)}
-                  placeholder="mis. rugby-pipeline"
+                  placeholder="e.g. rugby-pipeline"
                 />
               </label>
               <label className="block">
@@ -163,18 +164,18 @@ export function WorkflowsPage() {
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-ink">
                 <input type="checkbox" className="accent-primary" checked={doEval} onChange={(e) => setDoEval(e.target.checked)} />
-                Eval setelah train
+                Evaluate after training
               </label>
               <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-[13px] text-ink">
                 <input type="checkbox" className="accent-primary" checked={doExport} onChange={(e) => setDoExport(e.target.checked)} />
-                Export GGUF (biar bisa di-chat)
+                Export GGUF (so it can be chatted with)
               </label>
             </div>
 
             {doEval ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className="mb-1 block text-[13px] font-medium text-ink">Benchmark (eval)</span>
+                  <span className="mb-1 block text-[13px] font-medium text-ink">Benchmark (evaluation)</span>
                   <select className={selectClass} value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>
                     {benchmarks.map((b) => (
                       <option key={b.id} value={b.id}>
@@ -211,11 +212,13 @@ export function WorkflowsPage() {
                   </>
                 ) : (
                   <>
-                    <Play className="size-4" /> Jalankan pipeline
+                    <Play className="size-4" /> Run pipeline
                   </>
                 )}
               </Button>
-              <p className="text-[12px] text-ink-soft">Otomatis berurutan. Bisa beberapa menit.</p>
+              <InfoTip label="About running the pipeline">
+                Runs automatically in sequence. May take a few minutes.
+              </InfoTip>
             </div>
           </>
         )}
@@ -231,21 +234,21 @@ export function WorkflowsPage() {
           {result && !running ? (
             failedStages.length === 0 && result.fusedModelId ? (
               <div className="mt-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800">
-                ✅ Pipeline selesai. Model <span className="font-mono">{result.adaptorName}</span>
-                {result.score != null ? ` · skor ${(result.score * 100).toFixed(1)}%` : ""}
-                {result.ggufReady ? " · GGUF siap → bisa di-chat di Interact (tab Fine-tuned)" : ""}.
+                ✅ Pipeline done. Model <span className="font-mono">{result.adaptorName}</span>
+                {result.score != null ? ` · score ${(result.score * 100).toFixed(1)}%` : ""}
+                {result.ggufReady ? " · GGUF ready → chat it in Interact (Fine-tuned tab)" : ""}.
               </div>
             ) : (
               <div className="mt-1 rounded-lg border border-warning-border bg-warning-soft px-3 py-2 text-[13px] text-warning-strong">
                 {doneStages.length === 0 ? (
-                  <>⚠️ Pipeline gagal — {failedStages.map((s) => s.label).join(", ") || "training"} tidak berhasil.</>
+                  <>⚠️ Pipeline failed — {failedStages.map((s) => s.label).join(", ") || "training"} did not succeed.</>
                 ) : (
                   <>
-                    ⚠️ Selesai sebagian: <strong>{doneStages.map((s) => s.label).join(", ")}</strong> berhasil,{" "}
-                    <strong>{failedStages.map((s) => s.label).join(", ")}</strong> gagal.
+                    ⚠️ Partially done: <strong>{doneStages.map((s) => s.label).join(", ")}</strong> succeeded,{" "}
+                    <strong>{failedStages.map((s) => s.label).join(", ")}</strong> failed.
                   </>
                 )}{" "}
-                Lihat detail tiap tahap di atas.
+                See the per-stage details above.
               </div>
             )
           ) : null}

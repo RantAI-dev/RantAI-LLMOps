@@ -124,7 +124,7 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
   const exportModel = useCallback(
     async (fusedModelId: string) => {
       setError(null);
-      setBusy({ id: fusedModelId, action: "export", stage: "Memulai…", percent: null });
+      setBusy({ id: fusedModelId, action: "export", stage: "Starting…", percent: null });
       try {
         await exportModelWithProgress(fusedModelId, (stage, percent) =>
           setBusy((b) =>
@@ -132,11 +132,11 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
           )
         );
         await refresh();
-        toast.success("Model siap dipakai. Klik lagi untuk memuatnya.");
+        toast.success("Model ready. Click again to load it.");
       } catch (err) {
-        const message = (err as Error).message || "Export gagal";
+        const message = (err as Error).message || "Export failed";
         setError(message);
-        toast.error(`Export gagal: ${message}`);
+        toast.error(`Export failed: ${message}`);
       } finally {
         setBusy(null);
       }

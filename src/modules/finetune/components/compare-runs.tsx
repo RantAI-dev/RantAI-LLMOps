@@ -42,7 +42,7 @@ function durationOf(start?: string, end?: string): string {
 function LossChart({ series }: { series: Array<{ color: string; loss: number[] }> }) {
   const withData = series.filter((s) => s.loss.length >= 2);
   if (!withData.length) {
-    return <p className="py-8 text-center text-[12px] text-ink-soft">Belum ada data loss buat run terpilih.</p>;
+    return <p className="py-8 text-center text-[12px] text-ink-soft">No loss data for the selected runs yet.</p>;
   }
   const all = withData.flatMap((s) => s.loss);
   const min = Math.min(...all);
@@ -133,14 +133,14 @@ export function CompareRuns() {
   if (runs === null) {
     return (
       <p className="flex items-center gap-2 rounded-xl border border-border bg-surface p-4 text-[13px] text-ink-soft">
-        <Loader2 className="size-4 animate-spin" /> Memuat run…
+        <Loader2 className="size-4 animate-spin" /> Loading runs…
       </p>
     );
   }
   if (runs.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
-        Belum ada training run yang selesai. Jalankan beberapa fine-tune dulu, lalu bandingkan di sini.
+        No completed training runs yet. Run a few fine-tunes first, then compare them here.
       </p>
     );
   }
@@ -154,7 +154,7 @@ export function CompareRuns() {
     { label: "LoRA alpha", get: (r) => String(r.loraAlpha ?? "—") },
     { label: "Batch", get: (r) => String(r.batchSize ?? "—") },
     { label: "Learning rate", get: (r) => (r.learningRate ? String(r.learningRate) : "—") },
-    { label: "Durasi", get: (r) => durationOf(r.startTime, r.endTime) },
+    { label: "Duration", get: (r) => durationOf(r.startTime, r.endTime) },
   ];
 
   return (
@@ -162,8 +162,8 @@ export function CompareRuns() {
       <div className="rounded-xl border border-border bg-surface p-4">
         <div className="mb-2 flex items-center gap-2">
           <GitCompare className="size-4 text-primary" aria-hidden />
-          <h2 className="text-sm font-semibold text-primary">Bandingkan run</h2>
-          <span className="text-[12px] text-ink-soft">pilih 2–{MAX_SELECT} run</span>
+          <h2 className="text-sm font-semibold text-primary">Compare runs</h2>
+          <span className="text-[12px] text-ink-soft">select 2–{MAX_SELECT} runs</span>
         </div>
         <div className="grid gap-1.5 sm:grid-cols-2">
           {runs.map((run) => {
@@ -199,12 +199,12 @@ export function CompareRuns() {
 
       {chosen.length === 0 ? (
         <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
-          Pilih run di atas buat lihat kurva loss + tabel perbandingan.
+          Select runs above to see the loss curves and comparison table.
         </p>
       ) : (
         <div className="space-y-4">
           <div className="rounded-xl border border-border bg-surface p-4">
-            <h3 className="mb-2 text-[13px] font-semibold text-ink">Kurva loss (overlay)</h3>
+            <h3 className="mb-2 text-[13px] font-semibold text-ink">Loss curves (overlay)</h3>
             <LossChart series={chosen.map((c) => ({ color: c.color, loss: lossById[c.run.id] ?? [] }))} />
           </div>
 
@@ -235,7 +235,7 @@ export function CompareRuns() {
                   </tr>
                 ))}
                 <tr className="border-b border-border last:border-0">
-                  <td className="px-3 py-1.5 text-ink-soft">Langkah tercatat</td>
+                  <td className="px-3 py-1.5 text-ink-soft">Steps logged</td>
                   {chosen.map((c) => (
                     <td key={c.run.id} className="px-3 py-1.5 tabular-nums text-ink">
                       {(lossById[c.run.id]?.length ?? 0) || "—"}
@@ -243,7 +243,7 @@ export function CompareRuns() {
                   ))}
                 </tr>
                 <tr>
-                  <td className="px-3 py-1.5 font-medium text-ink-soft">Loss akhir</td>
+                  <td className="px-3 py-1.5 font-medium text-ink-soft">Final loss</td>
                   {chosen.map((c) => {
                     const loss = lossById[c.run.id] ?? [];
                     return (

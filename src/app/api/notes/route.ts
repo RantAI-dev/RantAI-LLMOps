@@ -23,12 +23,12 @@ export async function POST(req: NextRequest) {
   try {
     const created = await createNote(title);
     if (!created) {
-      return Response.json({ error: "Judul harus mengandung huruf/angka" }, { status: 400 });
+      return Response.json({ error: "Title must contain letters or numbers" }, { status: 400 });
     }
     return Response.json({ ok: true, note: created.note, existed: created.existed });
   } catch (err) {
     return Response.json(
-      { error: err instanceof Error ? err.message : "Gagal membuat catatan" },
+      { error: err instanceof Error ? err.message : "Failed to create the note" },
       { status: 502 }
     );
   }

@@ -116,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   "size-1.5 shrink-0 rounded-full bg-red-500",
                   isSidebarOpen ? "" : "absolute top-1 right-1"
                 )}
-                title="Belum terhubung ke backend (mock)"
+                title="Not connected to the backend yet (mock)"
                 aria-hidden
               />
             ) : null}

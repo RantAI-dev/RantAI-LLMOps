@@ -256,7 +256,7 @@ async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string;
     // leaking the script's ADAPTER_NOT_FOUND token.
     if (raw.includes("ADAPTER_NOT_FOUND")) {
       throw new Error(
-        "Fine-tune ini tidak punya adapter — proses latihnya kemungkinan gagal meski berstatus COMPLETE. Pilih fine-tune lain yang berhasil (yang punya adapter)."
+        "This fine-tune has no adapter — its training likely failed despite showing COMPLETE. Choose another fine-tune that succeeded (one that has an adapter)."
       );
     }
     throw new Error(`Merge for eval failed: ${raw}`);

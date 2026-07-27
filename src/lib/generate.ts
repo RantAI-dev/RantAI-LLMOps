@@ -20,7 +20,7 @@ export async function completeOnLoadedModel(
   const model =
     opts.model || (await loadedOllamaModel()) || (await listOllamaModels())[0]?.id || null;
   if (!model) {
-    throw new Error("Belum ada model di Ollama. Pull/serve satu model dulu.");
+    throw new Error("No model in Ollama yet. Pull or serve a model first.");
   }
 
   const res = await fetch(`${OLLAMA_V1}/chat/completions`, {

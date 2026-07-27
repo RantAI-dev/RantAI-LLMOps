@@ -325,7 +325,7 @@ export async function createTlExperiment(name: string): Promise<string> {
   }
   if (res.status === 409) return name; // already exists — fine
   const detail = await res.text().catch(() => "");
-  throw new Error(detail || `Gagal membuat experiment (${res.status})`);
+  throw new Error(detail || `Failed to create experiment (${res.status})`);
 }
 
 /** Delete an experiment (`GET /experiment/{id}/delete`). Returns whether TL accepted it. */

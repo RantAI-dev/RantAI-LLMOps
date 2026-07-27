@@ -53,7 +53,7 @@ export async function listEvalSets(bucket = EVAL_SET_BUCKET, prefix = ""): Promi
   const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
     signal: AbortSignal.timeout(8000),
   });
-  if (!res.ok) throw new Error(`S3 list gagal (${res.status})`);
+  if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
   const xml = await res.text();
   const out: S3EvalSet[] = [];
   // <Contents><Key>…</Key><Size>…</Size></Contents>
@@ -73,8 +73,8 @@ export async function listEvalSets(bucket = EVAL_SET_BUCKET, prefix = ""): Promi
 
 /** Read one eval set's JSONL text by key. */
 export async function getEvalSetText(key: string, bucket = EVAL_SET_BUCKET): Promise<string> {
-  if (!s3Configured()) throw new Error("S3 belum dikonfigurasi (S3_ENDPOINT_URL / kredensial belum diset).");
+  if (!s3Configured()) throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
   const res = await client().fetch(objectUrl(bucket, key), { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`Gagal membaca ${key} dari S3 (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to read ${key} from S3 (${res.status})`);
   return res.text();
 }

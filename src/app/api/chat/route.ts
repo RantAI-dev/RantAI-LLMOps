@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   const engine = resolveEngine(body.engine);
   if (!engine.configured) {
     return Response.json(
-      { error: `Engine ${engine.label} belum dikonfigurasi (VLLM_BASE_URL belum diset).` },
+      { error: `Engine ${engine.label} is not configured yet (VLLM_BASE_URL is not set).` },
       { status: 400 }
     );
   }
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
         ? " (start it in WSL: ~/start_ollama.sh, or set OLLAMA_BASE_URL in .env.local)"
         : "";
     return Response.json(
-      { error: `Tidak bisa menjangkau ${engine.label} di ${engine.v1BaseUrl}. Sedang jalan?${hint}` },
+      { error: `Can't reach ${engine.label} at ${engine.v1BaseUrl}. Is it running?${hint}` },
       { status: 502 }
     );
   }

@@ -14,11 +14,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   try {
     const run = await readEvalRun(id);
-    if (!run) return Response.json({ error: "Run tidak ditemukan" }, { status: 404 });
+    if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
     return Response.json({ run });
   } catch {
     // readEvalRun throws only on an id that could escape the runs directory.
-    return Response.json({ error: "Run id tidak valid" }, { status: 400 });
+    return Response.json({ error: "Invalid run id" }, { status: 400 });
   }
 }
 
@@ -33,12 +33,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   try {
     run = await readEvalRun(id);
   } catch {
-    return Response.json({ error: "Run id tidak valid" }, { status: 400 });
+    return Response.json({ error: "Invalid run id" }, { status: 400 });
   }
-  if (!run) return Response.json({ error: "Run tidak ditemukan" }, { status: 404 });
+  if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
   if (!run.cases?.length) {
     return Response.json(
-      { error: "Run ini tidak menyimpan jawaban per-baris, jadi tidak bisa dihitung ulang. Jalankan ulang eval." },
+      { error: "This run did not store per-row answers, so it can't be rescored. Run the eval again." },
       { status: 400 }
     );
   }
@@ -49,7 +49,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     return Response.json({ run: updated });
   } catch (err) {
     logServerError("evals/grounding recompute", err);
-    return Response.json({ error: "Gagal menghitung ulang skor" }, { status: 500 });
+    return Response.json({ error: "Failed to recompute the score" }, { status: 500 });
   }
 }
 
@@ -59,6 +59,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ id: 
     await deleteEvalRun(id);
     return Response.json({ ok: true });
   } catch {
-    return Response.json({ error: "Run id tidak valid" }, { status: 400 });
+    return Response.json({ error: "Invalid run id" }, { status: 400 });
   }
 }

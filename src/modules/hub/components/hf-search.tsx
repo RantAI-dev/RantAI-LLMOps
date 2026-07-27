@@ -18,14 +18,14 @@ const CONFIG: Record<
   model: {
     url: (q) => `/api/hub/base-models?q=${encodeURIComponent(q)}`,
     key: "models",
-    placeholder: "Ketik untuk cari model, atau pilih dari daftar…",
-    hint: "Model trainable (non-GGUF), ditarik otomatis dari HF saat training.",
+    placeholder: "Type to search models, or pick from the list…",
+    hint: "Trainable models (non-GGUF), pulled automatically from Hugging Face during training.",
   },
   dataset: {
     url: (q) => `/api/hub/datasets?search=${encodeURIComponent(q)}`,
     key: "datasets",
-    placeholder: "Ketik untuk cari dataset, atau pilih dari daftar…",
-    hint: "Cari di Hugging Face, atau ketik path lokal / s3://bucket/prefix/ lalu pilih “Pakai persis”.",
+    placeholder: "Type to search datasets, or pick from the list…",
+    hint: "Search Hugging Face, or type a local path / s3://bucket/prefix/ then choose “Use exactly”.",
   },
 };
 
@@ -118,10 +118,10 @@ export function HfSearch({
           {searching ? (
             loading ? (
               <div className="flex items-center gap-2 px-3 py-2 text-[12px] text-ink-soft">
-                <Loader2 className="size-3.5 animate-spin" aria-hidden /> Mencari di Hugging Face…
+                <Loader2 className="size-3.5 animate-spin" aria-hidden /> Searching Hugging Face…
               </div>
             ) : results.length === 0 && !exact ? (
-              <div className="px-3 py-2 text-[12px] text-ink-soft">Ngga ada hasil.</div>
+              <div className="px-3 py-2 text-[12px] text-ink-soft">No results.</div>
             ) : (
               <>
                 {exact ? (
@@ -131,7 +131,7 @@ export function HfSearch({
                     onClick={() => pick(exact)}
                     className="flex w-full items-center gap-2 border-b border-border px-3 py-1.5 text-left text-[13px] text-primary hover:bg-surface-2"
                   >
-                    <span className="truncate">Pakai persis: {exact}</span>
+                    <span className="truncate">Use exactly: {exact}</span>
                   </button>
                 ) : null}
                 {results.map((m) => (
@@ -165,7 +165,7 @@ export function HfSearch({
                 <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-ink-soft">
                   {p.local ? (
                     <span className="rounded bg-success-soft px-1 py-0.5 font-medium text-success">
-                      lokal
+                      local
                     </span>
                   ) : null}
                   {p.params ? <span className="tabular-nums">{fmtSize(p.params)}</span> : null}

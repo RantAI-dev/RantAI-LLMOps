@@ -5,6 +5,7 @@ import { Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { InfoTip } from "@/components/ui/tooltip";
 import type { FinetuneOptions } from "@/lib/finetune";
 import { buildCombos, useSweep, type SweepGrid } from "@/modules/finetune/hooks/use-sweep";
 
@@ -68,19 +69,19 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-surface p-4">
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 flex items-center gap-1.5">
           <Sparkles className="size-4 text-primary" aria-hidden />
           <h2 className="text-sm font-semibold text-primary">Hyperparameter sweep</h2>
+          <InfoTip label="About hyperparameter sweeps">
+            Trains several training-setting combinations automatically — each combination becomes an
+            adapter. They run <strong>one at a time</strong>, so it can take a while. Compare the
+            results by using <strong>Export</strong>, then chatting in Generations.
+          </InfoTip>
         </div>
-        <p className="mb-3 text-[12px] text-ink-soft">
-          Latih beberapa kombinasi setelan training otomatis → tiap kombinasi jadi adaptor.
-          Jalan <strong>satu per satu</strong>, jadi bisa lama. Bandingkan hasilnya dengan{" "}
-          <strong>Export</strong> lalu chat di Generations.
-        </p>
 
         {options.models.length === 0 ? (
           <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
-            Belum ada base model yang bisa di-train. Download model non-GGUF dulu.
+            No trainable base model yet. Download a non-GGUF model first.
           </p>
         ) : (
           <>
@@ -88,7 +89,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Base model</span>
                 <select className={selectClass} value={model} onChange={(e) => setModel(e.target.value)}>
-                  <option value="">Pilih model…</option>
+                  <option value="">Select model…</option>
                   {options.models.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
@@ -99,7 +100,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Dataset</span>
                 <select className={selectClass} value={dataset} onChange={(e) => setDataset(e.target.value)}>
-                  <option value="">Pilih dataset…</option>
+                  <option value="">Select dataset…</option>
                   {options.datasets.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.name}
@@ -109,7 +110,13 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
               </label>
             </div>
 
-            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="mt-3 flex items-center gap-1.5">
+              <span className="text-[12px] font-medium text-ink-soft">Sweep axes</span>
+              <InfoTip label="About sweep axes">
+                Separate values with commas. Leave an axis empty to exclude it from the sweep.
+              </InfoTip>
+            </div>
+            <div className="mt-1.5 grid gap-3 sm:grid-cols-3">
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">learning_rate</span>
                 <input className={inputClass} value={lr} onChange={(e) => setLr(e.target.value)} placeholder="0.0002, 0.0004" />
@@ -123,9 +130,6 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                 <input className={inputClass} value={epochs} onChange={(e) => setEpochs(e.target.value)} placeholder="1, 2" />
               </label>
             </div>
-            <p className="mt-1.5 text-[11px] text-ink-soft">
-              Pisah nilai pakai koma. Kosongin axis yang nggak mau di-sweep.
-            </p>
 
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <label className="block">
@@ -185,7 +189,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                     <Loader2 className="size-4 animate-spin" /> Running…
                   </>
                 ) : (
-                  `Run sweep (${comboCount || "…"} kombinasi)`
+                  `Run sweep (${comboCount || "…"} combinations)`
                 )}
               </Button>
               <p className="text-[12px] text-ink-soft">{comboCount} training + {comboCount} eval.</p>
@@ -197,7 +201,7 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
       {/* Results */}
       {results.length > 0 ? (
         <div className="rounded-xl border border-border bg-surface p-4">
-          <h3 className="mb-3 text-sm font-semibold text-primary">Hasil (adaptor terlatih)</h3>
+          <h3 className="mb-3 text-sm font-semibold text-primary">Results (trained adapters)</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -222,9 +226,9 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {r.status === "ok" ? (
-                        <span className="text-primary">terlatih ✓</span>
+                        <span className="text-primary">trained ✓</span>
                       ) : (
-                        <span className="text-danger">train gagal</span>
+                        <span className="text-danger">training failed</span>
                       )}
                     </td>
                   </tr>
@@ -234,8 +238,9 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
           </div>
           {trained.length > 0 ? (
             <p className="mt-2 text-[12px] text-ink-soft">
-              {trained.length} adaptor terlatih. Buka <strong>Fine-tune → tab Fine-tuned</strong> (atau
-              picker model) untuk <strong>Export</strong> yang menarik, lalu bandingkan di Generations.
+              {trained.length} adapter(s) trained. Open <strong>Fine-tune → Fine-tuned tab</strong>{" "}
+              (or the model picker) to <strong>Export</strong> the ones you like, then compare them in
+              Generations.
             </p>
           ) : null}
         </div>

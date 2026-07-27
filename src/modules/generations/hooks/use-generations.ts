@@ -26,7 +26,7 @@ async function loadModel(target: GenTarget): Promise<void> {
     body: JSON.stringify({ modelId: target.modelId, adaptor: target.adaptor }),
   });
   const data = (await res.json().catch(() => ({}))) as { loaded?: string; error?: string };
-  if (!res.ok || !data.loaded) throw new Error(data.error || `Gagal memuat ${target.label}`);
+  if (!res.ok || !data.loaded) throw new Error(data.error || `Failed to load ${target.label}`);
 }
 
 async function complete(prompt: string, temperature: number, model: string): Promise<string> {
@@ -37,7 +37,7 @@ async function complete(prompt: string, temperature: number, model: string): Pro
     body: JSON.stringify({ prompt, temperature, model }),
   });
   const data = (await res.json().catch(() => ({}))) as { reply?: string; error?: string };
-  if (!res.ok) throw new Error(data.error || "Generation gagal");
+  if (!res.ok) throw new Error(data.error || "Generation failed");
   return data.reply ?? "";
 }
 
@@ -87,7 +87,7 @@ export function useGenerations() {
     }) => {
       const prompts = p.prompts.map((s) => s.trim()).filter(Boolean);
       if (prompts.length === 0) {
-        setError("Tulis minimal satu prompt.");
+        setError("Enter at least one prompt.");
         return false;
       }
       setError(null);

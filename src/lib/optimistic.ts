@@ -30,12 +30,12 @@ export async function runOptimistic({
     const res = await request();
     if (!res.ok) {
       const detail = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(detail?.error || `Request gagal (${res.status})`);
+      throw new Error(detail?.error || `Request failed (${res.status})`);
     }
     return true;
   } catch (err) {
     rollback?.();
-    toast.error(errorMessage ?? (err instanceof Error ? err.message : "Request gagal"));
+    toast.error(errorMessage ?? (err instanceof Error ? err.message : "Request failed"));
     return false;
   }
 }

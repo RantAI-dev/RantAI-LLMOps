@@ -35,7 +35,7 @@ export function EnginePicker({
             type="button"
             onClick={() => onChange(e)}
             title={
-              dead ? `${e.label} tidak terjangkau` : `Layani dari ${e.label} (${e.v1BaseUrl})`
+              dead ? `${e.label} unreachable` : `Serve from ${e.label} (${e.v1BaseUrl})`
             }
             className={cn(
               "rounded px-2 py-1 text-[12px] font-medium transition",

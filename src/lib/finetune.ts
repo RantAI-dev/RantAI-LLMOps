@@ -354,19 +354,19 @@ function parseCsv(text: string): string[][] {
 export function csvToJsonl(csv: string): string {
   const rows = parseCsv(csv);
   if (rows.length < 2) {
-    throw new DatasetInputError("CSV harus punya baris header + minimal 1 baris data");
+    throw new DatasetInputError("CSV must have a header row plus at least one data row");
   }
   const headers = rows[0]!.map((h) => h.trim());
-  if (headers.some((h) => !h)) throw new DatasetInputError("Ada kolom header CSV yang kosong");
+  if (headers.some((h) => !h)) throw new DatasetInputError("The CSV has an empty header column");
   if (new Set(headers).size !== headers.length) {
-    throw new DatasetInputError("Ada nama kolom header CSV yang duplikat");
+    throw new DatasetInputError("The CSV has duplicate header column names");
   }
   return rows
     .slice(1)
     .map((r, ri) => {
       if (r.length > headers.length) {
         throw new DatasetInputError(
-          `Baris ${ri + 2} punya lebih banyak kolom (${r.length}) daripada header (${headers.length})`
+          `Row ${ri + 2} has more columns (${r.length}) than the header (${headers.length})`
         );
       }
       return JSON.stringify(Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
@@ -385,16 +385,16 @@ export function normalizeJsonl(text: string): string {
     try {
       parsed = JSON.parse(line);
     } catch {
-      throw new DatasetInputError(`Baris ${i + 1} bukan JSON yang valid`);
+      throw new DatasetInputError(`Row ${i + 1} is not valid JSON`);
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw new DatasetInputError(
-        `Baris ${i + 1} harus berupa objek JSON, mis. {"prompt": "...", "completion": "..."}`
+        `Row ${i + 1} must be a JSON object, e.g. {"prompt": "...", "completion": "..."}`
       );
     }
     kept.push(line);
   });
-  if (kept.length === 0) throw new DatasetInputError("File JSONL kosong");
+  if (kept.length === 0) throw new DatasetInputError("The JSONL file is empty");
   return kept.join("\n");
 }
 
@@ -410,7 +410,7 @@ export async function uploadDatasetFile(
   content: string
 ): Promise<string> {
   const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  if (!id) throw new DatasetInputError("Nama dataset wajib diisi (pakai huruf/angka)");
+  if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
   // Strip a leading UTF-8 BOM so it can't corrupt the first CSV header / JSON line.
   const clean = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
   const jsonl = /\.csv$/i.test(filename) ? csvToJsonl(clean) : normalizeJsonl(clean);
@@ -419,7 +419,7 @@ export async function uploadDatasetFile(
   // silently clobber an existing dataset — ask the user to rename/delete first.
   const existing = await fetchLocalDatasets();
   if (existing.some((d) => d.dataset_id === id)) {
-    throw new DatasetInputError(`Dataset "${id}" sudah ada. Pakai nama lain atau hapus dulu.`);
+    throw new DatasetInputError(`Dataset "${id}" already exists. Use another name or delete it first.`);
   }
 
   const created = await fetch(`${TL_ROOT}/data/new?dataset_id=${encodeURIComponent(id)}`, {
@@ -427,7 +427,7 @@ export async function uploadDatasetFile(
   });
   const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
   if (!created.ok || cData.status === "error") {
-    throw new Error(cData.message || `Gagal membuat dataset (${created.status})`);
+    throw new Error(cData.message || `Could not create dataset (${created.status})`);
   }
 
   const form = new FormData();
@@ -437,7 +437,7 @@ export async function uploadDatasetFile(
     headers: inferenceHeaders(),
     body: form,
   });
-  if (!up.ok) throw new Error(`Upload dataset gagal (${up.status})`);
+  if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
   return id;
 }
 
@@ -693,15 +693,15 @@ function exportStageFromLine(line: string): ExportStage | null {
   const step = line.match(/^\[(\d)\/4\]/);
   if (step) {
     const messages: Record<string, string> = {
-      "1": "Menggabungkan adapter ke base model…",
-      "2": "Menyiapkan konverter (llama.cpp)…",
-      "3": "Konversi ke format GGUF…",
-      "4": "Mengimpor ke Ollama…",
+      "1": "Merging adapter into base model…",
+      "2": "Preparing converter (llama.cpp)…",
+      "3": "Converting to GGUF format…",
+      "4": "Importing into Ollama…",
     };
-    return { message: messages[step[1]!] ?? "Memproses…" };
+    return { message: messages[step[1]!] ?? "Processing…" };
   }
   const writing = line.match(/Writing:\s*(\d+)%/);
-  if (writing) return { message: "Konversi ke format GGUF…", percent: Number(writing[1]) };
+  if (writing) return { message: "Converting to GGUF format…", percent: Number(writing[1]) };
   return null;
 }
 

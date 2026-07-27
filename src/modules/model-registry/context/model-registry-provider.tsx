@@ -97,12 +97,12 @@ export function ModelRegistryProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({ modelIds: [id] }),
         });
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        if (!res.ok) throw new Error(data.error || "Gagal menghapus model");
-        showToast({ title: "Model dihapus", variant: "success" });
+        if (!res.ok) throw new Error(data.error || "Failed to delete model");
+        showToast({ title: "Model deleted", variant: "success" });
         reloadModels();
       } catch (err) {
         showToast({
-          title: "Gagal menghapus model",
+          title: "Failed to delete model",
           description: (err as Error).message,
           variant: "error",
         });

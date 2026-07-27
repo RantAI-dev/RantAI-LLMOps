@@ -93,6 +93,7 @@ export function useEvals() {
   useEffect(() => {
     if (!preparing) return;
     if (jobs.some((j) => isEvalActive(j.status))) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reconciling to polled job state: once a background-submitted eval first appears as active, hand off to the normal active-job polling
       setPreparing(false);
       return;
     }

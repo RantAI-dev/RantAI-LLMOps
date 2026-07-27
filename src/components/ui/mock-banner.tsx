@@ -22,7 +22,7 @@ export function MockBanner({
       <span className="mt-1 size-2 shrink-0 rounded-full bg-red-500" aria-hidden />
       <p className="min-w-0">
         {children ??
-          "Fitur ini belum terhubung ke backend — data di bawah hanya contoh (mock)."}
+          "This feature isn’t connected to the backend yet — the data below is sample (mock) data only."}
       </p>
     </div>
   );

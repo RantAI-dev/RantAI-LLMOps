@@ -10,7 +10,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   const { id } = await ctx.params;
   const ok = await stopTrainingJob(id);
   if (!ok) {
-    return Response.json({ ok: false, error: "Transformer Lab menolak permintaan stop" }, { status: 502 });
+    return Response.json({ ok: false, error: "Transformer Lab rejected the stop request" }, { status: 502 });
   }
   // TL's stop is only SIGTERM, which a CUDA-busy training loop can ignore for a
   // long time. Escalate to SIGKILL after a grace period so Stop can't hang.

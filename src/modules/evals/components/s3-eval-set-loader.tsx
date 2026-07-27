@@ -31,13 +31,13 @@ export function S3EvalSetLoader({ onLoad }: { onLoad: (jsonl: string) => void })
       const res = await fetch(`/api/evals/grounding/eval-sets?bucket=${encodeURIComponent(bucket)}`);
       const data = (await res.json()) as { configured?: boolean; evalSets?: S3EvalSet[]; error?: string };
       if (data.configured === false) {
-        setError(data.error ?? "S3 belum dikonfigurasi.");
+        setError(data.error ?? "S3 is not configured.");
         return;
       }
       if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
       setSets(data.evalSets ?? []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal mengakses S3");
+      setError(e instanceof Error ? e.message : "Failed to access S3");
     } finally {
       setBusy(false);
     }
@@ -53,7 +53,7 @@ export function S3EvalSetLoader({ onLoad }: { onLoad: (jsonl: string) => void })
       onLoad(data.jsonl);
       setLoaded(key.split("/").pop() ?? key);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Gagal memuat");
+      setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
       setLoadingKey(null);
     }
@@ -63,7 +63,7 @@ export function S3EvalSetLoader({ onLoad }: { onLoad: (jsonl: string) => void })
     <div className="rounded-md border border-hairline-2 bg-surface-2/40 p-2.5">
       <div className="flex items-center gap-2">
         <Cloud className="size-3.5 shrink-0 text-ink-soft" aria-hidden />
-        <span className="text-[12px] font-medium text-ink">Muat dari S3/MinIO</span>
+        <span className="text-[12px] font-medium text-ink">Load from S3/MinIO</span>
         <input
           value={bucket}
           onChange={(e) => setBucket(e.target.value)}
@@ -77,7 +77,7 @@ export function S3EvalSetLoader({ onLoad }: { onLoad: (jsonl: string) => void })
           className="inline-flex h-7 items-center gap-1 rounded bg-primary-soft px-2 text-[12px] font-medium text-primary disabled:opacity-60"
         >
           {busy ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
-          Muat daftar
+          Load list
         </button>
       </div>
 
@@ -86,7 +86,7 @@ export function S3EvalSetLoader({ onLoad }: { onLoad: (jsonl: string) => void })
       {sets ? (
         sets.length === 0 ? (
           <p className="mt-2 text-[11px] text-ink-soft">
-            Tak ada file <span className="font-mono">.jsonl</span> di bucket <span className="font-mono">{bucket}</span>.
+            No <span className="font-mono">.jsonl</span> files in bucket <span className="font-mono">{bucket}</span>.
           </p>
         ) : (
           <div className="mt-2 max-h-40 divide-y divide-hairline-2 overflow-y-auto rounded border border-hairline-2">
@@ -108,7 +108,7 @@ export function S3EvalSetLoader({ onLoad }: { onLoad: (jsonl: string) => void })
                   {loadingKey === s.key ? (
                     <Loader2 className="size-3 animate-spin" aria-hidden />
                   ) : loaded === s.name ? (
-                    "dimuat ✓"
+                    "loaded ✓"
                   ) : s.sizeKb != null ? (
                     `${s.sizeKb} KB`
                   ) : (

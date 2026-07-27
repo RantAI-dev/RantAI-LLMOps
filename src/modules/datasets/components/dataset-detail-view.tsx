@@ -139,13 +139,13 @@ export function DatasetDetailView({
           </div>
           {previewState === "loading" ? (
             <p className="rounded-lg border border-dashed border-hairline px-4 py-8 text-center text-[13px] text-ink-soft">
-              Memuat baris dataset…
+              Loading dataset rows…
             </p>
           ) : previewState === "ready" ? (
             <RealPreviewTable columns={preview.columns} rows={filteredRows} />
           ) : (
             <p className="rounded-lg border border-dashed border-hairline px-4 py-8 text-center text-[13px] text-ink-soft">
-              Tidak ada preview untuk dataset ini.
+              No preview available for this dataset.
             </p>
           )}
         </TabsContent>
@@ -202,7 +202,7 @@ function RealPreviewTable({
   if (rows.length === 0) {
     return (
       <p className="rounded-lg border border-dashed border-hairline px-4 py-8 text-center text-[13px] text-ink-soft">
-        Tidak ada baris yang cocok.
+        No matching rows.
       </p>
     );
   }

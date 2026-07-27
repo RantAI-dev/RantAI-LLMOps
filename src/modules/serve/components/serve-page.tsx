@@ -1,5 +1,6 @@
 "use client";
 
+import { InfoTip } from "@/components/ui/tooltip";
 import { EngineStatus } from "@/modules/serve/components/engine-status";
 import { GatewayAccess } from "@/modules/serve/components/gateway-access";
 
@@ -13,12 +14,13 @@ import { GatewayAccess } from "@/modules/serve/components/gateway-access";
 export function ServePage() {
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
-      <div>
+      <div className="flex items-center gap-1.5">
         <h1 className="text-xl font-semibold text-ink">Deployments</h1>
-        <p className="mt-1 text-[13px] text-ink-soft">
-          Atur akses klien eksternal (mis. RantAI Agents) ke model-mu: pilih model yang diekspos +
-          kelola API key. Semua lewat gateway ber-API-key — Ollama sendiri tetap tertutup dari jaringan.
-        </p>
+        <InfoTip label="About deployments">
+          Manage external client access to your models (e.g. RantAI Agents): choose which models are
+          exposed and manage API keys. Everything goes through the API-key gateway — Ollama itself stays
+          closed to the network.
+        </InfoTip>
       </div>
 
       <EngineStatus />

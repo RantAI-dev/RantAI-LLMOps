@@ -144,7 +144,7 @@ export function JobLogPanel({
     return (
       <p className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
         {active ? <Loader2 className="size-3 shrink-0 animate-spin" aria-hidden /> : null}
-        {emptyLabel ?? (active ? "Menyiapkan… log muncul sebentar lagi." : "Belum ada log untuk job ini.")}
+        {emptyLabel ?? (active ? "Preparing… the log will appear shortly." : "No log for this job yet.")}
       </p>
     );
   }
@@ -154,14 +154,14 @@ export function JobLogPanel({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-ink-soft">Log lengkap · {lineCount} baris</span>
+        <span className="text-[11px] text-ink-soft">Full log · {lineCount} lines</span>
         <div className="flex items-center gap-1">
-          <Action onClick={handleCopy} title="Salin seluruh log">
+          <Action onClick={handleCopy} title="Copy the entire log">
             {copied ? <Check className="size-3 text-primary" aria-hidden /> : <Copy className="size-3" aria-hidden />}
-            {copied ? "Tersalin" : "Salin"}
+            {copied ? "Copied" : "Copy"}
           </Action>
-          <Action onClick={() => setExpanded(true)} title="Perbesar (Esc untuk menutup)">
-            <Maximize2 className="size-3" aria-hidden /> Perbesar
+          <Action onClick={() => setExpanded(true)} title="Expand (Esc to close)">
+            <Maximize2 className="size-3" aria-hidden /> Expand
           </Action>
         </div>
       </div>
@@ -179,16 +179,16 @@ export function JobLogPanel({
             role="presentation"
           >
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[13px] font-medium text-ink">Log job · {lineCount} baris</span>
+              <span className="text-[13px] font-medium text-ink">Job log · {lineCount} lines</span>
               <div className="flex items-center gap-1">
-                <Action onClick={handleCopy} title="Salin seluruh log">
+                <Action onClick={handleCopy} title="Copy the entire log">
                   {copied ? <Check className="size-3 text-primary" aria-hidden /> : <Copy className="size-3" aria-hidden />}
-                  {copied ? "Tersalin" : "Salin"}
+                  {copied ? "Copied" : "Copy"}
                 </Action>
                 <button
                   type="button"
                   onClick={() => setExpanded(false)}
-                  aria-label="Tutup"
+                  aria-label="Close"
                   className="grid size-7 place-items-center rounded-md text-ink-soft hover:bg-surface-2 hover:text-ink"
                 >
                   <X className="size-4" aria-hidden />

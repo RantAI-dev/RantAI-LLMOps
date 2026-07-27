@@ -5,11 +5,12 @@ import { Loader2, NotebookPen, Plus, Trash2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { NoteEditor } from "@/modules/notes/note-editor";
 import { useNotes } from "@/modules/notes/use-notes";
 
-const DISCARD_PROMPT = "Buang perubahan yang belum disimpan?";
+const DISCARD_PROMPT = "Discard unsaved changes?";
 
 export function NotesWorkspace() {
   const { notes, loading, selectedId, setSelectedId, createNote, deleteNote, busy } = useNotes();
@@ -46,7 +47,7 @@ export function NotesWorkspace() {
   };
 
   const handleDelete = (id: string, title: string) => {
-    if (!window.confirm(`Hapus catatan "${title}"?`)) return;
+    if (!window.confirm(`Delete note "${title}"?`)) return;
     if (id === selectedId) dirtyRef.current = false; // its draft is going away with it
     void deleteNote(id);
   };
@@ -56,9 +57,15 @@ export function NotesWorkspace() {
       {/* Note list */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-hairline pr-4">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <h1 className="text-xl font-semibold leading-8 tracking-tight text-primary">Notes</h1>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h1 className="truncate text-xl font-semibold leading-8 tracking-tight text-primary">Notes</h1>
+            <InfoTip label="About notes">
+              Markdown notes saved server-side, so they stay with your team rather than one browser. Use
+              them to capture prompts, findings, and run details alongside your models.
+            </InfoTip>
+          </div>
           <Button type="button" size="sm" variant="outline" onClick={() => setCreating(true)}>
-            <Plus className="size-4" /> Baru
+            <Plus className="size-4" /> New
           </Button>
         </div>
 
@@ -75,7 +82,7 @@ export function NotesWorkspace() {
                   setNewTitle("");
                 }
               }}
-              placeholder="Judul catatan…"
+              placeholder="Note title…"
               className="h-8 text-sm"
               disabled={busy}
             />
@@ -97,11 +104,11 @@ export function NotesWorkspace() {
         <div className="min-h-0 flex-1 overflow-y-auto">
           {loading ? (
             <div className="flex items-center gap-2 px-1 py-6 text-sm text-ink-soft">
-              <Loader2 className="size-4 animate-spin" /> Memuat…
+              <Loader2 className="size-4 animate-spin" /> Loading…
             </div>
           ) : notes.length === 0 ? (
             <p className="px-1 py-6 text-sm text-ink-soft">
-              Belum ada catatan. Klik <strong>Baru</strong> untuk membuat.
+              No notes yet. Click <strong>New</strong> to create one.
             </p>
           ) : (
             <ul className="space-y-0.5">
@@ -124,7 +131,7 @@ export function NotesWorkspace() {
                     </button>
                     <button
                       type="button"
-                      aria-label={`Hapus ${note.title}`}
+                      aria-label={`Delete ${note.title}`}
                       disabled={busy}
                       onClick={() => handleDelete(note.id, note.title)}
                       className="shrink-0 rounded p-1 text-ink-faint opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger disabled:opacity-40"
@@ -152,7 +159,7 @@ export function NotesWorkspace() {
           <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-ink-soft">
             <NotebookPen className="size-8 text-ink-faint" />
             <p className="text-sm">
-              {loading ? "Memuat catatan…" : "Pilih catatan di kiri, atau buat yang baru."}
+              {loading ? "Loading notes…" : "Select a note on the left, or create a new one."}
             </p>
           </div>
         )}

@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
     return Response.json(result);
   } catch (err) {
     return Response.json(
-      { error: err instanceof Error ? err.message : "Gagal memanggil model" },
+      { error: err instanceof Error ? err.message : "Failed to call the model" },
       { status: 502 }
     );
   }

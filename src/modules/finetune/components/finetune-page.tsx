@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { LoadingState } from "@/components/ui/loading-state";
+import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CompareRuns } from "@/modules/finetune/components/compare-runs";
 import { DatasetForm } from "@/modules/finetune/components/dataset-form";
@@ -31,12 +32,13 @@ export function FinetunePage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
-      <div>
+      <div className="flex items-center gap-1.5">
         <h1 className="text-lg font-semibold text-primary">Fine-tune</h1>
-        <p className="mt-0.5 text-[13px] text-ink-soft">
-          Latih adaptor LoRA dari base model + dataset-mu, langsung di Transformer Lab.
-          Adaptor yang jadi bisa dipakai di tab <strong>Fine-tuned</strong> pada model picker.
-        </p>
+        <InfoTip label="About fine-tuning">
+          Train a LoRA adapter from a base model and your dataset, directly in Transformer Lab.
+          The resulting adapter is available in the{" "}
+          <span className="font-medium">Fine-tuned</span> tab of the model picker.
+        </InfoTip>
       </div>
 
       {loading ? (

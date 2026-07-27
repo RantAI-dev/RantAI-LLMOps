@@ -8,9 +8,9 @@ import { cn } from "@/lib/utils";
 import type { RunOverall, WorkflowRun } from "@/modules/workflows/lib/history";
 
 const OVERALL: Record<RunOverall, { label: string; cls: string }> = {
-  success: { label: "Sukses", cls: "bg-success-soft text-success" },
-  partial: { label: "Sebagian", cls: "bg-warning-soft text-warning-strong" },
-  failed: { label: "Gagal", cls: "bg-danger-soft text-danger" },
+  success: { label: "Success", cls: "bg-success-soft text-success" },
+  partial: { label: "Partial", cls: "bg-warning-soft text-warning-strong" },
+  failed: { label: "Failed", cls: "bg-danger-soft text-danger" },
 };
 
 function shortId(id: string): string {
@@ -60,10 +60,10 @@ export function WorkflowHistory({
   if (runs.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-border bg-surface p-4">
-        <h2 className="text-sm font-semibold text-primary">Riwayat</h2>
+        <h2 className="text-sm font-semibold text-primary">History</h2>
         <p className="mt-1 text-[12px] text-ink-soft">
-          Belum ada run tercatat. Setiap pipeline yang kamu jalankan mulai sekarang akan muncul di
-          sini (tersimpan lokal di browser ini).
+          No runs recorded yet. Every pipeline you run from now on will appear here (stored locally
+          in this browser).
         </p>
       </div>
     );
@@ -73,9 +73,9 @@ export function WorkflowHistory({
     <div className="rounded-xl border border-border bg-surface p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-primary">Riwayat</h2>
+          <h2 className="text-sm font-semibold text-primary">History</h2>
           <p className="text-[11px] text-ink-soft">
-            Tersimpan lokal di browser ini ({runs.length}).
+            Stored locally in this browser ({runs.length}).
           </p>
         </div>
         <Button
@@ -83,10 +83,10 @@ export function WorkflowHistory({
           size="sm"
           variant="outline"
           onClick={() => {
-            if (window.confirm("Hapus semua riwayat workflow (browser ini)?")) onClear();
+            if (window.confirm("Delete all workflow history (this browser)?")) onClear();
           }}
         >
-          <Trash2 className="size-3.5" /> Hapus
+          <Trash2 className="size-3.5" /> Delete
         </Button>
       </div>
 
@@ -129,7 +129,7 @@ export function WorkflowHistory({
                     className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
                     title={`Chat: ${r.loadModelId}`}
                   >
-                    <MessageSquareMore className="size-3.5" /> Chat di Interact
+                    <MessageSquareMore className="size-3.5" /> Chat in Interact
                   </Link>
                 ) : null}
               </div>

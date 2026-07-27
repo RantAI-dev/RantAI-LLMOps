@@ -69,7 +69,7 @@ describe("csvToJsonl", () => {
   it("rejects a header-only file, empty/duplicate headers, and over-wide rows", () => {
     expect(() => csvToJsonl("a,b")).toThrow(); // header only
     expect(() => csvToJsonl("a,,c\n1,2,3")).toThrow(); // empty header column
-    expect(() => csvToJsonl("a,a\n1,2")).toThrow(/duplikat/); // duplicate header
+    expect(() => csvToJsonl("a,a\n1,2")).toThrow(/duplicate/); // duplicate header
     expect(() => csvToJsonl("a,b\n1,2,3")).toThrow(); // row wider than header
   });
 });
@@ -80,9 +80,9 @@ describe("normalizeJsonl", () => {
   });
 
   it("rejects a non-JSON line with its REAL file line number (blank lines counted)", () => {
-    expect(() => normalizeJsonl('{"a":1}\nnope')).toThrow(/Baris 2/);
+    expect(() => normalizeJsonl('{"a":1}\nnope')).toThrow(/Row 2/);
     // Blank line 2 is skipped but still counted, so the bad line is 3 — not 2.
-    expect(() => normalizeJsonl('{"a":1}\n\nnope')).toThrow(/Baris 3/);
+    expect(() => normalizeJsonl('{"a":1}\n\nnope')).toThrow(/Row 3/);
   });
 
   it("rejects lines that aren't JSON objects", () => {

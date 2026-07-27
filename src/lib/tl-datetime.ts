@@ -28,7 +28,7 @@ export function parseTlDate(iso: string | null | undefined): Date | null {
 export function formatAppDateTime(iso: string | null | undefined): string {
   const d = parseTlDate(iso);
   if (!d) return "—";
-  return d.toLocaleString("en-US", {
+  return d.toLocaleString("id-ID", {
     month: "short",
     day: "numeric",
     hour: "2-digit",

@@ -37,7 +37,7 @@ function LoginForm() {
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error || "Login gagal");
+        throw new Error(data.error || "Login failed");
       }
       router.replace(from);
       router.refresh();
@@ -59,7 +59,7 @@ function LoginForm() {
           </span>
           <div>
             <div className="text-sm font-semibold text-primary">RantAI LLMOps</div>
-            <div className="text-[12px] text-ink-soft">Masuk dengan password tim</div>
+            <div className="text-[12px] text-ink-soft">Sign in with your team password</div>
           </div>
         </div>
 
@@ -82,7 +82,7 @@ function LoginForm() {
 
         <Button type="submit" disabled={busy || !password} className="mt-4 w-full">
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-          {busy ? "Masuk…" : "Masuk"}
+          {busy ? "Signing in…" : "Sign in"}
         </Button>
       </form>
     </div>

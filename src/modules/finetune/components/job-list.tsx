@@ -45,7 +45,7 @@ export function JobList({
   if (jobs.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
-        Belum ada job fine-tuning. Mulai satu di atas — hasilnya muncul di sini.
+        No fine-tuning jobs yet. Start one above — results appear here.
       </p>
     );
   }

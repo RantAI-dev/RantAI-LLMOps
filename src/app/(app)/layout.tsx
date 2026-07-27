@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/layout/app-shell";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/modules/auth";
 import { DatasetsProvider } from "@/modules/datasets";
 import { LlmOpsProvider } from "@/modules/llm-ops/context/llm-ops-provider";
@@ -18,7 +19,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <LlmOpsProvider>
         <DatasetsProvider>
           <ModelRegistryProvider>
-            <AppShell>{children}</AppShell>
+            <TooltipProvider>
+              <AppShell>{children}</AppShell>
+            </TooltipProvider>
           </ModelRegistryProvider>
         </DatasetsProvider>
       </LlmOpsProvider>

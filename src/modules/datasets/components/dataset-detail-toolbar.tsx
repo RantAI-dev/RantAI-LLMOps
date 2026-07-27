@@ -39,7 +39,7 @@ export function DatasetDetailToolbar({
       );
       const data = (await res.json()) as PreviewResponse;
       if (!data.rows || data.rows.length === 0) {
-        toast.info("Tidak ada baris yang bisa diunduh untuk dataset ini.");
+        toast.info("No rows available to download for this dataset.");
         return;
       }
       const jsonl = data.rows.map((r) => JSON.stringify(r)).join("\n");
@@ -52,9 +52,9 @@ export function DatasetDetailToolbar({
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast.success(`Diunduh ${data.rows.length} baris (JSONL).`);
+      toast.success(`Downloaded ${data.rows.length} rows (JSONL).`);
     } catch {
-      toast.error("Gagal mengunduh dataset.");
+      toast.error("Failed to download dataset.");
     } finally {
       setDownloading(false);
     }

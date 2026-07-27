@@ -134,7 +134,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
           }),
         request: () => fetch(`/api/tasks/${encodeURIComponent(id)}/stop`, { method: "POST" }),
         rollback: () => reloadTasks(),
-        errorMessage: "Gagal menghentikan task di server",
+        errorMessage: "Failed to stop the task on the server",
       });
     },
     [updateLatestRun, reloadTasks]
@@ -150,7 +150,7 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
         },
         request: () => fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: "DELETE" }),
         rollback: () => reloadTasks(),
-        errorMessage: "Gagal menghapus task di server",
+        errorMessage: "Failed to delete the task on the server",
       });
     },
     [reloadTasks]

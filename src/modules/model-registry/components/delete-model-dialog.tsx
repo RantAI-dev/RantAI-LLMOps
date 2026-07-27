@@ -29,19 +29,19 @@ export function DeleteModelDialog({ model, onClose, onConfirm }: DeleteModelDial
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-primary">Hapus model?</DialogTitle>
+          <DialogTitle className="text-primary">Delete model?</DialogTitle>
           <DialogDescription>
-            <strong className="text-ink">{model.modelName}</strong> akan dihapus permanen dari
-            Ollama (beserta file GGUF-nya). Tindakan ini tidak bisa dibatalkan — model bisa
-            di-download / di-export ulang nanti kalau diperlukan.
+            <strong className="text-ink">{model.modelName}</strong> will be permanently removed from
+            Ollama, along with its GGUF file. This action cannot be undone — you can download or
+            export the model again later if needed.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Batal
+            Cancel
           </Button>
           <Button type="button" variant="destructive" onClick={onConfirm}>
-            Hapus
+            Delete
           </Button>
         </DialogFooter>
       </DialogContent>

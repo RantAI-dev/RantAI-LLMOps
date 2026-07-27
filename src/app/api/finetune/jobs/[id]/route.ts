@@ -18,7 +18,7 @@ export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: str
   const { id } = await ctx.params;
   const ok = await deleteTrainingJob(id);
   if (!ok) {
-    return Response.json({ ok: false, error: "Transformer Lab menolak penghapusan job" }, { status: 502 });
+    return Response.json({ ok: false, error: "Transformer Lab rejected the job deletion" }, { status: 502 });
   }
   return Response.json({ ok: true });
 }

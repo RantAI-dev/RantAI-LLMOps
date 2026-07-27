@@ -31,13 +31,13 @@ export function updateDataset(
 }
 
 export function formatNumber(n: number): string {
-  return n.toLocaleString("en-US");
+  return n.toLocaleString("id-ID");
 }
 
 export function formatDateTime(iso: string): string {
   const d = parseTlDate(iso);
   if (!d) return iso || "—";
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("id-ID", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -50,7 +50,7 @@ export function formatDateTime(iso: string): string {
 export function formatDate(iso: string): string {
   const d = parseTlDate(iso);
   if (!d) return iso || "—";
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("id-ID", {
     month: "short",
     day: "numeric",
     year: "numeric",

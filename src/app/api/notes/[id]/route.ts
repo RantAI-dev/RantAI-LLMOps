@@ -6,7 +6,7 @@ import { NOTE_PREFIX } from "@/lib/tl-constants";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const notFound = () => Response.json({ error: "Catatan tidak ditemukan" }, { status: 404 });
+const notFound = () => Response.json({ error: "Note not found" }, { status: 404 });
 
 /** Read a note's markdown content. */
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -29,7 +29,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
   const ok = await saveNoteContent(id, body.content ?? "");
   return ok
     ? Response.json({ ok: true })
-    : Response.json({ error: "Transformer Lab menolak menyimpan catatan" }, { status: 502 });
+    : Response.json({ error: "Transformer Lab rejected saving the note" }, { status: 502 });
 }
 
 /** Delete a note. */
@@ -39,5 +39,5 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const ok = await deleteNote(id);
   return ok
     ? Response.json({ ok: true })
-    : Response.json({ error: "Gagal menghapus catatan" }, { status: 502 });
+    : Response.json({ error: "Failed to delete the note" }, { status: 502 });
 }

@@ -103,7 +103,7 @@ export function useFinetune() {
         });
         if (!res.ok) throw new Error();
       } catch {
-        toast.error("Gagal menghapus dataset");
+        toast.error("Failed to delete dataset");
       }
       await refreshOptions();
     },
@@ -116,7 +116,7 @@ export function useFinetune() {
         const res = await fetch(`/api/finetune/jobs/${id}/stop`, { method: "POST" });
         if (!res.ok) throw new Error();
       } catch {
-        toast.error("Gagal menghentikan job");
+        toast.error("Failed to stop job");
       }
       await loadJobs();
     },
@@ -129,7 +129,7 @@ export function useFinetune() {
         const res = await fetch(`/api/finetune/jobs/${id}`, { method: "DELETE" });
         if (!res.ok) throw new Error();
       } catch {
-        toast.error("Gagal menghapus job");
+        toast.error("Failed to delete job");
       }
       await loadJobs();
     },
@@ -149,11 +149,11 @@ export function useFinetune() {
         const data = (await res.json()) as { jobId?: string; error?: string };
         if (!res.ok || !data.jobId) throw new Error(data.error || "Failed to start fine-tune");
         await loadJobs();
-        toast.success("Fine-tune dimulai! Pantau progresnya di menu Tasks.");
+        toast.success("Fine-tune started. Track its progress in the Tasks menu.");
         return true;
       } catch (err) {
         setError((err as Error).message);
-        toast.error((err as Error).message || "Gagal memulai fine-tune");
+        toast.error((err as Error).message || "Failed to start fine-tune");
         return false;
       } finally {
         setSubmitting(false);

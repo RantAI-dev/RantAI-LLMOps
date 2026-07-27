@@ -32,7 +32,7 @@ export function baseSearchQuery(id: string): string {
 export function formatDateTime(iso: string | null): string {
   const d = parseTlDate(iso);
   if (!d) return "—";
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("id-ID", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: APP_TIME_ZONE,
@@ -40,7 +40,7 @@ export function formatDateTime(iso: string | null): string {
 }
 
 export function formatNumber(n: number): string {
-  return new Intl.NumberFormat("en-US").format(n);
+  return new Intl.NumberFormat("id-ID").format(n);
 }
 
 export function formatRelativeTime(iso: string): string {

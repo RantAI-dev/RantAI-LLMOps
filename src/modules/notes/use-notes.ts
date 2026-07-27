@@ -47,7 +47,7 @@ export function useNotes() {
         body: JSON.stringify({ title }),
       });
       const data = (await res.json()) as { note?: NoteSummary; existed?: boolean; error?: string };
-      if (!res.ok || !data.note) throw new Error(data.error || "Gagal membuat catatan");
+      if (!res.ok || !data.note) throw new Error(data.error || "Failed to create note");
       const note = data.note;
       setNotes((prev) =>
         prev.some((n) => n.id === note.id)
@@ -56,7 +56,7 @@ export function useNotes() {
       );
       // A different title can slugify onto an existing note — tell the user we
       // opened that one instead of silently pretending it's new.
-      if (data.existed) toast.info("Catatan dengan nama itu sudah ada — dibuka.");
+      if (data.existed) toast.info("A note with that name already exists — opened it.");
       return note;
     } catch (err) {
       toast.error((err as Error).message);
@@ -73,13 +73,13 @@ export function useNotes() {
         const res = await fetch(`/api/notes/${encodeURIComponent(id)}`, { method: "DELETE" });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data.error || "Gagal menghapus catatan");
+          throw new Error(data.error || "Failed to delete note");
         }
         // Two top-level setStates (no setState inside another's updater): drop the
         // row, and if it was selected fall back to the first remaining note.
         setNotes((prev) => prev.filter((n) => n.id !== id));
         setSelectedId((cur) => (cur === id ? notes.find((n) => n.id !== id)?.id ?? null : cur));
-        toast.success("Catatan dihapus");
+        toast.success("Note deleted");
       } catch (err) {
         toast.error((err as Error).message);
       } finally {

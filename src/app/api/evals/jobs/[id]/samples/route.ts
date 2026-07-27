@@ -16,7 +16,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   try {
     assertJobId(id);
   } catch {
-    return Response.json({ error: "Job id tidak valid" }, { status: 400 });
+    return Response.json({ error: "Invalid job id" }, { status: 400 });
   }
   return Response.json({ samples: await fetchEvalSamples(id) });
 }

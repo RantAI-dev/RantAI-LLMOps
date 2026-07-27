@@ -32,7 +32,7 @@ function useSamples(jobId: string, enabled: boolean) {
         if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
         setSamples(data.samples ?? []);
       } catch (err) {
-        if (alive) setError(err instanceof Error ? err.message : "Gagal memuat rincian");
+        if (alive) setError(err instanceof Error ? err.message : "Failed to load details");
       }
     })();
     return () => {
@@ -51,17 +51,17 @@ function Row({ sample }: { sample: EvalSample }) {
           "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full",
           sample.correct ? "bg-success-soft text-success" : "bg-danger-soft text-danger"
         )}
-        aria-label={sample.correct ? "benar" : "salah"}
+        aria-label={sample.correct ? "correct" : "wrong"}
       >
         {sample.correct ? <Check className="size-3" aria-hidden /> : <X className="size-3" aria-hidden />}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[12px] leading-4 text-ink">{sample.question || "(soal kosong)"}</p>
+        <p className="text-[12px] leading-4 text-ink">{sample.question || "(empty question)"}</p>
         <p className="mt-1 text-[11px] leading-4 text-ink-soft">
-          Jawaban model: <span className="text-ink">{sample.answer || "—"}</span>
+          Model answer: <span className="text-ink">{sample.answer || "—"}</span>
           {!sample.correct ? (
             <>
-              {" · "}Seharusnya: <span className="text-success">{sample.expected || "—"}</span>
+              {" · "}Expected: <span className="text-success">{sample.expected || "—"}</span>
             </>
           ) : null}
         </p>
@@ -92,7 +92,7 @@ export function EvalSamples({ jobId }: { jobId: string }) {
         className="flex items-center gap-1 text-[12px] font-medium text-ink-soft hover:text-ink"
       >
         {open ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}
-        Rincian per soal
+        Per-question details
       </button>
 
       {open ? (
@@ -101,12 +101,12 @@ export function EvalSamples({ jobId }: { jobId: string }) {
             <p className="rounded-md bg-danger-soft px-2.5 py-1.5 text-[11px] text-danger">{error}</p>
           ) : !samples ? (
             <p className="flex items-center gap-1.5 text-[12px] text-ink-soft">
-              <Loader2 className="size-3.5 animate-spin" aria-hidden /> Memuat rincian…
+              <Loader2 className="size-3.5 animate-spin" aria-hidden /> Loading details…
             </p>
           ) : samples.length === 0 ? (
             <p className="text-[12px] text-ink-soft">
-              Job ini tidak menyimpan rincian per soal. Hanya run yang dijalankan setelah
-              pembaruan terakhir yang menyimpannya.
+              This job did not store per-question details. Only runs started after the latest update
+              save them.
             </p>
           ) : (
             <>
@@ -119,17 +119,17 @@ export function EvalSamples({ jobId }: { jobId: string }) {
                   <div className="h-full flex-1 bg-danger" />
                 </div>
                 <span className="shrink-0 text-[11px] tabular-nums text-ink-soft">
-                  <span className="text-success">{right} benar</span> ·{" "}
-                  <span className="text-danger">{wrong} salah</span>
+                  <span className="text-success">{right} correct</span> ·{" "}
+                  <span className="text-danger">{wrong} wrong</span>
                 </span>
               </div>
 
               <div className="mb-2 flex gap-1">
                 {(
                   [
-                    ["wrong", `Salah (${wrong})`],
-                    ["right", `Benar (${right})`],
-                    ["all", `Semua (${samples.length})`],
+                    ["wrong", `Wrong (${wrong})`],
+                    ["right", `Correct (${right})`],
+                    ["all", `All (${samples.length})`],
                   ] as const
                 ).map(([id, lbl]) => (
                   <button
@@ -153,7 +153,7 @@ export function EvalSamples({ jobId }: { jobId: string }) {
 
               <div className="max-h-96 overflow-y-auto rounded-lg border border-hairline-2 px-3">
                 {shown.length === 0 ? (
-                  <p className="py-3 text-[12px] text-ink-soft">Tidak ada soal di kategori ini.</p>
+                  <p className="py-3 text-[12px] text-ink-soft">No questions in this category.</p>
                 ) : (
                   shown.slice(0, limit).map((s, i) => <Row key={i} sample={s} />)
                 )}
@@ -165,7 +165,7 @@ export function EvalSamples({ jobId }: { jobId: string }) {
                   onClick={() => setLimit((n) => n + PAGE)}
                   className="mt-2 text-[11px] font-medium text-primary hover:underline"
                 >
-                  Tampilkan {Math.min(PAGE, shown.length - limit)} lagi ({limit} dari {shown.length})
+                  Show {Math.min(PAGE, shown.length - limit)} more ({limit} of {shown.length})
                 </button>
               ) : null}
             </>

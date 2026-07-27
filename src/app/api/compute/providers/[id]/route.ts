@@ -11,5 +11,5 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const ok = await deleteTlComputeProvider(id);
   return ok
     ? Response.json({ ok: true })
-    : Response.json({ error: "Gagal menghapus provider" }, { status: 502 });
+    : Response.json({ error: "Failed to delete the provider" }, { status: 502 });
 }

@@ -74,12 +74,12 @@ export function ScoreBar({
         ) : null}
       </div>
       <p className="text-[11px] text-ink-faint">
-        {range ? `Kemungkinan sebenarnya ${range}` : "Rentang ketidakpastian tidak tersedia"}
-        {chance != null ? ` · tebak acak ${Math.round(chance * 100)}%` : ""}
+        {range ? `True value likely ${range}` : "Uncertainty range unavailable"}
+        {chance != null ? ` · random guess ${Math.round(chance * 100)}%` : ""}
       </p>
       {atChance ? (
         <p className="text-[11px] font-medium text-danger">
-          Setara menebak — model tidak menunjukkan kemampuan di benchmark ini.
+          At chance level — the model shows no capability on this benchmark.
         </p>
       ) : null}
     </div>
@@ -110,12 +110,12 @@ export function CoverageBadge({
       )}
       title={
         partial
-          ? "Baru sebagian benchmark yang dijalankan — belum bisa dipakai sebagai skor resmi."
-          : "Seluruh benchmark dijalankan."
+          ? "Only part of the benchmark ran — not yet usable as an official score."
+          : "The whole benchmark ran."
       }
     >
       {partial ? <AlertTriangle className="size-3" aria-hidden /> : null}
-      {Math.round(coverage * 100)}% soal
+      {Math.round(coverage * 100)}% questions
       {samples != null ? ` · n=${samples}` : ""}
     </span>
   );
@@ -126,11 +126,11 @@ export const VERDICT_STYLE: Record<
   "better" | "worse" | "tie" | "unknown",
   { className: string; label: string }
 > = {
-  better: { className: "text-success", label: "lebih baik" },
-  worse: { className: "text-danger", label: "lebih buruk" },
+  better: { className: "text-success", label: "better" },
+  worse: { className: "text-danger", label: "worse" },
   // The wording matters: this is "we cannot tell them apart", not "they are equal".
-  tie: { className: "text-ink-soft", label: "selisih dalam batas galat" },
-  unknown: { className: "text-ink-faint", label: "tidak bisa disimpulkan" },
+  tie: { className: "text-ink-soft", label: "within margin of error" },
+  unknown: { className: "text-ink-faint", label: "inconclusive" },
 };
 
 export type { Interval };

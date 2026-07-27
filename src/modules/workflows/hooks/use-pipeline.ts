@@ -102,7 +102,7 @@ export function usePipeline() {
 
       try {
         // 1) TRAIN ---------------------------------------------------------
-        setStage("train", { status: "running", detail: "Mengirim job…" });
+        setStage("train", { status: "running", detail: "Submitting job…" });
         const trainRes = await fetch("/api/finetune/submit", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -115,7 +115,7 @@ export function usePipeline() {
           }),
         });
         const trainData = (await trainRes.json()) as { jobId?: string; error?: string };
-        if (!trainRes.ok || !trainData.jobId) throw new Error(trainData.error || "Gagal memulai training");
+        if (!trainRes.ok || !trainData.jobId) throw new Error(trainData.error || "Failed to start training");
 
         let trainStatus = "";
         for (let i = 0; i < 600 && !cancelledRef.current; i++) {
@@ -134,8 +134,8 @@ export function usePipeline() {
         }
         if (cancelledRef.current) return false;
         if (trainStatus !== "COMPLETE" && trainStatus !== "COMPLETED") {
-          setStage("train", { status: "failed", detail: trainStatus || "gagal" });
-          throw new Error("Training gagal — pipeline dihentikan.");
+          setStage("train", { status: "failed", detail: trainStatus || "failed" });
+          throw new Error("Training failed — pipeline stopped.");
         }
 
         const jobId = trainData.jobId;
@@ -152,22 +152,22 @@ export function usePipeline() {
           /* best-effort — if we can't read the log, trust the COMPLETE status */
         }
         if (/Training result:\s*\{'status':\s*'error'/.test(trainLog) || /Error loading model/.test(trainLog)) {
-          setStage("train", { status: "failed", detail: "training error — cek log job" });
-          throw new Error("Training error: model tidak terbentuk (lihat log). Pipeline dihentikan.");
+          setStage("train", { status: "failed", detail: "training error — check job log" });
+          throw new Error("Training error: model was not created (see log). Pipeline stopped.");
         }
 
         // v0.40.0: the training output IS the job (its adapter lives under the
         // job dir). The job id is the handle for export — no separate "fused"
         // model in a registry like v0.30.3 had.
         out.fusedModelId = jobId;
-        setStage("train", { status: "done", detail: "selesai" });
+        setStage("train", { status: "done", detail: "done" });
 
         // 2) EVAL ----------------------------------------------------------
         // Evaluate the FINE-TUNE itself: the eval endpoint merges the adapter
         // into the base locally and runs lm-eval on the merged model (the harness
         // can't load a LoRA adapter from HF).
         if (cfg.doEval) {
-          setStage("eval", { status: "running", detail: "Merge + eval fine-tune…" });
+          setStage("eval", { status: "running", detail: "Merge + evaluate fine-tune…" });
           const evalRes = await fetch("/api/evals/submit", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -180,14 +180,14 @@ export function usePipeline() {
           });
           const evalData = (await evalRes.json()) as { jobId?: string; error?: string };
           if (!evalRes.ok || !evalData.jobId) {
-            setStage("eval", { status: "failed", detail: evalData.error || "gagal" });
+            setStage("eval", { status: "failed", detail: evalData.error || "failed" });
           } else {
             const score = await waitEval(evalData.jobId, cancelledRef);
             if (cancelledRef.current) return false;
             out.score = score;
             setStage("eval", {
               status: score == null ? "failed" : "done",
-              detail: score == null ? "tanpa skor" : `${(score * 100).toFixed(1)}%`,
+              detail: score == null ? "no score" : `${(score * 100).toFixed(1)}%`,
             });
           }
         }
@@ -214,7 +214,7 @@ export function usePipeline() {
           if (exp.done && exp.tag) {
             out.ggufReady = true;
             out.loadModelId = exp.tag;
-            setStage("export", { status: "done", detail: "siap di-chat" });
+            setStage("export", { status: "done", detail: "ready to chat" });
           } else if (exp.error) {
             setStage("export", { status: "failed", detail: exp.error });
           } else {
@@ -225,7 +225,7 @@ export function usePipeline() {
             out.loadModelId = ft?.loadModelId ?? null;
             setStage("export", {
               status: ft?.ready ? "done" : "failed",
-              detail: ft?.ready ? "siap di-chat" : "GGUF tak terkonfirmasi",
+              detail: ft?.ready ? "ready to chat" : "GGUF not confirmed",
             });
           }
         }

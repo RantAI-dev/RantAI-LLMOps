@@ -23,12 +23,12 @@ export type Benchmark = {
 
 /** Small, well-known multiple-choice benchmarks that run quickly on a small GPU. */
 export const BENCHMARKS: Benchmark[] = [
-  { id: "arc_easy", name: "ARC Easy", description: "Soal sains tingkat SD.", chance: 0.25, questions: 2376 },
-  { id: "arc_challenge", name: "ARC Challenge", description: "Sains yang lebih sulit.", chance: 0.25, questions: 1172 },
-  { id: "hellaswag", name: "HellaSwag", description: "Nalar akal sehat — melanjutkan kalimat.", chance: 0.25, questions: 10042 },
-  { id: "piqa", name: "PIQA", description: "Nalar fisik sehari-hari.", chance: 0.5, questions: 1838 },
-  { id: "winogrande", name: "WinoGrande", description: "Menentukan acuan kata ganti.", chance: 0.5, questions: 1267 },
-  { id: "boolq", name: "BoolQ", description: "Pemahaman bacaan ya/tidak.", chance: 0.5, questions: 3270 },
+  { id: "arc_easy", name: "ARC Easy", description: "Elementary-level science questions.", chance: 0.25, questions: 2376 },
+  { id: "arc_challenge", name: "ARC Challenge", description: "Harder science questions.", chance: 0.25, questions: 1172 },
+  { id: "hellaswag", name: "HellaSwag", description: "Common-sense reasoning — sentence completion.", chance: 0.25, questions: 10042 },
+  { id: "piqa", name: "PIQA", description: "Everyday physical reasoning.", chance: 0.5, questions: 1838 },
+  { id: "winogrande", name: "WinoGrande", description: "Pronoun reference resolution.", chance: 0.5, questions: 1267 },
+  { id: "boolq", name: "BoolQ", description: "Yes/no reading comprehension.", chance: 0.5, questions: 3270 },
 ];
 
 /** Benchmark metadata by id, for rendering a job that only knows the id. */

@@ -11,5 +11,5 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const ok = await stopJob(id);
   return ok
     ? Response.json({ ok: true })
-    : Response.json({ error: "Transformer Lab menolak permintaan stop" }, { status: 502 });
+    : Response.json({ error: "Transformer Lab rejected the stop request" }, { status: 502 });
 }

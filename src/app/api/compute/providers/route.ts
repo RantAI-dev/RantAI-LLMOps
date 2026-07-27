@@ -29,5 +29,5 @@ export async function POST(req: NextRequest) {
   const ok = await createTlComputeProvider(body.name, body.type);
   return ok
     ? Response.json({ ok: true })
-    : Response.json({ error: "Gagal membuat provider" }, { status: 502 });
+    : Response.json({ error: "Failed to create the provider" }, { status: 502 });
 }

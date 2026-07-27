@@ -4,6 +4,7 @@ import { AlertTriangle, GitCompareArrows, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
 import { compareScores, formatPct, scoreInterval } from "@/lib/eval-stats";
 import { benchmarkById } from "@/lib/benchmarks";
@@ -106,7 +107,7 @@ function CompareRow({
           </span>
         ) : null}
         <span className="block text-[10.5px] tabular-nums text-ink-faint">
-          {cell.coverage != null ? `${Math.round(cell.coverage * 100)}% soal` : "cakupan ?"}
+          {cell.coverage != null ? `${Math.round(cell.coverage * 100)}% questions` : "coverage ?"}
           {cell.samples != null ? ` · n=${cell.samples}` : ""}
         </span>
       </div>
@@ -143,7 +144,7 @@ function CompareRow({
             title={VERDICT_STYLE[cmp.verdict].label}
           >
             {cmp.verdict === "tie"
-              ? "≈ setara"
+              ? "≈ tie"
               : cmp.verdict === "unknown"
                 ? `${cmp.delta > 0 ? "+" : ""}${(cmp.delta * 100).toFixed(1)} (?)`
                 : `${cmp.delta > 0 ? "+" : ""}${(cmp.delta * 100).toFixed(1)} pt`}
@@ -187,14 +188,18 @@ export function EvalCompare({
     <div className="space-y-4">
       {/* --- Run a comparison --- */}
       <div className="rounded-xl border border-border bg-surface p-4">
-        <div className="mb-3 flex items-center gap-2">
+        <div className="mb-3 flex items-center gap-1.5">
           <GitCompareArrows className="size-4 text-primary" aria-hidden />
           <h2 className="text-sm font-semibold text-primary">Compare models</h2>
+          <InfoTip label="About comparing models">
+            Runs <strong>one at a time</strong> (the eval reads each model from the foundation at run
+            time).
+          </InfoTip>
         </div>
 
         {options.models.length < 2 ? (
           <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
-            Butuh minimal 2 model non-GGUF buat dibandingin (mis. base + hasil fine-tune).
+            Need at least 2 non-GGUF models to compare (e.g. base + fine-tune).
           </p>
         ) : (
           <>
@@ -230,7 +235,7 @@ export function EvalCompare({
 
             <div className="mt-3">
               <span className="mb-1.5 block text-[13px] font-medium text-ink">
-                Models ({picked.length} dipilih)
+                Models ({picked.length} selected)
               </span>
               <div className="grid gap-1.5 sm:grid-cols-2">
                 {options.models.map((m) => (
@@ -262,7 +267,7 @@ export function EvalCompare({
                   className="h-1.5 flex-1"
                 />
                 <span className="text-[12px] tabular-nums text-ink-soft">
-                  {compareProgress.done}/{compareProgress.total} selesai
+                  {compareProgress.done}/{compareProgress.total} done
                 </span>
               </div>
             ) : null}
@@ -290,9 +295,6 @@ export function EvalCompare({
                   `Run on ${picked.length || "…"} models`
                 )}
               </Button>
-              <p className="text-[12px] text-ink-soft">
-                Jalan <strong>satu per satu</strong> (eval baca model dari foundation pas run).
-              </p>
             </div>
           </>
         )}
@@ -302,15 +304,25 @@ export function EvalCompare({
       {rows.length > 0 && benchmarks.length > 0 ? (
         <div className="rounded-xl border border-border bg-surface p-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-primary">Scoreboard</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-sm font-semibold text-primary">Scoreboard</h3>
+              <InfoTip label="How to read the scoreboard">
+                Full bar = accuracy (acc). The lighter section = the uncertainty range; the vertical
+                line = the score from random guessing. A difference against the baseline is only
+                written as a number when it exceeds the measurement error — otherwise it reads{" "}
+                <span className="text-ink">≈ tie</span>, and{" "}
+                <span className="text-ink-faint">(?)</span> means the error is unknown, so no
+                conclusion can be drawn yet.
+              </InfoTip>
+            </div>
             <label className="flex items-center gap-2 text-[12px] text-ink-soft">
-              Bandingkan terhadap:
+              Compare against:
               <select
                 className="h-8 rounded-md border border-input bg-background px-2 text-[13px]"
                 value={baseline}
                 onChange={(e) => setBaseline(e.target.value)}
               >
-                <option value="">— tidak ada —</option>
+                <option value="">— none —</option>
                 {rows.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
@@ -337,23 +349,24 @@ export function EvalCompare({
 
               return (
                 <div key={b} className="rounded-lg border border-hairline-2 p-3">
-                  <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
                     <h4 className="text-[13px] font-semibold text-ink">{bench?.name ?? b}</h4>
-                    <span className="text-[11px] text-ink-faint">
-                      {bench ? `${bench.description} · tebak acak ${Math.round(bench.chance * 100)}%` : b}
-                    </span>
+                    {bench ? (
+                      <InfoTip label={`About ${bench.name}`}>
+                        {bench.description} · random guess {Math.round(bench.chance * 100)}%
+                      </InfoTip>
+                    ) : null}
                   </div>
 
                   {mixedCoverage ? (
                     <p className="mb-2 flex items-start gap-1.5 rounded-md bg-danger-soft px-2.5 py-1.5 text-[11px] text-danger">
                       <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
-                      Cakupan soalnya berbeda antar model, jadi angka-angka ini{" "}
-                      <strong>tidak sebanding</strong>. Jalankan ulang dengan cakupan yang sama.
+                      The question coverage differs between models, so these numbers are{" "}
+                      <strong>not comparable</strong>. Run them again with the same coverage.
                     </p>
                   ) : partial ? (
                     <p className="mb-2 rounded-md bg-warning-soft px-2.5 py-1.5 text-[11px] text-warning">
-                      Belum seluruh benchmark dijalankan — selisih kecil di sini besar
-                      kemungkinan cuma kebetulan.
+                      Not the whole benchmark ran — a small gap here is most likely just chance.
                     </p>
                   ) : null}
 
@@ -373,15 +386,6 @@ export function EvalCompare({
               );
             })}
           </div>
-
-          <p className="mt-3 text-[11px] leading-4 text-ink-soft">
-            Batang penuh = akurasi (acc). Bagian yang lebih terang = rentang ketidakpastian;
-            garis vertikal = skor kalau menebak acak. Selisih terhadap pembanding hanya
-            ditulis sebagai angka kalau lebih besar daripada galat pengukuran — kalau tidak,
-            tertulis <span className="text-ink">≈ setara</span>, dan{" "}
-            <span className="text-ink-faint">(?)</span> berarti galatnya tidak diketahui
-            sehingga belum bisa disimpulkan.
-          </p>
         </div>
       ) : null}
     </div>

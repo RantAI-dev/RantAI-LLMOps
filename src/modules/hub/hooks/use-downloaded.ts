@@ -54,11 +54,11 @@ export function useDownloadedModels() {
         body: JSON.stringify({ modelIds: [id] }),
       });
       const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) throw new Error(data.error || "Gagal menghapus model");
-      toast.success(`"${id}" dihapus`);
+      if (!res.ok || !data.ok) throw new Error(data.error || "Failed to delete model");
+      toast.success(`"${id}" deleted`);
       setModels((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Gagal menghapus model");
+      toast.error(err instanceof Error ? err.message : "Failed to delete model");
     } finally {
       setDeleting(null);
     }

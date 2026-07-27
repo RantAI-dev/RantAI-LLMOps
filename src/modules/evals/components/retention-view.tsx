@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, MinusCircle, Loader2, Play } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Play } from "lucide-react";
 
 import { benchmarkById } from "@/lib/benchmarks";
+import { InfoTip } from "@/components/ui/tooltip";
 import { compareScores, formatPct } from "@/lib/eval-stats";
 import type { EvalJob, EvalModel, EvalOptions, EvalScore } from "@/lib/evals";
 import { isEvalActive } from "@/modules/evals/hooks/use-evals";
@@ -77,10 +78,10 @@ function Row({
   }
 
   const style: Record<Verdict, { label: string; cls: string }> = {
-    kept: { label: "dipertahankan", cls: "text-success" },
-    gained: { label: "naik", cls: "text-success" },
-    dropped: { label: "TURUN", cls: "text-danger" },
-    unknown: { label: "belum bisa disimpulkan", cls: "text-ink-faint" },
+    kept: { label: "kept", cls: "text-success" },
+    gained: { label: "gained", cls: "text-success" },
+    dropped: { label: "DROPPED", cls: "text-danger" },
+    unknown: { label: "inconclusive", cls: "text-ink-faint" },
   };
 
   return (
@@ -98,7 +99,7 @@ function Row({
         ) : basePending ? (
           <span className="inline-flex items-center gap-1 text-[11px] text-ink-soft">
             <Loader2 className="size-3 animate-spin" aria-hidden />
-            menjalankan…
+            running…
           </span>
         ) : canRunBase ? (
           <button
@@ -106,13 +107,13 @@ function Row({
             onClick={() => onRunBase(benchmark)}
             disabled={submitting}
             className="inline-flex items-center gap-1 rounded border border-hairline-2 bg-surface-2 px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-primary-soft disabled:opacity-60"
-            title="Jalankan benchmark ini pada model dasar (coverage disamakan dengan fine-tune)"
+            title="Run this benchmark on the base model (coverage matched to the fine-tune)"
           >
             <Play className="size-2.5" aria-hidden />
-            Jalankan base
+            Run base
           </button>
         ) : (
-          <span className="text-ink-faint">belum dieval</span>
+          <span className="text-ink-faint">not evaluated</span>
         )}
       </span>
       {/* fine-tune */}
@@ -123,7 +124,7 @@ function Row({
             {ft.stderr != null ? <span className="text-ink-faint"> ±{(ft.stderr * 100).toFixed(1)}</span> : null}
           </>
         ) : (
-          <span className="text-ink-faint">belum dieval</span>
+          <span className="text-ink-faint">not evaluated</span>
         )}
       </span>
       {/* verdict */}
@@ -211,7 +212,7 @@ export function RetentionView({
   if (fineTunes.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
-        Belum ada model fine-tune yang bisa dibandingkan. Latih satu di menu Fine-tune dulu.
+        No fine-tuned models to compare yet. Train one in the Fine-tune menu first.
       </p>
     );
   }
@@ -225,7 +226,14 @@ export function RetentionView({
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-surface p-4">
         <label className="block">
-          <span className="mb-1 block text-[13px] font-medium text-ink">Model fine-tune</span>
+          <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+            Fine-tune model
+            <InfoTip label="About retention">
+              Compared against its base model:{" "}
+              <span className="font-medium text-ink">{baseLabel}</span>. A drop in general-benchmark
+              scores = <strong>catastrophic forgetting</strong> (the model has lost base capability).
+            </InfoTip>
+          </span>
           <select
             className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
             value={ft?.id ?? ""}
@@ -238,10 +246,6 @@ export function RetentionView({
             ))}
           </select>
         </label>
-        <p className="mt-2 text-[12px] text-ink-soft">
-          Dibandingkan dengan model dasarnya: <span className="font-medium text-ink">{baseLabel}</span>. Turunnya
-          skor benchmark umum = <strong>catastrophic forgetting</strong> (model lupa kemampuan dasar).
-        </p>
       </div>
 
       {analysis && analysis.rows.length > 0 ? (
@@ -250,25 +254,25 @@ export function RetentionView({
           {analysis.pairedCount === 0 ? (
             <div className="mb-3 flex items-start gap-2 rounded-lg bg-warning-soft px-3 py-2 text-[12px] text-warning">
               <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden />
-              Belum ada benchmark yang dijalankan pada <strong>keduanya</strong>. Untuk tiap benchmark yang sudah
-              punya skor fine-tune di bawah, klik <strong>Jalankan base</strong> di kolom Base — otomatis mengevaluasi
-              model dasar ({baseLabel}) pada benchmark yang sama.
+              No benchmark has been run on <strong>both</strong> yet. For each benchmark below that already
+              has a fine-tune score, click <strong>Run base</strong> in the Base column — it automatically
+              evaluates the base model ({baseLabel}) on the same benchmark.
             </div>
           ) : analysis.dropped.length > 0 ? (
             <div className="mb-3 flex items-start gap-2 rounded-lg bg-danger-soft px-3 py-2 text-[13px] text-danger">
               <AlertTriangle className="mt-px size-4 shrink-0" aria-hidden />
               <span>
-                <strong>Ada penurunan kemampuan dasar</strong> di{" "}
-                {analysis.dropped.map((d) => benchmarkById(d.benchmark)?.name ?? d.benchmark).join(", ")}. Pertimbangkan
-                menaikkan porsi data lama (baseline) pada campuran SFT.
+                <strong>Base capability dropped</strong> on{" "}
+                {analysis.dropped.map((d) => benchmarkById(d.benchmark)?.name ?? d.benchmark).join(", ")}. Consider
+                raising the share of old (baseline) data in the SFT mix.
               </span>
             </div>
           ) : (
             <div className="mb-3 flex items-start gap-2 rounded-lg bg-success-soft px-3 py-2 text-[13px] text-success">
               <CheckCircle2 className="mt-px size-4 shrink-0" aria-hidden />
               <span>
-                <strong>Kemampuan dasar dipertahankan</strong> — tidak ada penurunan yang melebihi galat pengukuran
-                pada {analysis.pairedCount} benchmark yang dibandingkan.
+                <strong>Base capability retained</strong> — no drop exceeding the measurement error across
+                the {analysis.pairedCount} benchmarks compared.
               </span>
             </div>
           )}
@@ -278,7 +282,14 @@ export function RetentionView({
             <span>Benchmark</span>
             <span>Base</span>
             <span>Fine-tune</span>
-            <span className="text-right">Retensi</span>
+            <span className="flex items-center justify-end gap-1">
+              Retention
+              <InfoTip label="How to read retention">
+                &quot;Kept&quot; = the difference is within the margin of error. &quot;DROPPED&quot; = a
+                drop exceeding the error (real). An empty Base can be filled directly with the{" "}
+                <strong>Run base</strong> button (coverage is matched to the fine-tune automatically).
+              </InfoTip>
+            </span>
           </div>
           {analysis.rows.map((r) => (
             <Row
@@ -293,17 +304,11 @@ export function RetentionView({
             />
           ))}
 
-          <p className="mt-3 flex items-center gap-1.5 text-[11px] leading-4 text-ink-faint">
-            <MinusCircle className="size-3 shrink-0" aria-hidden />
-            &quot;Dipertahankan&quot; = selisih dalam batas galat. &quot;TURUN&quot; = penurunan yang melebihi galat
-            (nyata). Base yang masih kosong bisa diisi langsung lewat tombol <strong>Jalankan base</strong> (coverage
-            otomatis disamakan dengan fine-tune).
-          </p>
         </div>
       ) : (
         <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
-          Belum ada benchmark untuk model ini. Jalankan beberapa di tab Single run (untuk fine-tune INI dan model
-          dasarnya), lalu retensinya muncul di sini.
+          No benchmarks for this model yet. Run some in the Single run tab (for THIS fine-tune and its
+          base model), then its retention shows up here.
         </p>
       )}
     </div>

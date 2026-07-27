@@ -4,6 +4,7 @@ import { FlaskConical } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/tooltip";
 import type { EvalOptions } from "@/lib/evals";
 
 const selectClass =
@@ -36,15 +37,18 @@ export function EvalForm({
 
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-1.5">
         <FlaskConical className="size-4 text-primary" aria-hidden />
         <h2 className="text-sm font-semibold text-primary">New evaluation</h2>
+        <InfoTip label="About running an evaluation">
+          Runs in Transformer Lab (GPU). The eval pauses inference while it runs.
+        </InfoTip>
       </div>
 
       {options.models.length === 0 ? (
         <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
-          Belum ada model yang bisa di-eval. Download model <strong>non-GGUF</strong> (mis.
-          Qwen2.5-0.5B) lewat picker di Interact dulu.
+          No models to evaluate yet. Download a <strong>non-GGUF</strong> model (e.g. Qwen2.5-0.5B)
+          from the picker in Interact first.
         </p>
       ) : null}
 
@@ -63,7 +67,16 @@ export function EvalForm({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-[13px] font-medium text-ink">Benchmark</span>
+          <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+            Benchmark
+            {selectedBench ? (
+              <InfoTip label={`About ${selectedBench.name}`}>
+                {selectedBench.description} Random guessing scores{" "}
+                <strong>{Math.round(selectedBench.chance * 100)}%</strong>, so a score around that
+                means the model has not shown any capability yet.
+              </InfoTip>
+            ) : null}
+          </span>
           <select
             className={selectClass}
             value={benchmark}
@@ -78,8 +91,16 @@ export function EvalForm({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-[13px] font-medium text-ink">
-            Cakupan — {coverage}% dari benchmark
+          <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+            Coverage — {coverage}% of the benchmark
+            {/* A percentage is abstract; the question count is the actual cost, and
+                it is what makes "raise to 100%" a decision rather than advice. */}
+            <InfoTip label="About coverage">
+              {selectedBench
+                ? `± ${Math.round((selectedBench.questions * coverage) / 100).toLocaleString("id-ID")} of ${selectedBench.questions.toLocaleString("id-ID")} questions. `
+                : ""}
+              Smaller = faster. For a citable score, raise it to 100%.
+            </InfoTip>
           </span>
           <input
             type="range"
@@ -89,24 +110,8 @@ export function EvalForm({
             onChange={(e) => setCoverage(Number(e.target.value))}
             className="w-full accent-primary"
           />
-          {/* A percentage is abstract; the question count is the actual cost, and
-              it is what makes "naikin ke 100%" a decision rather than advice. */}
-          <span className="text-[11px] text-ink-soft">
-            {selectedBench
-              ? `± ${Math.round((selectedBench.questions * coverage) / 100).toLocaleString("id-ID")} dari ${selectedBench.questions.toLocaleString("id-ID")} soal. `
-              : ""}
-            Lebih kecil = lebih cepat. Buat skor yang bisa dikutip, naikkan ke 100%.
-          </span>
         </label>
       </div>
-
-      {selectedBench ? (
-        <p className="mt-2 text-[12px] text-ink-soft">
-          ℹ️ {selectedBench.description} Menebak acak dapat{" "}
-          <strong>{Math.round(selectedBench.chance * 100)}%</strong>, jadi skor di sekitar
-          angka itu berarti model belum menunjukkan kemampuan apa pun.
-        </p>
-      ) : null}
 
       {error ? (
         <div className="mt-3 rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[13px] text-danger">
@@ -130,9 +135,6 @@ export function EvalForm({
         >
           {submitting ? "Starting…" : "Run evaluation"}
         </Button>
-        <p className="text-[12px] text-ink-soft">
-          Berjalan di Transformer Lab (GPU). Eval pause inference sementara.
-        </p>
       </div>
     </div>
   );

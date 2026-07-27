@@ -17,7 +17,7 @@ export function MockBadge({
         "inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-red-600",
         className
       )}
-      title="Belum terhubung ke backend — tampilan contoh"
+      title="Not connected to the backend yet — sample view"
     >
       <span className="size-1.5 rounded-full bg-red-500" aria-hidden />
       {label}

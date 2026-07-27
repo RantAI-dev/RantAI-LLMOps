@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   }
   const ok = await deleteDataset(body.datasetId);
   if (!ok) {
-    return Response.json({ ok: false, error: "Transformer Lab menolak penghapusan dataset" }, { status: 502 });
+    return Response.json({ ok: false, error: "Transformer Lab rejected the dataset deletion" }, { status: 502 });
   }
   return Response.json({ ok: true });
 }

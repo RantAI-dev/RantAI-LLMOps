@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/ui/tooltip";
 
 /**
  * Set / clear the app-wide Hugging Face token used to reach gated models &
@@ -45,34 +46,36 @@ export function HfTokenField() {
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium text-ink">HuggingFace token</span>
-        {saved ? <span className="text-[11px] font-medium text-success">✓ Tersimpan</span> : null}
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium text-ink">Hugging Face token</span>
+          <InfoTip label="About the Hugging Face token">
+            Grants access to <strong>gated</strong> models and datasets (e.g. Llama, Gemma) across the
+            app — fine-tune, Hub, and downloads. Create one at huggingface.co → Settings → Access
+            Tokens. Stored server-side and never sent back to the browser.
+          </InfoTip>
+        </div>
+        {saved ? <span className="text-[11px] font-medium text-success">✓ Saved</span> : null}
       </div>
-      <p className="mt-0.5 text-[12px] leading-4 text-ink-soft">
-        Buat mengakses model/dataset <strong>gated</strong> (mis. Llama, Gemma) di seluruh app —
-        fine-tune, Hub, dan download. Ambil di huggingface.co → Settings → Access Tokens. Disimpan di
-        server, tak pernah dikirim balik ke browser.
-      </p>
       <div className="mt-2 flex items-center gap-1.5">
         <Input
           type="password"
           autoComplete="off"
           value={tokenInput}
           onChange={(e) => setTokenInput(e.target.value)}
-          placeholder={saved ? "•••••••• (ganti token)" : "hf_..."}
+          placeholder={saved ? "•••••••• (replace token)" : "hf_..."}
         />
         <Button type="button" variant="outline" disabled={saving || !tokenInput.trim()} onClick={() => save(false)}>
-          {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : "Simpan"}
+          {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : "Save"}
         </Button>
         {saved ? (
           <button
             type="button"
             onClick={() => save(true)}
             disabled={saving}
-            title="Hapus token tersimpan"
+            title="Delete saved token"
             className="shrink-0 rounded-md px-2 py-1 text-[12px] text-ink-soft hover:text-danger disabled:opacity-60"
           >
-            Hapus
+            Delete
           </button>
         ) : null}
       </div>

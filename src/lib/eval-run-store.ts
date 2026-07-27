@@ -68,7 +68,7 @@ async function atomicWrite(file: string, data: string): Promise<void> {
 /** Surface a stalled run as interrupted rather than perpetually "running". */
 function withDerivedStatus(run: EvalRun): EvalRun {
   if (run.status === "running" && Date.now() - run.updatedAt > STALE_MS) {
-    return { ...run, status: "interrupted", error: "Proses berhenti sebelum selesai (server restart?)" };
+    return { ...run, status: "interrupted", error: "The process stopped before finishing (server restart?)" };
   }
   return run;
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, FlaskConical, Loader2, RefreshCw, Trash2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/tooltip";
 import { formatInterval, wilsonInterval } from "@/lib/eval-stats";
 import { S3EvalSetLoader } from "@/modules/evals/components/s3-eval-set-loader";
 import type { EvalRun, EvalRunSummary } from "@/lib/eval-run-store";
@@ -17,10 +18,10 @@ import { cn } from "@/lib/utils";
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 const STATUS_LABEL: Record<EvalRun["status"], string> = {
-  running: "berjalan",
-  done: "selesai",
-  error: "gagal",
-  interrupted: "terputus",
+  running: "running",
+  done: "done",
+  error: "failed",
+  interrupted: "interrupted",
 };
 
 /**
@@ -70,8 +71,8 @@ function Metric({
       </div>
       <div className="mt-1 text-[11px] leading-4 text-ink-faint">{hint}</div>
       {range ? (
-        <div className="mt-0.5 text-[11px] leading-4 text-ink-faint" title="Selang kepercayaan 95%">
-          Dari {n} kasus, yang bisa diklaim: {range}
+        <div className="mt-0.5 text-[11px] leading-4 text-ink-faint" title="95% confidence interval">
+          Across {n} cases, defensible range: {range}
         </div>
       ) : null}
     </div>
@@ -87,31 +88,31 @@ function Report({ report }: { report: GroundingReport }) {
     <div className="space-y-3">
       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Metric
-          label="Menolak dengan benar"
+          label="Refused correctly"
           value={report.refusalAccuracy}
           goodWhen="high"
-          hint={`dari ${report.negatives} soal yang jawabannya TIDAK ada di materi`}
+          hint={`of ${report.negatives} questions whose answer is NOT in the material`}
           n={report.negatives}
         />
         <Metric
-          label="Ngarang"
+          label="Fabricated"
           value={report.hallucinationRate}
           goodWhen="low"
-          hint="menjawab padahal materinya tidak mendukung"
+          hint="answered when the material does not support it"
           n={report.negatives}
         />
         <Metric
-          label="Salah tolak"
+          label="Wrongly refused"
           value={report.overRefusalRate}
           goodWhen="low"
-          hint={`dari ${report.positives} soal yang jawabannya ADA di materi`}
+          hint={`of ${report.positives} questions whose answer IS in the material`}
           n={report.positives}
         />
         <Metric
-          label="Akurasi sitasi"
+          label="Citation accuracy"
           value={report.citationAccuracy}
           goodWhen="high"
-          hint={`dari ${answeredPositives} jawaban yang benar-benar diberikan`}
+          hint={`of ${answeredPositives} answers actually given`}
           n={answeredPositives}
         />
       </div>
@@ -121,7 +122,7 @@ function Report({ report }: { report: GroundingReport }) {
           <table className="w-full text-[12px]">
             <thead className="bg-surface-2 text-ink-soft">
               <tr>
-                {["Jenjang", "Soal", "Menolak benar", "Ngarang", "Salah tolak", "Sitasi"].map((h) => (
+                {["Level", "Questions", "Refused correctly", "Fabricated", "Wrongly refused", "Citation"].map((h) => (
                   <th key={h} className="px-3 py-1.5 text-left font-medium whitespace-nowrap">
                     {h}
                   </th>
@@ -158,7 +159,7 @@ function Failures({ cases }: { cases: ScoredCase[] }) {
     (c) => c.hallucinated || (!c.isNegative && (c.modelRefused || !c.citationOk))
   );
   if (failed.length === 0) {
-    return <p className="text-[12px] text-success">Tidak ada kasus gagal — semua soal lolos.</p>;
+    return <p className="text-[12px] text-success">No failed cases — every question passed.</p>;
   }
   return (
     <div>
@@ -168,7 +169,7 @@ function Failures({ cases }: { cases: ScoredCase[] }) {
         className="flex items-center gap-1 text-[12px] font-medium text-ink-soft hover:text-ink"
       >
         {open ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}
-        {failed.length} kasus gagal — lihat detail
+        {failed.length} failed cases — view details
       </button>
       {open ? (
         <div className="mt-2 space-y-2">
@@ -180,14 +181,14 @@ function Failures({ cases }: { cases: ScoredCase[] }) {
               {(() => {
                 const contentOk = c.contentOverlap >= 0.5;
                 const label = c.hallucinated
-                  ? "ngarang"
+                  ? "fabricated"
                   : c.modelRefused
-                    ? "salah tolak"
+                    ? "wrongly refused"
                     : contentOk
-                      ? "sitasi hilang · isi cocok"
+                      ? "citation missing · content matches"
                       : // Not "wrong": word overlap cannot judge correctness, and a
                         // right answer phrased differently ("F = m × a") lands here.
-                        "isi beda · cek manual";
+                        "content differs · check manually";
                 const tone = c.hallucinated
                   ? "bg-danger-soft text-danger"
                   : c.modelRefused
@@ -203,22 +204,22 @@ function Failures({ cases }: { cases: ScoredCase[] }) {
                     {c.jenjang ? <span className="text-[10px] text-ink-faint">{c.jenjang}</span> : null}
                     {!c.isNegative && !c.modelRefused ? (
                       <span className="text-[10px] text-ink-faint">
-                        kemiripan isi {Math.round(c.contentOverlap * 100)}%
+                        content similarity {Math.round(c.contentOverlap * 100)}%
                       </span>
                     ) : null}
                   </div>
                 );
               })()}
               <p className="text-ink-soft">
-                <span className="font-medium text-ink">Pertanyaan:</span>{" "}
+                <span className="font-medium text-ink">Question:</span>{" "}
                 {c.instruction.split("Pertanyaan siswa:").pop()?.trim().slice(0, 200)}
               </p>
               <p className="mt-1 text-ink-soft">
-                <span className="font-medium text-ink">Seharusnya:</span> {c.expected.slice(0, 200)}
+                <span className="font-medium text-ink">Expected:</span> {c.expected.slice(0, 200)}
               </p>
               <p className="mt-1 text-ink-soft">
-                <span className="font-medium text-ink">Jawaban model:</span>{" "}
-                {c.actual.trim().slice(0, 300) || <em>(kosong)</em>}
+                <span className="font-medium text-ink">Model answer:</span>{" "}
+                {c.actual.trim().slice(0, 300) || <em>(empty)</em>}
               </p>
             </div>
           ))}
@@ -245,12 +246,12 @@ function History({
   if (runs.length === 0) return null;
   return (
     <div className="rounded-xl border border-border bg-surface p-4">
-      <h3 className="mb-2 text-sm font-semibold text-primary">Riwayat run</h3>
+      <h3 className="mb-2 text-sm font-semibold text-primary">Run history</h3>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-[12px]">
           <thead className="bg-surface-2 text-ink-soft">
             <tr>
-              {["Waktu", "Model", "Status", "Ngarang", "Menolak benar", "Sitasi", ""].map((h) => (
+              {["Time", "Model", "Status", "Fabricated", "Refused correctly", "Citation", ""].map((h) => (
                 <th key={h} className="px-3 py-1.5 text-left font-medium whitespace-nowrap">
                   {h}
                 </th>
@@ -292,7 +293,7 @@ function History({
                 <td className="px-3 py-1.5">
                   <button
                     type="button"
-                    aria-label="Hapus run"
+                    aria-label="Delete run"
                     onClick={(e) => {
                       e.stopPropagation();
                       onDelete(r.id);
@@ -400,7 +401,7 @@ export function GroundingEval() {
     file
       .text()
       .then(setJsonl)
-      .catch(() => setError("Gagal membaca file"));
+      .catch(() => setError("Failed to read file"));
   }, []);
 
   const rows = jsonl.split(/\r?\n/).filter((l) => l.trim()).length;
@@ -416,11 +417,11 @@ export function GroundingEval() {
         body: JSON.stringify({ model, jsonl, systemPrompt, maxTokens }),
       });
       const data = (await res.json()) as { runId?: string; error?: string };
-      if (!res.ok || !data.runId) throw new Error(data.error || `Eval gagal dimulai (${res.status})`);
+      if (!res.ok || !data.runId) throw new Error(data.error || `Failed to start eval (${res.status})`);
       setActiveId(data.runId);
       void loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Eval gagal dimulai");
+      setError(err instanceof Error ? err.message : "Failed to start eval");
     } finally {
       setStarting(false);
     }
@@ -444,11 +445,11 @@ export function GroundingEval() {
     try {
       const res = await fetch(`/api/evals/grounding/${id}`, { method: "POST" });
       const data = (await res.json()) as { run?: EvalRun; error?: string };
-      if (!res.ok || !data.run) throw new Error(data.error || "Gagal menghitung ulang");
+      if (!res.ok || !data.run) throw new Error(data.error || "Failed to recompute");
       setActive(data.run);
       void loadRuns();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal menghitung ulang");
+      setError(err instanceof Error ? err.message : "Failed to recompute");
     } finally {
       setRecomputing(false);
     }
@@ -459,26 +460,26 @@ export function GroundingEval() {
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-border bg-surface p-4">
-        <div className="mb-1 flex items-center gap-2">
+        <div className="mb-3 flex items-center gap-1.5">
           <FlaskConical className="size-4 text-primary" aria-hidden />
           <h2 className="text-sm font-semibold text-primary">Grounding eval</h2>
+          <InfoTip label="About grounding eval">
+            Test whether the model answers <strong>only from the material</strong> provided: refusing
+            when the answer is not there, and citing its source when it is. Run it on the{" "}
+            <strong>base model</strong> too for a comparison figure. The eval runs on the server —{" "}
+            <strong>you can leave the page</strong>.
+          </InfoTip>
         </div>
-        <p className="mb-3 text-[12px] leading-4 text-ink-soft">
-          Uji apakah model menjawab <strong>hanya dari materi</strong> yang diberikan: menolak saat
-          jawabannya tidak ada, dan menyebut sumbernya saat ada. Jalankan juga pada{" "}
-          <strong>model dasar</strong> untuk dapat angka pembanding. Eval berjalan di server —{" "}
-          <strong>boleh ditinggal pindah halaman</strong>.
-        </p>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="mb-1 block text-[13px] font-medium text-ink">Model (yang disajikan)</span>
+            <span className="mb-1 block text-[13px] font-medium text-ink">Model (served)</span>
             <select
               value={model}
               onChange={(e) => setModel(e.target.value)}
               className="h-9 w-full rounded-md border border-input bg-background px-2 text-[13px]"
             >
-              {models.length === 0 ? <option value="">Belum ada model di Ollama</option> : null}
+              {models.length === 0 ? <option value="">No models in Ollama yet</option> : null}
               {models.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -489,11 +490,11 @@ export function GroundingEval() {
 
           <label className="block">
             <span className="mb-1 block text-[13px] font-medium text-ink">
-              Eval set (JSONL) {rows > 0 ? <span className="text-ink-soft">· {rows} baris</span> : null}
+              Eval set (JSONL) {rows > 0 ? <span className="text-ink-soft">· {rows} rows</span> : null}
             </span>
             <span className="inline-flex h-9 w-full cursor-pointer items-center gap-2 rounded-md border border-input bg-background px-2 text-[13px] text-ink-soft hover:bg-surface-2">
               <Upload className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate">Pilih file eval.jsonl…</span>
+              <span className="truncate">Choose eval.jsonl file…</span>
               <input
                 type="file"
                 accept=".jsonl,.json,.txt"
@@ -515,8 +516,8 @@ export function GroundingEval() {
 
         <label className="mt-3 block">
           <span className="mb-1 block text-[13px] font-medium text-ink">
-            Isi eval set{" "}
-            <span className="text-ink-soft">(kolom instruction + output, boleh ditempel langsung)</span>
+            Eval set content{" "}
+            <span className="text-ink-soft">(instruction + output columns, paste directly)</span>
           </span>
           <textarea
             value={jsonl}
@@ -538,13 +539,13 @@ export function GroundingEval() {
             className="w-full rounded-md border border-input bg-background p-2 font-mono text-[11px] leading-4 outline-none focus:border-primary"
           />
           <span className="mt-1 block text-[11px] text-ink-soft">
-            Kosongkan untuk menguji model <strong>tanpa</strong> prompt sama sekali — bedanya dengan
-            hasil di atas menunjukkan seberapa besar andil prompt.
+            Leave empty to test the model <strong>without</strong> any prompt at all — the difference
+            from the result above shows how much the prompt contributes.
           </span>
         </label>
 
         <label className="mt-3 block max-w-[16rem]">
-          <span className="mb-1 block text-[13px] font-medium text-ink">Batas token jawaban</span>
+          <span className="mb-1 block text-[13px] font-medium text-ink">Answer token limit</span>
           <input
             type="number"
             min={32}
@@ -555,8 +556,8 @@ export function GroundingEval() {
             className="h-9 w-full rounded-md border border-input bg-background px-2 text-[13px]"
           />
           <span className="mt-1 block text-[11px] leading-4 text-ink-soft">
-            Jawaban grounding cuma 1-2 kalimat, jadi ini pengatur <strong>durasi</strong>, bukan
-            kualitas. Naikkan hanya kalau jawaban terlihat terpotong.
+            A grounding answer is only 1-2 sentences, so this controls <strong>length</strong>, not
+            quality. Raise it only if answers appear cut off.
           </span>
         </label>
 
@@ -569,10 +570,10 @@ export function GroundingEval() {
         <div className="mt-4 flex items-center gap-3">
           <Button type="button" onClick={start} disabled={starting || running || !model || rows === 0}>
             {starting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-            {running ? "Sedang berjalan…" : starting ? "Memulai…" : "Jalankan eval"}
+            {running ? "Running…" : starting ? "Starting…" : "Run eval"}
           </Button>
           <p className="text-[12px] text-ink-soft">
-            {rows > 0 ? `${rows} soal` : "Pilih atau tempel eval set dulu"}
+            {rows > 0 ? `${rows} questions` : "Choose or paste an eval set first"}
           </p>
         </div>
       </div>
@@ -581,7 +582,7 @@ export function GroundingEval() {
         <div className="rounded-xl border border-border bg-surface p-4">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <h3 className="text-sm font-semibold text-primary">
-              {running ? "Sedang berjalan" : "Hasil"}
+              {running ? "Running" : "Results"}
             </h3>
             <div className="flex items-center gap-2">
               {!running && active.cases?.length ? (
@@ -589,11 +590,11 @@ export function GroundingEval() {
                   type="button"
                   onClick={() => recompute(active.id)}
                   disabled={recomputing}
-                  title="Nilai ulang jawaban tersimpan dengan aturan penilaian terbaru — tanpa memanggil model lagi"
+                  title="Rescore stored answers with the latest scoring rules — without calling the model again"
                   className="inline-flex items-center gap-1 rounded border border-hairline-2 bg-surface-2 px-2 py-1 text-[11px] font-medium text-ink-soft hover:bg-primary-soft hover:text-primary disabled:opacity-60"
                 >
                   <RefreshCw className={cn("size-3", recomputing && "animate-spin")} aria-hidden />
-                  {recomputing ? "Menghitung…" : "Hitung ulang skor"}
+                  {recomputing ? "Computing…" : "Recompute score"}
                 </button>
               ) : null}
               <span className="font-mono text-[11px] text-ink-soft">{active.model}</span>
@@ -604,7 +605,7 @@ export function GroundingEval() {
             <div className="space-y-1.5">
               <div className="flex items-center gap-2 text-[12px] text-ink-soft">
                 <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                {active.completed} / {active.total} soal — boleh ditinggal, hasilnya tetap tersimpan.
+                {active.completed} / {active.total} questions — you can leave; the results stay saved.
               </div>
               <div className="h-1.5 overflow-hidden rounded bg-surface-2">
                 <div
@@ -617,14 +618,14 @@ export function GroundingEval() {
 
           {active.status === "interrupted" || active.status === "error" ? (
             <div className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[12px] text-danger">
-              {active.error ?? "Run gagal."}
+              {active.error ?? "Run failed."}
             </div>
           ) : null}
 
           {active.errorCount > 0 ? (
             <div className="mb-3 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[12px] text-warning">
-              {active.errorCount} permintaan gagal dan diskor sebagai jawaban kosong — angka di bawah
-              lebih buruk dari yang sebenarnya. Jalankan ulang. ({active.errorSample})
+              {active.errorCount} requests failed and were scored as empty answers — the numbers below
+              are worse than reality. Run it again. ({active.errorSample})
             </div>
           ) : null}
 

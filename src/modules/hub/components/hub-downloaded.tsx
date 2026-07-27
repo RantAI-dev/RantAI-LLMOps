@@ -4,6 +4,7 @@ import { useState } from "react";
 import { HardDrive, Loader2, RefreshCw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/tooltip";
 import { useDownloadedModels } from "@/modules/hub/hooks/use-downloaded";
 import { formatSize } from "@/modules/hub/lib/format";
 
@@ -15,26 +16,25 @@ export function HubDownloaded() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] text-ink-soft">
-          {loading ? "Memuat…" : `${models.length} model · total ${formatSize(totalMb)}`}
+        <p className="flex items-center gap-1.5 text-[13px] text-ink-soft">
+          {loading ? "Loading…" : `${models.length} models · ${formatSize(totalMb)} total`}
+          <InfoTip label="About downloaded models">
+            Models already downloaded (Ollama). Delete unused ones to free up disk — you can download
+            them again anytime from the Models tab.
+          </InfoTip>
         </p>
         <Button type="button" size="sm" variant="ghost" onClick={() => reload()} title="Refresh">
           <RefreshCw className="size-4" />
         </Button>
       </div>
 
-      <p className="text-[11px] leading-4 text-ink-faint">
-        Model yang sudah di-download (Ollama). Hapus yang tak dipakai untuk melegakan disk — bisa
-        di-download lagi kapan saja lewat tab Models.
-      </p>
-
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-soft">
-          <Loader2 className="size-4 animate-spin" /> Memuat model lokal…
+          <Loader2 className="size-4 animate-spin" /> Loading local models…
         </div>
       ) : models.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
-          Belum ada model ke-download. Ke tab <span className="font-medium">Models</span> untuk
+          No models downloaded yet. Go to the <span className="font-medium">Models</span> tab to
           download.
         </div>
       ) : (
@@ -64,10 +64,10 @@ export function HubDownloaded() {
                       setConfirmId(null);
                     }}
                   >
-                    {deleting === m.id ? <Loader2 className="size-4 animate-spin" /> : "Hapus"}
+                    {deleting === m.id ? <Loader2 className="size-4 animate-spin" /> : "Delete"}
                   </Button>
                   <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmId(null)}>
-                    Batal
+                    Cancel
                   </Button>
                 </div>
               ) : (
@@ -77,8 +77,8 @@ export function HubDownloaded() {
                   variant="ghost"
                   className="shrink-0 text-ink-soft hover:text-danger"
                   onClick={() => setConfirmId(m.id)}
-                  aria-label={`Hapus ${m.name}`}
-                  title="Hapus"
+                  aria-label={`Delete ${m.name}`}
+                  title="Delete"
                 >
                   <Trash2 className="size-4" />
                 </Button>

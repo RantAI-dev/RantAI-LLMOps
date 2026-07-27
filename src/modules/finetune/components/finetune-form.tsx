@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/ui/tooltip";
 import type { FinetuneOptions } from "@/lib/finetune";
 import { HfSearch } from "@/modules/hub/components/hf-search";
 import { cn } from "@/lib/utils";
@@ -178,30 +179,30 @@ export function FinetuneForm({
             active={method === "grpo"}
             onClick={() => chooseMethod("grpo")}
             title="GRPO · RL"
-            desc="Reasoning — di-reward jawaban benar (Unsloth)"
+            desc="Reasoning — rewards correct answers (Unsloth)"
           />
           <MethodButton
             active={method === "tts"}
             onClick={() => chooseMethod("tts")}
             title="TTS"
-            desc="Text-to-speech (Orpheus, butuh GPU besar)"
+            desc="Text-to-speech (Orpheus, needs a large GPU)"
           />
         </div>
         {method === "grpo" ? (
           <div className="mt-2 rounded-md border border-primary-soft bg-primary-tint-2 p-2.5 text-[12px]">
             <p className="text-ink">
-              Model belajar <strong>reasoning</strong>: output{" "}
-              <code>&lt;reasoning&gt;…&lt;/reasoning&gt;&lt;answer&gt;…&lt;/answer&gt;</code>, di-reward
-              kalau jawabannya cocok. Butuh dataset dengan kolom pertanyaan + jawaban (mis.{" "}
+              The model learns <strong>reasoning</strong>: it outputs{" "}
+              <code>&lt;reasoning&gt;…&lt;/reasoning&gt;&lt;answer&gt;…&lt;/answer&gt;</code>, rewarded
+              when the answer matches. Requires a dataset with question and answer columns (e.g.{" "}
               <code>openai/gsm8k</code>).
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-[11px] text-ink-soft">Kolom pertanyaan</span>
+                <span className="mb-1 block text-[11px] text-ink-soft">Question column</span>
                 <Input value={inputField} onChange={(e) => setInputField(e.target.value)} placeholder="question" />
               </label>
               <label className="block">
-                <span className="mb-1 block text-[11px] text-ink-soft">Kolom jawaban</span>
+                <span className="mb-1 block text-[11px] text-ink-soft">Answer column</span>
                 <Input value={outputField} onChange={(e) => setOutputField(e.target.value)} placeholder="answer" />
               </label>
             </div>
@@ -210,21 +211,22 @@ export function FinetuneForm({
         {method === "tts" ? (
           <div className="mt-2 rounded-md border border-primary-soft bg-primary-tint-2 p-2.5 text-[12px]">
             <p className="text-ink">
-              Melatih model <strong>text-to-speech</strong> (Orpheus) supaya niru suara dari dataset{" "}
-              <code>(audio, teks)</code>. Butuh dataset dengan kolom audio + teks (mis.{" "}
+              Trains a <strong>text-to-speech</strong> model (Orpheus) to mimic a voice from an{" "}
+              <code>(audio, text)</code> dataset. Requires a dataset with audio and text columns (e.g.{" "}
               <code>bosonai/EmergentTTS-Eval</code>).
             </p>
             <p className="mt-1.5 rounded bg-warning-soft px-2 py-1 text-[11px] text-warning">
-              ⚠️ Base model 3B — trainer resminya minta GPU besar (RTX 3090). Di GPU ~6 GB
-              kemungkinan gagal (kehabisan VRAM). Wiring-nya benar, tinggal jalanin di GPU memadai.
+              ⚠️ The base model is 3B — the official trainer asks for a large GPU (RTX 3090). On a
+              ~6 GB GPU it will likely fail (out of VRAM). The setup is correct; it just needs an
+              adequate GPU.
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-[11px] text-ink-soft">Kolom audio</span>
+                <span className="mb-1 block text-[11px] text-ink-soft">Audio column</span>
                 <Input value={audioColumn} onChange={(e) => setAudioColumn(e.target.value)} placeholder="audio" />
               </label>
               <label className="block">
-                <span className="mb-1 block text-[11px] text-ink-soft">Kolom teks</span>
+                <span className="mb-1 block text-[11px] text-ink-soft">Text column</span>
                 <Input value={textColumn} onChange={(e) => setTextColumn(e.target.value)} placeholder="text_to_synthesize" />
               </label>
             </div>
@@ -234,8 +236,8 @@ export function FinetuneForm({
 
       {modelOptions.length === 0 && !loading ? (
         <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
-          Belum ada base model yang bisa di-train. Download model <strong>non-GGUF</strong>{" "}
-          (mis. Qwen2.5-0.5B / Llama-3.2-1B) lewat picker di Interact dulu.
+          No trainable base model yet. Download a <strong>non-GGUF</strong> model{" "}
+          (e.g. Qwen2.5-0.5B / Llama-3.2-1B) via the picker in Interact first.
         </p>
       ) : null}
 
@@ -277,7 +279,7 @@ export function FinetuneForm({
                   }
                 }}
                 aria-label="Delete dataset"
-                title="Hapus dataset lokal ini"
+                title="Delete this local dataset"
                 className="grid size-9 shrink-0 place-items-center rounded-md border border-input text-ink-soft hover:text-danger disabled:opacity-60"
               >
                 {deletingDataset ? (
@@ -318,7 +320,7 @@ export function FinetuneForm({
         onClick={() => setShowAdvanced((v) => !v)}
         className="mt-3 text-[12px] font-medium text-ink-soft hover:text-ink"
       >
-        {showAdvanced ? "− Sembunyikan" : "+ Advanced"} (LoRA, learning rate, max steps, panjang konteks)
+        {showAdvanced ? "− Hide" : "+ Advanced"} (LoRA, learning rate, max steps, context length)
       </button>
 
       {showAdvanced ? (
@@ -343,7 +345,14 @@ export function FinetuneForm({
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[13px] font-medium text-ink">LoRA dropout</span>
+              <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                LoRA dropout
+                <InfoTip label="About LoRA dropout">
+                  <code>0</code> (default) is fastest — Unsloth stays on its fast-patching path.
+                  Raise it (e.g. <code>0.05</code>) only if evaluation shows the adapter{" "}
+                  <strong>overfitting</strong>.
+                </InfoTip>
+              </span>
               <Input
                 type="number"
                 min={0}
@@ -353,10 +362,6 @@ export function FinetuneForm({
                 onChange={(e) => setLoraDropout(Number(e.target.value))}
                 onBlur={() => setLoraDropout((v) => (Number.isFinite(v) && v >= 0 && v <= 0.5 ? v : 0))}
               />
-              <span className="mt-1 block text-[11px] text-ink-soft">
-                <code>0</code> (default) = tercepat — Unsloth pakai jalur patching cepatnya. Naikkan
-                (mis. <code>0.05</code>) hanya kalau evaluasi menunjukkan <strong>overfit</strong>.
-              </span>
             </label>
             <label className="block">
               <span className="mb-1 block text-[13px] font-medium text-ink">Learning rate</span>
@@ -369,20 +374,29 @@ export function FinetuneForm({
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[13px] font-medium text-ink">Max steps</span>
+              <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                Max steps
+                <InfoTip label="About max steps">
+                  <code>-1</code> (default) runs the full epochs. A positive number{" "}
+                  <strong>overrides epochs</strong> — use it only for a quick test.
+                </InfoTip>
+              </span>
               <Input
                 type="number"
                 min={-1}
                 value={maxSteps}
                 onChange={(e) => setMaxSteps(Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 60)}
               />
-              <span className="mt-1 block text-[11px] text-ink-soft">
-                <code>-1</code> (default) = ikut epochs penuh. Angka positif{" "}
-                <strong>menimpa epochs</strong> — cuma buat uji cepat.
-              </span>
             </label>
             <label className="block">
-              <span className="mb-1 block text-[13px] font-medium text-ink">Panjang konteks maks</span>
+              <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                Max context length
+                <InfoTip label="About max context length">
+                  Tokens per sample (context + question + answer). Anything longer is{" "}
+                  <strong>silently truncated</strong>. RAG-style datasets need <code>4096</code>–
+                  <code>8192</code>.
+                </InfoTip>
+              </span>
               {/* step must divide evenly from `min`, or the browser's spinner skips
                   the values people actually want (min 256 + step 512 made 2048/4096
                   unreachable). Clamping happens on blur, not on change — clamping
@@ -396,34 +410,35 @@ export function FinetuneForm({
                 onChange={(e) => setMaxSeqLength(Number(e.target.value))}
                 onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : 2048))}
               />
-              <span className="mt-1 block text-[11px] text-ink-soft">
-                Token per sampel (konteks + pertanyaan + jawaban). Yang lebih panjang{" "}
-                <strong>dipotong diam-diam</strong>. Dataset gaya RAG butuh <code>4096</code>–
-                <code>8192</code>.
-              </span>
             </label>
           </div>
 
-          <label className="flex cursor-pointer items-start gap-2 rounded-md bg-surface-2 px-3 py-2">
-            <input
-              type="checkbox"
-              checked={loadIn4bit}
-              onChange={(e) => setLoadIn4bit(e.target.checked)}
-              className="mt-0.5 size-4 shrink-0 accent-primary"
-            />
-            <span className="text-[11px] leading-4 text-ink-soft">
-              <span className="font-medium text-ink">Muat model 4-bit (QLoRA)</span> — hemat memori
-              buat GPU kecil. <strong>Biarkan mati di GB10</strong>: memori terpadu 128 GB bikin ini
-              gak perlu, dan kernel 4-bit dilaporkan macet di sm_121.
-            </span>
-          </label>
+          <div className="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
+            <label className="flex flex-1 cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={loadIn4bit}
+                onChange={(e) => setLoadIn4bit(e.target.checked)}
+                className="size-4 shrink-0 accent-primary"
+              />
+              <span className="text-[11px] font-medium leading-4 text-ink">
+                Load model in 4-bit (QLoRA)
+              </span>
+            </label>
+            <InfoTip label="About 4-bit (QLoRA)">
+              Saves memory on small GPUs. <strong>Leave it off on GB10</strong>: 128 GB of unified
+              memory makes it unnecessary, and 4-bit kernels are reported to stall on sm_121.
+            </InfoTip>
+          </div>
 
-          <p className="rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
-            Model <strong>gated</strong> (Llama/Gemma)?{" "}
+          <p className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
             <Link href="/settings" className="font-medium text-accent underline-offset-2 hover:underline">
-              Set HuggingFace token di Settings
-            </Link>{" "}
-            — sekali simpan, kepakai di semua fine-tune &amp; download.
+              Set your Hugging Face token in Settings
+            </Link>
+            <InfoTip label="About gated models">
+              Needed for <strong>gated</strong> models (Llama/Gemma). Saved once, it is reused across
+              all fine-tunes and downloads.
+            </InfoTip>
           </p>
         </div>
       ) : null}
@@ -434,13 +449,13 @@ export function FinetuneForm({
         </div>
       ) : null}
 
-      <div className="mt-4 flex items-center gap-3">
+      <div className="mt-4 flex items-center gap-2">
         <Button type="button" onClick={handleSubmit} disabled={!canSubmit}>
           {submitting ? "Starting…" : "Start fine-tune"}
         </Button>
-        <p className="text-[12px] text-ink-soft">
-          Berjalan di Transformer Lab (GPU). Model kecil + dataset kecil = paling cepat.
-        </p>
+        <InfoTip label="About the run">
+          Runs in Transformer Lab (GPU). A small model with a small dataset finishes fastest.
+        </InfoTip>
       </div>
     </div>
   );

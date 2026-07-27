@@ -16,7 +16,7 @@ export function formatDuration(ms: number): string {
 export function formatDateTime(iso: string | undefined): string {
   const d = parseTlDate(iso);
   if (!d) return "—";
-  return d.toLocaleString("en-US", {
+  return d.toLocaleString("id-ID", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -26,7 +26,7 @@ export function formatDateTime(iso: string | undefined): string {
 }
 
 export function formatLogTime(date = new Date()): string {
-  return date.toLocaleTimeString("en-US", { hour12: false });
+  return date.toLocaleTimeString("id-ID", { hour12: false });
 }
 
 export function generateTaskId(): string {

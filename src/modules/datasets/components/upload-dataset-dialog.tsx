@@ -48,13 +48,13 @@ export function UploadDatasetDialog({
       form.append("file", file);
       const res = await fetch("/api/datasets/upload", { method: "POST", body: form });
       const data = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
-      if (!res.ok || !data.id) throw new Error(data.error || "Gagal mengunggah dataset");
-      toast.success(`Dataset "${data.id}" diunggah — siap dipakai di Fine-tune.`);
+      if (!res.ok || !data.id) throw new Error(data.error || "Failed to upload dataset");
+      toast.success(`Dataset "${data.id}" uploaded — ready to use in Fine-tune.`);
       onUploaded(data.id);
       reset();
       onClose();
     } catch (err) {
-      toast.error((err as Error).message || "Gagal mengunggah dataset");
+      toast.error((err as Error).message || "Failed to upload dataset");
       setBusy(false);
     }
   };
@@ -73,18 +73,19 @@ export function UploadDatasetDialog({
         <DialogHeader>
           <DialogTitle className="text-primary">Upload dataset</DialogTitle>
           <DialogDescription>
-            Unggah file <strong>.jsonl</strong> atau <strong>.csv</strong> milikmu. Kolomnya bebas —
-            nanti pilih kolom input/output pas Fine-tune. JSONL: satu objek JSON per baris.
+            Upload your own <strong>.jsonl</strong> or <strong>.csv</strong> file. Columns are
+            flexible — choose the input/output columns later in Fine-tune. For JSONL, use one JSON
+            object per line.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <label className="block">
-            <span className="mb-1 block text-[13px] font-medium text-ink">Nama dataset</span>
+            <span className="mb-1 block text-[13px] font-medium text-ink">Dataset name</span>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="mis. resep-nusantara"
+              placeholder="e.g. my-training-data"
               disabled={busy}
             />
           </label>
@@ -115,11 +116,11 @@ export function UploadDatasetDialog({
             }}
             disabled={busy}
           >
-            Batal
+            Cancel
           </Button>
           <Button type="button" onClick={submit} disabled={!name.trim() || !file || busy}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            {busy ? "Mengunggah…" : "Upload"}
+            {busy ? "Uploading…" : "Upload"}
           </Button>
         </DialogFooter>
       </DialogContent>

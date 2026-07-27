@@ -5,6 +5,7 @@ import { Columns2, Loader2, Play } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
+import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useGenerations, type GenTarget } from "@/modules/generations/hooks/use-generations";
 
@@ -18,15 +19,13 @@ type FineTuned = { name: string; fusedModelId: string; ready: boolean; loadModel
 // models are pulled into Ollama via Hub — so base models come from `servable`.
 type Catalog = { servable?: CatalogModel[]; fineTuned?: FineTuned[] };
 
-const DEFAULT_PROMPTS = ["Jelaskan secara singkat tentang dirimu.", "Apa yang kamu pelajari?"].join(
-  "\n"
-);
+const DEFAULT_PROMPTS = ["Briefly introduce yourself.", "What have you learned?"].join("\n");
 
 const PHASE_LABEL: Record<string, string> = {
-  "loading-base": "Memuat base…",
-  base: "Base menjawab",
-  "loading-ft": "Memuat fine-tuned…",
-  "fine-tuned": "Fine-tuned menjawab",
+  "loading-base": "Loading base…",
+  base: "Base answering",
+  "loading-ft": "Loading fine-tuned…",
+  "fine-tuned": "Fine-tuned answering",
 };
 
 /** Output comparison: same prompts → base vs fine-tuned model, side by side. */
@@ -119,21 +118,21 @@ export function GenerationsPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-5">
-      <div>
+      <div className="flex items-center gap-1.5">
         <h1 className="flex items-center gap-2 text-lg font-semibold text-primary">
           <Columns2 className="size-5" /> Output comparison
         </h1>
-        <p className="mt-0.5 text-[13px] text-ink-soft">
-          Tanya prompt yang sama ke model <strong>base</strong> dan hasil <strong>fine-tune</strong>,
-          lihat jawabannya berdampingan. Bukti kualitatif efek fine-tune (bukan cuma skor).
-        </p>
+        <InfoTip label="About output comparison">
+          Ask the same prompts to the base model and the fine-tuned result, and view the answers
+          side by side. Qualitative evidence of the fine-tune&apos;s effect (not just scores).
+        </InfoTip>
       </div>
 
       <div className="rounded-xl border border-border bg-surface p-4">
         {fineTuned.length === 0 ? (
           <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
-            Belum ada model fine-tuned. Latih satu di menu <strong>Fine-tune</strong> dulu — hasilnya
-            muncul di sini.
+            No fine-tuned models yet. Train one from the <strong>Fine-tune</strong> menu first — the
+            result will appear here.
           </p>
         ) : (
           <>
@@ -141,7 +140,7 @@ export function GenerationsPage() {
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Base model</span>
                 <select className={selectClass} value={baseId} onChange={(e) => setBaseId(e.target.value)}>
-                  <option value="">Pilih base…</option>
+                  <option value="">Select base…</option>
                   {baseModels.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}
@@ -153,7 +152,7 @@ export function GenerationsPage() {
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">Fine-tuned model</span>
                 <select className={selectClass} value={ftId} onChange={(e) => setFtId(e.target.value)}>
-                  <option value="">Pilih fine-tuned…</option>
+                  <option value="">Select fine-tuned…</option>
                   {fineTuned.map((f) => (
                     <option key={f.fusedModelId} value={f.fusedModelId}>
                       {f.name}
@@ -167,14 +166,14 @@ export function GenerationsPage() {
 
             <label className="mt-3 block">
               <span className="mb-1 block text-[13px] font-medium text-ink">
-                Prompts — satu per baris ({prompts.length})
+                Prompts — one per line ({prompts.length})
               </span>
               <textarea
                 value={promptText}
                 onChange={(e) => setPromptText(e.target.value)}
                 rows={4}
                 className="w-full resize-y rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                placeholder={"Prompt pertama\nPrompt kedua"}
+                placeholder={"First prompt\nSecond prompt"}
               />
             </label>
 
@@ -202,14 +201,14 @@ export function GenerationsPage() {
                   </>
                 ) : (
                   <>
-                    <Play className="size-4" /> Bandingkan
+                    <Play className="size-4" /> Compare
                   </>
                 )}
               </Button>
-              <p className="text-[12px] text-ink-soft">
-                Jalan <strong>satu per satu</strong> (load base → tanya → load fine-tuned → tanya).
-                Bisa beberapa menit.
-              </p>
+              <InfoTip label="About the comparison run">
+                Runs one at a time (load base → ask → load fine-tuned → ask). May take a few
+                minutes.
+              </InfoTip>
             </div>
           </>
         )}
@@ -217,7 +216,7 @@ export function GenerationsPage() {
 
       {rows.length > 0 ? (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-primary">Hasil</h2>
+          <h2 className="text-sm font-semibold text-primary">Results</h2>
           {rows.map((row, i) => (
             <div key={i} className="overflow-hidden rounded-xl border border-border bg-surface">
               <div className="border-b border-border bg-surface-2 px-4 py-2 text-[13px] font-medium text-ink">
@@ -247,7 +246,7 @@ function Answer({ label, tone, text }: { label: string; tone: "muted" | "primary
         {label}
       </p>
       <p className="whitespace-pre-wrap break-words text-[13px] leading-6 text-ink">
-        {text || <span className="text-ink-soft">(kosong)</span>}
+        {text || <span className="text-ink-soft">(empty)</span>}
       </p>
     </div>
   );

@@ -5,6 +5,7 @@ import { Check, Copy, KeyRound, Loader2, Plus, ShieldCheck, Trash2 } from "lucid
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { InfoTip } from "@/components/ui/tooltip";
 import { copyText } from "@/lib/copy-text";
 import { cn } from "@/lib/utils";
 
@@ -23,14 +24,14 @@ function Copyable({ value, className }: { value: string; className?: string }) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1200);
         } else {
-          toast.error("Gagal menyalin — pilih teksnya manual lalu Ctrl+C");
+          toast.error("Couldn't copy — select the text manually and press Ctrl+C");
         }
       }}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[12px] text-ink hover:bg-surface-soft",
         className
       )}
-      title="Salin"
+      title="Copy"
     >
       <span className="truncate">{value}</span>
       {copied ? <Check className="size-3.5 shrink-0 text-primary" /> : <Copy className="size-3.5 shrink-0 opacity-60" />}
@@ -91,7 +92,7 @@ export function GatewayAccess() {
         body: JSON.stringify({ action: "setModels", models: next }),
       });
     } catch {
-      toast.error("Gagal menyimpan pilihan model");
+      toast.error("Failed to save model selection");
       load();
     }
   };
@@ -110,7 +111,7 @@ export function GatewayAccess() {
         setNewKeyName("");
         await load();
       } else {
-        toast.error("Gagal membuat key");
+        toast.error("Failed to create key");
       }
     } finally {
       setBusy(false);
@@ -126,40 +127,44 @@ export function GatewayAccess() {
       });
       await load();
     } catch {
-      toast.error("Gagal menghapus key");
+      toast.error("Failed to delete key");
     }
   };
 
   return (
     <section className="rounded-xl border bg-surface p-5">
-      <div className="mb-1 flex items-center gap-2">
+      <div className="mb-4 flex items-center gap-1.5">
         <ShieldCheck className="size-4 text-primary" />
-        <h2 className="text-sm font-semibold text-ink">Akses Gateway (klien eksternal)</h2>
+        <h2 className="text-sm font-semibold text-ink">Gateway access (external clients)</h2>
+        <InfoTip label="About gateway access">
+          An API-key gateway in front of Ollama. Only the models you expose and holders of a valid key can
+          access it. Clients (e.g. RantAI Agents) use the base URL{" "}
+          <span className="font-mono">{baseUrl}</span>.
+        </InfoTip>
       </div>
-      <p className="mb-4 text-[12px] text-ink-soft">
-        Gerbang ber-API-key di depan Ollama. Cuma model yang kamu ekspos + pemegang key yang bisa akses. Klien
-        (mis. RantAI Agents) pakai base URL <span className="font-mono">{baseUrl}</span>.
-      </p>
 
       {loading ? (
         <div className="flex items-center gap-2 text-[13px] text-ink-soft">
-          <Loader2 className="size-4 animate-spin" /> Memuat…
+          <Loader2 className="size-4 animate-spin" /> Loading…
         </div>
       ) : (
         <div className="space-y-6">
           {/* Base URL */}
           <div>
-            <div className="mb-1.5 text-[12px] font-medium text-ink-soft">Base URL untuk klien</div>
+            <div className="mb-1.5 text-[12px] font-medium text-ink-soft">Base URL for clients</div>
             <Copyable value={baseUrl} className="max-w-full" />
           </div>
 
           {/* Exposed models */}
           <div>
-            <div className="mb-1.5 text-[12px] font-medium text-ink-soft">
-              Model yang diekspos {deployed.length > 0 ? `(${deployed.length})` : "(belum ada)"}
+            <div className="mb-1.5 flex items-center gap-1.5 text-[12px] font-medium text-ink-soft">
+              Exposed models {deployed.length > 0 ? `(${deployed.length})` : "(none yet)"}
+              <InfoTip label="About exposed models">
+                Clear all to turn off gateway access — no model will be reachable through the gateway.
+              </InfoTip>
             </div>
             {models.length === 0 ? (
-              <p className="text-[13px] text-ink-soft">Belum ada model ke-download. Download dulu di Hub.</p>
+              <p className="text-[13px] text-ink-soft">No models downloaded yet. Download one in the Hub first.</p>
             ) : (
               <div className="space-y-1.5">
                 {models.map((m) => {
@@ -179,15 +184,12 @@ export function GatewayAccess() {
                         className="size-4 accent-primary"
                       />
                       <span className="truncate font-mono text-ink">{m.id}</span>
-                      {on && <span className="ml-auto shrink-0 text-[11px] font-medium text-primary">diekspos</span>}
+                      {on && <span className="ml-auto shrink-0 text-[11px] font-medium text-primary">exposed</span>}
                     </label>
                   );
                 })}
               </div>
             )}
-            <p className="mt-1.5 text-[11px] text-ink-soft">
-              Kosongkan semua = tidak ada model yang bisa diakses lewat gateway.
-            </p>
           </div>
 
           {/* API keys */}
@@ -197,7 +199,7 @@ export function GatewayAccess() {
             {justCreated && (
               <div className="mb-3 rounded-lg border border-primary/40 bg-primary-soft p-3">
                 <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-primary">
-                  <KeyRound className="size-3.5" /> Key baru “{justCreated.name}” — SALIN SEKARANG (cuma tampil sekali)
+                  <KeyRound className="size-3.5" /> New key “{justCreated.name}” — COPY NOW (shown only once)
                 </div>
                 <Copyable value={justCreated.key} className="w-full" />
                 <button
@@ -205,7 +207,7 @@ export function GatewayAccess() {
                   onClick={() => setJustCreated(null)}
                   className="mt-2 text-[11px] text-ink-soft underline"
                 >
-                  Sudah kusalin, tutup
+                  I’ve copied it, close
                 </button>
               </div>
             )}
@@ -220,26 +222,26 @@ export function GatewayAccess() {
                     type="button"
                     onClick={() => revokeKey(k.id)}
                     className="ml-auto shrink-0 rounded p-1 text-ink-soft hover:bg-danger-soft hover:text-danger"
-                    title="Hapus key"
+                    title="Delete key"
                   >
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
               ))}
-              {keys.length === 0 && <p className="text-[13px] text-ink-soft">Belum ada key. Buat satu di bawah.</p>}
+              {keys.length === 0 && <p className="text-[13px] text-ink-soft">No keys yet. Create one below.</p>}
             </div>
 
             <div className="mt-3 flex items-center gap-2">
               <input
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
-                placeholder="Nama key (mis. Agents produksi)"
+                placeholder="Key name (e.g. Production agents)"
                 className="min-w-0 flex-1 rounded-lg border px-3 py-2 text-[13px] outline-none focus:border-primary"
                 onKeyDown={(e) => e.key === "Enter" && !busy && createKey()}
               />
               <Button onClick={createKey} disabled={busy} size="sm">
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                Buat key
+                Create key
               </Button>
             </div>
           </div>

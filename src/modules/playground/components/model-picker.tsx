@@ -99,9 +99,9 @@ export function ModelPicker({
               {catalog.fineTuned.length === 0 ? (
                 <div className="px-4 py-8 text-center text-[13px] text-ink-soft">
                   <Sparkles className="mx-auto mb-2 size-5 text-ink-soft" aria-hidden />
-                  Belum ada model fine-tuned.
+                  No fine-tuned models yet.
                   <br />
-                  Latih satu di menu <strong>Fine-tune</strong> — hasilnya muncul di sini.
+                  Train one in <strong>Fine-tune</strong> — the results show up here.
                 </div>
               ) : (
                 <Section title="Your models">
@@ -228,7 +228,7 @@ export function ModelPicker({
                   </div>
                 ) : downloaded.length === 0 ? (
                   <div className="px-4 py-6 text-center text-[13px] text-ink-soft">
-                    {q ? "Ngga ada model lokal yang cocok." : "Belum ada model. Ambil satu dari Hugging Face di bawah."}
+                    {q ? "No matching local models." : "No models yet. Get one from Hugging Face below."}
                   </div>
                 ) : (
                   <div className="px-1.5">

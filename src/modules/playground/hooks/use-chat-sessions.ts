@@ -74,7 +74,7 @@ export function useChatSessions() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(session),
         }),
-      errorMessage: "Gagal menyimpan chat ke server",
+      errorMessage: "Failed to save chat to the server",
     });
   }, []);
 
@@ -139,7 +139,7 @@ export function useChatSessions() {
             ? { ...st, sessions: [removed, ...st.sessions] }
             : st
         ),
-      errorMessage: "Gagal menghapus chat di server",
+      errorMessage: "Failed to delete chat on the server",
     });
   }, []);
 

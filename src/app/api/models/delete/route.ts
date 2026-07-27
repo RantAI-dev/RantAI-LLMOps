@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const { deleted, failed } = await deleteModels(ids);
   if (failed.length > 0) {
     return Response.json(
-      { ok: false, deleted, failed, error: `Gagal hapus: ${failed.join(", ")}` },
+      { ok: false, deleted, failed, error: `Failed to delete: ${failed.join(", ")}` },
       { status: 502 }
     );
   }

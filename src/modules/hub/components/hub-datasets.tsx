@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip } from "@/components/ui/tooltip";
 import type { HubDataset } from "@/lib/hf-hub";
 import { useHubDatasets } from "@/modules/hub/hooks/use-hub-datasets";
 import { compact } from "@/modules/hub/lib/format";
@@ -26,7 +27,7 @@ export function HubDatasets() {
   const router = useRouter();
 
   function pickForFinetune(id: string) {
-    toast.success(`Dataset "${id}" dipilih untuk fine-tune`);
+    toast.success(`Dataset "${id}" selected for fine-tuning`);
     router.push(`/finetune?dataset=${encodeURIComponent(id)}`);
   }
 
@@ -38,11 +39,11 @@ export function HubDatasets() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari dataset di Hugging Face… (mis. rugby, alpaca)"
+            placeholder="Search datasets on Hugging Face… (e.g. rugby, alpaca)"
             className="pl-9"
           />
         </div>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
           {SORTS.map((s) => (
             <button
               key={s.value}
@@ -56,13 +57,12 @@ export function HubDatasets() {
               {s.label}
             </button>
           ))}
+          <InfoTip label="About datasets" className="ml-0.5">
+            Datasets don&apos;t need to be downloaded — the trainer pulls them from Hugging Face by id
+            at run time. “Use in fine-tune” copies the id for use in the form.
+          </InfoTip>
         </div>
       </div>
-
-      <p className="text-[11px] leading-4 text-ink-faint">
-        Dataset tidak perlu di-download — trainer menariknya dari HF by-id saat runtime. &quot;Use in
-        fine-tune&quot; menyalin id-nya untuk dipakai di form.
-      </p>
 
       {error ? (
         <div className="rounded-lg border border-dashed border-danger/40 bg-danger/5 p-4 text-sm text-danger">
@@ -72,11 +72,11 @@ export function HubDatasets() {
 
       {loading ? (
         <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-soft">
-          <Loader2 className="size-4 animate-spin" /> Memuat dari Hugging Face…
+          <Loader2 className="size-4 animate-spin" /> Loading from Hugging Face…
         </div>
       ) : datasets.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
-          Tidak ada dataset yang cocok.
+          No matching datasets.
         </div>
       ) : (
         <div className="space-y-2">
@@ -108,7 +108,7 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         target="_blank"
         rel="noreferrer"
         className="grid size-8 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
-        title="Buka di Hugging Face"
+        title="Open on Hugging Face"
       >
         <ExternalLink className="size-4" />
       </a>
@@ -118,9 +118,9 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         variant="outline"
         onClick={() => {
           void navigator.clipboard?.writeText(dataset.id);
-          toast.success("Dataset id disalin");
+          toast.success("Dataset id copied");
         }}
-        title="Salin id"
+        title="Copy id"
       >
         <Copy className="size-4" />
       </Button>

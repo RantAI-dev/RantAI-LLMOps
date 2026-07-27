@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   if (!s3Configured()) {
     return Response.json(
-      { configured: false, error: "S3/MinIO belum dikonfigurasi (S3_ENDPOINT_URL / kredensial belum diset).", evalSets: [] },
+      { configured: false, error: "S3/MinIO is not configured yet (S3_ENDPOINT_URL / credentials are not set).", evalSets: [] },
       { status: 200 }
     );
   }
@@ -31,7 +31,7 @@ export async function GET(req: Request) {
       // Content of one eval set. Keep it modest — the grounding run holds it in memory.
       const jsonl = await getEvalSetText(key, bucket);
       if (jsonl.length > 20 * 1024 * 1024) {
-        return Response.json({ error: "Eval set terlalu besar (>20 MB)." }, { status: 413 });
+        return Response.json({ error: "Eval set is too large (>20 MB)." }, { status: 413 });
       }
       return Response.json({ jsonl });
     }
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
   } catch (err) {
     logServerError("grounding/eval-sets", err);
     return Response.json(
-      { configured: true, error: err instanceof Error ? err.message : "Gagal mengakses S3", evalSets: [] },
+      { configured: true, error: err instanceof Error ? err.message : "Failed to access S3", evalSets: [] },
       { status: 502 }
     );
   }

@@ -76,7 +76,7 @@ type Summary = {
 };
 
 const fmtMs = (ms: number): string => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms} ms`);
-const fmtNum = (n: number): string => new Intl.NumberFormat("en-US").format(n);
+const fmtNum = (n: number): string => new Intl.NumberFormat("id-ID").format(n);
 
 const ACTIVE = new Set(["RUNNING", "STARTED", "QUEUED", "NOT_STARTED"]);
 
@@ -188,17 +188,17 @@ export default function Page() {
       <div className="border-b border-border pb-3">
         <h1 className={cn("text-primary", ui.title)}>Dashboard</h1>
         <p className={cn("mt-1", ui.subheading)}>
-          Ringkasan nyata dari Transformer Lab — model, dataset, dan job.
+          Live overview of your Transformer Lab models, datasets, and jobs.
         </p>
       </div>
 
       {!data ? (
         <div className="flex items-center gap-2 px-1 py-10 text-sm text-ink-soft">
           {error ? (
-            "Gagal memuat ringkasan. Cek koneksi ke Transformer Lab."
+            "Failed to load the overview. Check your connection to Transformer Lab."
           ) : (
             <>
-              <Loader2 className="size-4 animate-spin" /> Memuat ringkasan…
+              <Loader2 className="size-4 animate-spin" /> Loading overview…
             </>
           )}
         </div>
@@ -211,7 +211,7 @@ export default function Page() {
               iconBg="bg-warning-soft"
               iconColor="text-warning-gold"
               value={data.models}
-              sub="Tersedia di Ollama (GGUF)"
+              sub="Available in Ollama (GGUF)"
             />
             <MetricCard
               title="Fine-tuned"
@@ -219,7 +219,7 @@ export default function Page() {
               iconBg="bg-purple-soft"
               iconColor="text-purple-bright"
               value={data.fineTuned}
-              sub={data.loaded ? `Loaded: ${data.loaded.split("/").pop()}` : "Tidak ada model dimuat"}
+              sub={data.loaded ? `Loaded: ${data.loaded.split("/").pop()}` : "No model loaded"}
             />
             <MetricCard
               title="Datasets"
@@ -227,7 +227,7 @@ export default function Page() {
               iconBg="bg-info-soft"
               iconColor="text-info-bright"
               value={data.datasets}
-              sub="Di disk Transformer Lab"
+              sub="On the Transformer Lab disk"
             />
             <MetricCard
               title="Jobs"
@@ -237,7 +237,7 @@ export default function Page() {
               value={
                 <>
                   {data.jobsActive}
-                  <span className="text-lg font-semibold text-ink-soft"> aktif</span>
+                  <span className="text-lg font-semibold text-ink-soft"> active</span>
                 </>
               }
               sub={`${data.jobsTotal} total (train/eval/export)`}
@@ -251,7 +251,7 @@ export default function Page() {
                 <div className="flex items-center gap-2">
                   <FlaskConical className="size-4 text-primary" />
                   <CardTitle className={cn("text-primary", ui.cardHeading)}>
-                    Skor eval terakhir
+                    Last eval score
                   </CardTitle>
                 </div>
               </CardHeader>
@@ -264,7 +264,7 @@ export default function Page() {
                     <p className="text-sm text-ink-soft">{data.lastEval.label}</p>
                   </div>
                 ) : (
-                  <p className="text-sm text-ink-soft">Belum ada eval. Jalankan di menu Evals.</p>
+                  <p className="text-sm text-ink-soft">No evals yet. Run one from the Evals menu.</p>
                 )}
               </CardContent>
             </Card>
@@ -274,12 +274,12 @@ export default function Page() {
               <CardHeader className="pb-2">
                 <div className="flex items-center gap-2">
                   <ListTodo className="size-4 text-primary" />
-                  <CardTitle className={cn("text-primary", ui.cardHeading)}>Job terbaru</CardTitle>
+                  <CardTitle className={cn("text-primary", ui.cardHeading)}>Recent jobs</CardTitle>
                 </div>
               </CardHeader>
               <CardContent>
                 {data.recent.length === 0 ? (
-                  <p className="text-sm text-ink-soft">Belum ada job.</p>
+                  <p className="text-sm text-ink-soft">No jobs yet.</p>
                 ) : (
                   <ul className="divide-y divide-border">
                     {data.recent.map((j, i) => (
@@ -312,12 +312,12 @@ export default function Page() {
           <div>
             <div className="mb-2 flex items-center gap-2">
               <MessageSquare className="size-4 text-primary" />
-              <h2 className={cn("text-primary", ui.cardHeading)}>Penggunaan chat (inference)</h2>
+              <h2 className={cn("text-primary", ui.cardHeading)}>Chat usage (inference)</h2>
             </div>
             {data.inference.total === 0 ? (
               <p className="rounded-xl border border-dashed border-border px-4 py-6 text-center text-sm text-ink-soft">
-                Belum ada request chat. Coba chat di <strong>Interact</strong> — statistik penggunaan
-                muncul di sini.
+                No chat requests yet. Try a chat in <strong>Interact</strong> — usage statistics will
+                appear here.
               </p>
             ) : (
               <div className="space-y-3">
@@ -328,10 +328,10 @@ export default function Page() {
                     iconBg="bg-info-soft"
                     iconColor="text-info-bright"
                     value={fmtNum(data.inference.total)}
-                    sub={`${data.inference.last24h} dalam 24 jam · error ${(data.inference.errorRate * 100).toFixed(0)}%`}
+                    sub={`${data.inference.last24h} in the last 24h · ${(data.inference.errorRate * 100).toFixed(0)}% errors`}
                   />
                   <MetricCard
-                    title="Rata-rata latency"
+                    title="Average latency"
                     icon={<Timer className="size-4" />}
                     iconBg="bg-warning-soft"
                     iconColor="text-warning-gold"
@@ -339,20 +339,20 @@ export default function Page() {
                     sub={`ttft ~${data.inference.avgTtftMs} ms`}
                   />
                   <MetricCard
-                    title="Rata-rata tok/s"
+                    title="Average tok/s"
                     icon={<Zap className="size-4" />}
                     iconBg="bg-success-soft"
                     iconColor="text-success-bright"
                     value={data.inference.avgTokS}
-                    sub="kecepatan generate"
+                    sub="generation speed"
                   />
                   <MetricCard
-                    title="Total token"
+                    title="Total tokens"
                     icon={<Hash className="size-4" />}
                     iconBg="bg-purple-soft"
                     iconColor="text-purple-bright"
                     value={fmtNum(data.inference.totalTokens)}
-                    sub={`${data.inference.byModel.length} model dipakai`}
+                    sub={`${data.inference.byModel.length} models used`}
                   />
                 </div>
 
@@ -360,7 +360,7 @@ export default function Page() {
                   <Card className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
                     <CardHeader className="pb-2">
                       <CardTitle className={cn("text-primary", ui.cardHeading)}>
-                        Request per model
+                        Requests per model
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -372,7 +372,7 @@ export default function Page() {
                           >
                             <span className="min-w-0 truncate text-ink">{m.model.split("/").pop()}</span>
                             <span className="shrink-0 tabular-nums text-ink-soft">
-                              {fmtNum(m.count)} request
+                              {fmtNum(m.count)} requests
                             </span>
                           </li>
                         ))}

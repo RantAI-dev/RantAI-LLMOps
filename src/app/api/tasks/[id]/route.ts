@@ -11,5 +11,5 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   const ok = await deleteJob(id);
   return ok
     ? Response.json({ ok: true })
-    : Response.json({ error: "Transformer Lab menolak permintaan hapus" }, { status: 502 });
+    : Response.json({ error: "Transformer Lab rejected the delete request" }, { status: 502 });
 }

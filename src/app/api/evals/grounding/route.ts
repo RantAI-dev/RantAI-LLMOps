@@ -62,7 +62,7 @@ async function askModel(
     signal: AbortSignal.timeout(180_000),
   });
   if (!res.ok) {
-    throw new Error(`Model menolak permintaan (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    throw new Error(`Model rejected the request (${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
   const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
   return data.choices?.[0]?.message?.content ?? "";
@@ -117,7 +117,7 @@ async function runEval(run: EvalRun, examples: EvalExample[]): Promise<void> {
       completed,
       errorCount,
       errorSample,
-      error: err instanceof Error ? err.message : "Eval gagal dijalankan",
+      error: err instanceof Error ? err.message : "The eval failed to run",
     }).catch(() => {});
   }
   await pruneEvalRuns();
@@ -133,13 +133,13 @@ export async function POST(req: Request) {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Body bukan JSON yang valid" }, { status: 400 });
+    return Response.json({ error: "Body is not valid JSON" }, { status: 400 });
   }
 
   const model = typeof body.model === "string" ? body.model.trim() : "";
-  if (!model) return Response.json({ error: "`model` wajib diisi" }, { status: 400 });
+  if (!model) return Response.json({ error: "`model` is required" }, { status: 400 });
   if (typeof body.jsonl !== "string") {
-    return Response.json({ error: "`jsonl` wajib diisi" }, { status: 400 });
+    return Response.json({ error: "`jsonl` is required" }, { status: 400 });
   }
 
   let examples: EvalExample[];
@@ -148,7 +148,7 @@ export async function POST(req: Request) {
   } catch (err) {
     // A malformed eval set must not be scored as if it were complete.
     return Response.json(
-      { error: err instanceof Error ? err.message : "Eval set tidak bisa dibaca" },
+      { error: err instanceof Error ? err.message : "The eval set could not be read" },
       { status: 400 }
     );
   }
@@ -170,7 +170,7 @@ export async function POST(req: Request) {
   } catch (err) {
     logServerError("evals/grounding", err);
     return Response.json(
-      { error: err instanceof Error ? err.message : "Eval gagal dimulai" },
+      { error: err instanceof Error ? err.message : "The eval failed to start" },
       { status: 502 }
     );
   }

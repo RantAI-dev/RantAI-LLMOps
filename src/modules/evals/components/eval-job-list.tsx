@@ -32,14 +32,14 @@ function EvalJobLog({ jobId, active, failed }: { jobId: string; active: boolean;
       >
         {open ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}
         Log
-        {failed ? <span className="ml-1 text-danger">· lihat penyebab gagal</span> : null}
+        {failed ? <span className="ml-1 text-danger">· view failure reason</span> : null}
       </button>
       {open ? (
         <div className="mt-2">
           <JobLogPanel
             output={output}
             active={active}
-            emptyLabel={active ? "Menyiapkan evaluasi — build venv + muat model…" : "Belum ada log untuk job ini."}
+            emptyLabel={active ? "Preparing the evaluation — building venv + loading model…" : "No logs for this job yet."}
           />
         </div>
       ) : null}
@@ -58,14 +58,14 @@ function duration(from?: string, to?: string): string | null {
   if (!Number.isFinite(ms) || ms <= 0) return null;
   const mins = Math.floor(ms / 60000);
   const secs = Math.round((ms % 60000) / 1000);
-  return mins > 0 ? `${mins}m ${secs}d` : `${secs} detik`;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
 export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
   if (jobs.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
-        Belum ada evaluasi. Jalankan satu di atas — skornya muncul di sini.
+        No evaluations yet. Run one above — the score shows up here.
       </p>
     );
   }
@@ -131,7 +131,7 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
               {when ? (
                 <span className="flex items-center gap-1">
                   <Clock className="size-3 shrink-0" aria-hidden />
-                  {finished ? "Selesai" : "Mulai"} {formatAppDateTime(when)} WIB
+                  {finished ? "Finished" : "Started"} {formatAppDateTime(when)} WIB
                 </span>
               ) : null}
               {took ? <span className="tabular-nums">{took}</span> : null}
@@ -143,9 +143,9 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
                 than left to the reader to infer from the coverage badge. */}
             {!active && !failed && job.coverage != null && job.coverage < 1 ? (
               <p className="mt-2 rounded-md bg-warning-soft px-2.5 py-1.5 text-[11px] text-warning">
-                Baru {Math.round(job.coverage * 100)}% soal yang dijalankan
-                {bench ? ` (${job.samples ?? "?"} dari ${bench.questions.toLocaleString("id-ID")})` : ""}.
-                Cukup untuk memastikan jalan, belum cukup untuk dikutip sebagai skor model.
+                Only {Math.round(job.coverage * 100)}% of questions ran
+                {bench ? ` (${job.samples ?? "?"} of ${bench.questions.toLocaleString("id-ID")})` : ""}.
+                Enough to confirm it works, not enough to cite as a model score.
               </p>
             ) : null}
 

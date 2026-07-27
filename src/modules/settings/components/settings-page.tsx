@@ -1,5 +1,6 @@
 import { KeyRound } from "lucide-react";
 
+import { InfoTip } from "@/components/ui/tooltip";
 import { HfTokenField } from "@/modules/settings/components/hf-token-field";
 
 /** App-wide settings — credentials and preferences shared across the whole
@@ -7,12 +8,12 @@ import { HfTokenField } from "@/modules/settings/components/hf-token-field";
 export function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-2xl space-y-5">
-      <div>
+      <div className="flex items-center gap-1.5">
         <h1 className="text-lg font-semibold text-primary">Settings</h1>
-        <p className="mt-0.5 text-[13px] text-ink-soft">
-          Pengaturan yang berlaku untuk <strong>seluruh workspace</strong> — simpan sekali, kepakai
-          di mana saja (fine-tune, Hub, download).
-        </p>
+        <InfoTip label="About settings">
+          These apply across the entire workspace — save once and they are used everywhere
+          (fine-tune, Hub, and downloads).
+        </InfoTip>
       </div>
 
       <section className="rounded-xl border border-border bg-surface p-4">

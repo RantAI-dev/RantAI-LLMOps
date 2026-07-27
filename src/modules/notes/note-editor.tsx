@@ -61,10 +61,10 @@ export function NoteEditor({
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error || "Gagal menyimpan catatan");
+        throw new Error(data.error || "Failed to save note");
       }
       setSaved(draft);
-      toast.success("Catatan tersimpan", { description: title });
+      toast.success("Note saved", { description: title });
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -79,13 +79,13 @@ export function NoteEditor({
           {title}
         </h2>
         <Button type="button" onClick={handleSave} disabled={!dirty || saving || loading}>
-          <Save className="size-4" /> {saving ? "Menyimpan…" : dirty ? "Simpan" : "Tersimpan"}
+          <Save className="size-4" /> {saving ? "Saving…" : dirty ? "Save" : "Saved"}
         </Button>
       </div>
 
       {loading ? (
         <div className="flex items-center gap-2 px-1 py-10 text-sm text-ink-soft">
-          <Loader2 className="size-4 animate-spin" /> Memuat catatan…
+          <Loader2 className="size-4 animate-spin" /> Loading note…
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-2">
@@ -96,7 +96,7 @@ export function NoteEditor({
             <Textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder={"# Judul\n\nTulis catatan di sini.\n\n- poin-poin\n- **tebal** dan `inline code`"}
+              placeholder={"# Title\n\nWrite your note here.\n\n- bullet points\n- **bold** and `inline code`"}
               className="min-h-[320px] flex-1 resize-none font-mono text-[13px] leading-6"
             />
           </div>
