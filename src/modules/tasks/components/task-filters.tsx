@@ -1,5 +1,7 @@
-import { FilterBar } from "@/components/ui/filter-bar";
-import { searchFieldClassName } from "@/modules/tasks/constants/task-ui";
+"use client";
+
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterToolbar } from "@/components/ui/filter-toolbar";
 import {
   COMPUTE_TARGETS,
   TASK_STATUSES,
@@ -7,81 +9,63 @@ import {
   type TaskFilters,
 } from "@/modules/tasks/types";
 
-import { FilterSelect } from "./filter-select";
-
 type TaskFiltersBarProps = {
   filters: TaskFilters;
   onChange: (patch: Partial<TaskFilters>) => void;
   onReset: () => void;
 };
 
-const hasActiveFilters = (filters: TaskFilters) =>
-  filters.search.trim() !== "" ||
-  filters.type !== "all" ||
-  filters.status !== "all" ||
-  filters.computeTarget !== "all" ||
-  filters.sort !== "newest";
-
-export function TaskFiltersBar({ filters, onChange, onReset }: TaskFiltersBarProps) {
-  const active = hasActiveFilters(filters);
-
+export function TaskFiltersBar({ filters, onChange }: TaskFiltersBarProps) {
   return (
-    <FilterBar
-      ariaLabel="Task filters"
-      title="Filter tasks"
+    <FilterToolbar
       searchValue={filters.search}
       onSearchChange={(search) => onChange({ search })}
-      searchPlaceholder="Search by task name..."
+      searchPlaceholder="Search"
       searchAriaLabel="Search by task name"
-      searchClassName={searchFieldClassName}
-      active={active}
-      onReset={onReset}
-      resetLabel="Reset"
-      sectionClassName="border-b border-hairline pb-4"
-      gridClassName="sm:grid-cols-2 lg:grid-cols-4"
+      className="border-b border-hairline pb-4"
     >
-      <FilterSelect
-            showLabel
-            label="Task type"
-            value={filters.type}
-            onChange={(v) => onChange({ type: v as TaskFilters["type"] })}
-            options={[
-              { value: "all", label: "All types" },
-              ...TASK_TYPES.map((t) => ({ value: t, label: t })),
-            ]}
-          />
-          <FilterSelect
-            showLabel
-            label="Status"
-            value={filters.status}
-            onChange={(v) => onChange({ status: v as TaskFilters["status"] })}
-            options={[
-              { value: "all", label: "All statuses" },
-              ...TASK_STATUSES.map((s) => ({ value: s, label: s })),
-            ]}
-          />
-          <FilterSelect
-            showLabel
-            label="Compute"
-            value={filters.computeTarget}
-            onChange={(v) => onChange({ computeTarget: v as TaskFilters["computeTarget"] })}
-            options={[
-              { value: "all", label: "All targets" },
-              ...COMPUTE_TARGETS.map((c) => ({ value: c, label: c })),
-            ]}
-          />
-          <FilterSelect
-            showLabel
-            label="Sort"
-            value={filters.sort}
-            onChange={(v) => onChange({ sort: v as TaskFilters["sort"] })}
-            options={[
-              { value: "newest", label: "Newest first" },
-              { value: "oldest", label: "Oldest first" },
-              { value: "progress", label: "Progress" },
-              { value: "duration", label: "Duration" },
-            ]}
-          />
-    </FilterBar>
+      <FilterDropdown
+        label="Task type"
+        value={filters.type}
+        onChange={(v) => onChange({ type: v as TaskFilters["type"] })}
+        options={[
+          { value: "all", label: "All types", hint: "ALL" },
+          ...TASK_TYPES.map((t) => ({ value: t, label: t })),
+        ]}
+        searchPlaceholder="Type task type…"
+      />
+      <FilterDropdown
+        label="Status"
+        value={filters.status}
+        onChange={(v) => onChange({ status: v as TaskFilters["status"] })}
+        options={[
+          { value: "all", label: "All statuses", hint: "ALL" },
+          ...TASK_STATUSES.map((s) => ({ value: s, label: s })),
+        ]}
+        searchPlaceholder="Type status…"
+      />
+      <FilterDropdown
+        label="Compute"
+        value={filters.computeTarget}
+        onChange={(v) => onChange({ computeTarget: v as TaskFilters["computeTarget"] })}
+        options={[
+          { value: "all", label: "All targets", hint: "ALL" },
+          ...COMPUTE_TARGETS.map((c) => ({ value: c, label: c })),
+        ]}
+        searchPlaceholder="Type compute…"
+      />
+      <FilterDropdown
+        label="Sort"
+        value={filters.sort}
+        onChange={(v) => onChange({ sort: v as TaskFilters["sort"] })}
+        options={[
+          { value: "newest", label: "Newest first", hint: "NEW" },
+          { value: "oldest", label: "Oldest first", hint: "OLD" },
+          { value: "progress", label: "Progress", hint: "%" },
+          { value: "duration", label: "Duration", hint: "TIME" },
+        ]}
+        searchPlaceholder="Type sort…"
+      />
+    </FilterToolbar>
   );
 }

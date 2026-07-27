@@ -1,129 +1,250 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { Download, ExternalLink, Heart, Loader2, Lock, Search, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  Heart,
+  Loader2,
+  Lock,
+  PackageSearch,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { InfoTip } from "@/components/ui/tooltip";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterToolbar } from "@/components/ui/filter-toolbar";
+import { LoadingState } from "@/components/ui/loading-state";
 import { pullModelWithProgress } from "@/lib/pull-progress";
 import type { HubModel, HubQuant } from "@/lib/hf-hub";
-import { useHubModels } from "@/modules/hub/hooks/use-hub-models";
+import {
+  HubDownloaded,
+  type DownloadedSort,
+} from "@/modules/hub/components/hub-downloaded";
+import { useDownloadedModels } from "@/modules/hub/hooks/use-downloaded";
+import {
+  useHubModels,
+  type HubModelFormat,
+} from "@/modules/hub/hooks/use-hub-models";
 import { compact } from "@/modules/hub/lib/format";
 import { cn } from "@/lib/utils";
 
+type DownloadStatus = "all" | "downloaded" | "explore";
+
 const TASKS = [
-  { value: "", label: "All tasks" },
-  { value: "text-generation", label: "Text Generation" },
-  { value: "text2text-generation", label: "Text2Text" },
-  { value: "feature-extraction", label: "Embeddings" },
+  { value: "all", label: "Semua task", hint: "ALL" },
+  { value: "text-generation", label: "Text Generation", hint: "GEN" },
+  { value: "text2text-generation", label: "Text2Text", hint: "T2T" },
+  { value: "feature-extraction", label: "Embeddings", hint: "EMB" },
 ];
 
-const SORTS = [
-  { value: "trending", label: "Trending" },
-  { value: "downloads", label: "Downloads" },
-  { value: "likes", label: "Likes" },
-  { value: "modified", label: "Updated" },
+const EXPLORE_SORTS = [
+  { value: "trending", label: "Trending", hint: "HOT" },
+  { value: "downloads", label: "Downloads", hint: "DL" },
+  { value: "likes", label: "Likes", hint: "♥" },
+  { value: "modified", label: "Updated", hint: "NEW" },
+];
+
+const DOWNLOADED_SORTS = [
+  { value: "name", label: "Nama A–Z", hint: "A–Z" },
+  { value: "size-desc", label: "Ukuran terbesar", hint: "↓" },
+  { value: "size-asc", label: "Ukuran terkecil", hint: "↑" },
+];
+
+const FORMATS = [
+  { value: "gguf", label: "GGUF", hint: "Chat" },
+  { value: "safetensors", label: "Safetensors", hint: "Fine-tune" },
+  { value: "all", label: "Semua format", hint: "ALL" },
 ];
 
 export function HubModels() {
   const [search, setSearch] = useState("");
-  const [task, setTask] = useState("text-generation");
+  const [task, setTask] = useState("all");
   const [sort, setSort] = useState("trending");
-  const [includeSafetensors, setIncludeSafetensors] = useState(false);
-  const { models, loading, error } = useHubModels(search, task, sort, includeSafetensors);
+  const [downloadedSort, setDownloadedSort] = useState<DownloadedSort>("name");
+  const [format, setFormat] = useState<HubModelFormat>("gguf");
+  const [downloadStatus, setDownloadStatus] = useState<DownloadStatus>("all");
+  const showingDownloaded = downloadStatus === "downloaded";
+  const { models, loading, error, reload: reloadHub } = useHubModels(
+    search,
+    task === "all" ? "" : task,
+    sort,
+    format
+  );
+  const downloaded = useDownloadedModels();
+  const downloadedIds = useMemo(
+    () => new Set(downloaded.models.map((model) => model.id.toLowerCase())),
+    [downloaded.models]
+  );
+
+  function modelIsDownloaded(modelId: string) {
+    const repo = modelId.toLowerCase();
+    for (const id of downloadedIds) {
+      if (id === repo || id.startsWith(`hf.co/${repo}:`) || id.startsWith(`${repo}:`)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const downloadedCount = useMemo(() => {
+    return models.filter((model) => {
+      const repo = model.id.toLowerCase();
+      for (const id of downloadedIds) {
+        if (id === repo || id.startsWith(`hf.co/${repo}:`) || id.startsWith(`${repo}:`)) {
+          return true;
+        }
+      }
+      return false;
+    }).length;
+  }, [models, downloadedIds]);
+
+  const visibleModels = useMemo(() => {
+    if (downloadStatus === "all") return models;
+    if (downloadStatus === "downloaded") {
+      return models.filter((model) => {
+        const repo = model.id.toLowerCase();
+        for (const id of downloadedIds) {
+          if (id === repo || id.startsWith(`hf.co/${repo}:`) || id.startsWith(`${repo}:`)) {
+            return true;
+          }
+        }
+        return false;
+      });
+    }
+    // Explore = not yet on Ollama
+    return models.filter((model) => {
+      const repo = model.id.toLowerCase();
+      for (const id of downloadedIds) {
+        if (id === repo || id.startsWith(`hf.co/${repo}:`) || id.startsWith(`${repo}:`)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [models, downloadStatus, downloadedIds]);
+
+  function resetFilters() {
+    setSearch("");
+    setTask("all");
+    setSort("trending");
+    setDownloadedSort("name");
+    setFormat("gguf");
+    setDownloadStatus("all");
+  }
 
   return (
-    <div className="flex flex-col gap-4 lg:flex-row">
-      {/* Filter rail */}
-      <aside className="shrink-0 space-y-4 lg:w-48">
-        <FilterGroup label="Sort">
-          {SORTS.map((s) => (
-            <FilterPill key={s.value} active={sort === s.value} onClick={() => setSort(s.value)}>
-              {s.label}
-            </FilterPill>
-          ))}
-        </FilterGroup>
-        <FilterGroup label="Task">
-          {TASKS.map((t) => (
-            <FilterPill key={t.value} active={task === t.value} onClick={() => setTask(t.value)}>
-              {t.label}
-            </FilterPill>
-          ))}
-        </FilterGroup>
-        <FilterGroup
-          label="Format"
-          info={
-            <InfoTip label="About formats">
-              By default only <span className="font-medium">GGUF</span> repos are shown — those chat
-              directly via Ollama. Official <span className="font-medium">safetensors</span> repos
-              (e.g. <span className="font-mono">aisingapore/…</span>) appear when you enable the
-              checkbox: use them for fine-tuning, or look for their GGUF conversion (usually from{" "}
-              <span className="font-mono">mradermacher</span>).
-            </InfoTip>
-          }
-        >
-          <label className="flex cursor-pointer items-start gap-2 text-[13px] text-ink">
-            <input
-              type="checkbox"
-              checked={includeSafetensors}
-              onChange={(e) => setIncludeSafetensors(e.target.checked)}
-              className="mt-0.5 size-4 shrink-0 accent-primary"
+    <div className="space-y-4">
+      <FilterToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search"
+        searchAriaLabel={showingDownloaded ? "Cari model lokal" : "Cari model Hugging Face"}
+        segments={[
+          { value: "all", label: "All", count: models.length },
+          {
+            value: "downloaded",
+            label: "Downloaded",
+            count: downloaded.loading ? downloadedCount : downloaded.models.length,
+          },
+          {
+            value: "explore",
+            label: "Explore",
+            count: Math.max(models.length - downloadedCount, 0),
+          },
+        ]}
+        segmentValue={downloadStatus}
+        onSegmentChange={(value) => setDownloadStatus(value as DownloadStatus)}
+        searchAside={
+          showingDownloaded ? (
+            <FilterDropdown
+              label="Sort"
+              value={downloadedSort}
+              onChange={(value) => setDownloadedSort(value as DownloadedSort)}
+              options={DOWNLOADED_SORTS}
+              searchPlaceholder="Type sort…"
             />
-            <span>
-              Include <span className="font-medium">safetensors</span>
-              <span className="mt-0.5 block text-[11px] leading-4 text-ink-faint">
-                fine-tune base models (not directly chattable)
-              </span>
-            </span>
-          </label>
-        </FilterGroup>
-      </aside>
-
-      {/* Results */}
-      <div className="min-w-0 flex-1 space-y-3">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-soft" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search models on Hugging Face… (e.g. llama, qwen, sea-lion)"
-            className="pl-9"
-          />
-        </div>
-
-        {error ? (
-          <div className="rounded-lg border border-dashed border-danger/40 bg-danger/5 p-4 text-sm text-danger">
-            {error}
-          </div>
+          ) : (
+            <FilterDropdown
+              label="Sort"
+              value={sort}
+              onChange={setSort}
+              options={EXPLORE_SORTS}
+              searchPlaceholder="Type sort…"
+            />
+          )
+        }
+      >
+        {!showingDownloaded ? (
+          <>
+            <FilterDropdown
+              label="Format"
+              value={format}
+              onChange={(value) => setFormat(value as HubModelFormat)}
+              options={FORMATS}
+              searchPlaceholder="Type format…"
+            />
+            <FilterDropdown
+              label="Task"
+              value={task}
+              onChange={setTask}
+              options={TASKS}
+              searchPlaceholder="Type task…"
+            />
+          </>
         ) : null}
+      </FilterToolbar>
 
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-soft">
-            <Loader2 className="size-4 animate-spin" /> Loading from Hugging Face…
-          </div>
-        ) : models.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
-            {includeSafetensors ? (
-              "No matching models."
-            ) : (
-              <>
-                No matching <span className="font-medium">GGUF</span> models. What you&apos;re looking
-                for may only have a <span className="font-medium">safetensors</span> version — enable{" "}
-                <span className="font-medium">“Include safetensors”</span> on the left to show it.
-              </>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {models.map((m) => (
-              <HubModelCard key={m.id} model={m} />
-            ))}
-          </div>
-        )}
-      </div>
+      {showingDownloaded ? (
+        <HubDownloaded
+          {...downloaded}
+          search={search}
+          sort={downloadedSort}
+          onClearSearch={() => setSearch("")}
+        />
+      ) : (
+        <>
+          <p className="text-[12px] leading-5 text-ink-soft">
+            <span className="font-medium text-ink">GGUF</span> dapat di-download dan langsung
+            dipakai untuk chat lewat Ollama.{" "}
+            <span className="font-medium text-ink">Safetensors</span> adalah base model untuk
+            fine-tune, bukan model chat siap pakai.
+          </p>
+
+          {error ? (
+            <ErrorState title="Model gagal dimuat" description={error} onRetry={reloadHub} />
+          ) : loading ? (
+            <LoadingState label="Memuat model dari Hugging Face…" />
+          ) : visibleModels.length === 0 ? (
+            <EmptyState
+              icon={PackageSearch}
+              title="Model tidak ditemukan"
+              description="Coba kata kunci lain atau reset filter."
+              action={
+                <Button type="button" size="sm" variant="outline" onClick={resetFilters}>
+                  Reset filter
+                </Button>
+              }
+            />
+          ) : (
+            <div className="space-y-2">
+              {visibleModels.map((model) => (
+                <HubModelCard
+                  key={model.id}
+                  model={model}
+                  downloaded={modelIsDownloaded(model.id)}
+                  onDownloaded={downloaded.reload}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -137,7 +258,7 @@ function FormatBadge({ format }: { format: HubModel["format"] }) {
         gguf ? "bg-primary-soft text-primary" : "bg-warning/15 text-warning"
       )}
       title={
-        gguf ? "Chat-ready (Ollama)" : "Fine-tune base model — not directly chattable"
+        gguf ? "Bisa langsung di-chat (Ollama)" : "Base model fine-tune — gak bisa di-chat langsung"
       }
     >
       {gguf ? "GGUF" : "safetensors"}
@@ -145,7 +266,15 @@ function FormatBadge({ format }: { format: HubModel["format"] }) {
   );
 }
 
-function HubModelCard({ model }: { model: HubModel }) {
+function HubModelCard({
+  model,
+  downloaded,
+  onDownloaded,
+}: {
+  model: HubModel;
+  downloaded: boolean;
+  onDownloaded: () => void;
+}) {
   const isGguf = model.format === "gguf";
   const [open, setOpen] = useState(false);
   const [quants, setQuants] = useState<HubQuant[] | null>(null);
@@ -165,10 +294,9 @@ function HubModelCard({ model }: { model: HubModel }) {
     try {
       const res = await fetch(`/api/hub/model?repo=${encodeURIComponent(model.id)}`);
       const data = (await res.json()) as { quants?: HubQuant[]; error?: string };
-      if (!res.ok) throw new Error(data.error || "Failed");
+      if (!res.ok) throw new Error(data.error || "Gagal");
       const list = data.quants ?? [];
       setQuants(list);
-      // Prefer a balanced default quant if present.
       const preferred = ["Q4_K_M", "Q4_0", "Q5_K_M", "Q8_0"].find((q) =>
         list.some((x) => x.quant === q)
       );
@@ -186,10 +314,11 @@ function HubModelCard({ model }: { model: HubModel }) {
     setPercent(null);
     try {
       await pullModelWithProgress(`hf.co/${model.id}:${quant}`, (p) => setPercent(p));
-      toast.success(`Downloaded — select it in the Chat picker to use it`);
+      toast.success(`Downloaded — pilih di picker Chat untuk dipakai`);
       setOpen(false);
+      onDownloaded();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Download failed");
+      toast.error(err instanceof Error ? err.message : "Download gagal");
     } finally {
       setPulling(false);
       setPercent(null);
@@ -198,7 +327,7 @@ function HubModelCard({ model }: { model: HubModel }) {
 
   return (
     <div className="rounded-lg border border-border bg-surface">
-      <div className="flex items-center gap-3 p-3">
+      <div className="flex items-center gap-2 p-3 sm:gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium text-primary">{model.id}</span>
@@ -218,31 +347,49 @@ function HubModelCard({ model }: { model: HubModel }) {
             </span>
           </div>
         </div>
+
         <a
           href={`https://huggingface.co/${model.id}`}
           target="_blank"
           rel="noreferrer"
-          className="grid size-8 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
-          title="Open on Hugging Face"
+          className="grid size-8 shrink-0 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
+          title="Buka di Hugging Face"
         >
           <ExternalLink className="size-4" />
         </a>
+
+        {downloaded ? (
+          <span
+            className="grid size-8 shrink-0 place-items-center rounded-full bg-success-soft text-success"
+            title="Sudah di Ollama"
+            aria-label="Sudah di-download"
+          >
+            <CheckCircle2 className="size-4" aria-hidden />
+          </span>
+        ) : null}
+
         {isGguf ? (
           <Button
             type="button"
-            size="sm"
-            variant={open ? "outline" : "default"}
+            size="icon-sm"
+            variant={downloaded ? "outline" : open ? "outline" : "default"}
             onClick={openDownload}
+            title={downloaded ? "Download ulang / quant lain" : "Download ke Ollama"}
+            aria-label={downloaded ? "Download ulang" : "Download"}
           >
-            <Download className="size-4" /> Download
+            {pulling ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
           </Button>
         ) : (
           <Link
-            href="/finetune"
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-3 text-[13px] font-medium text-ink hover:bg-surface-2"
-            title="Use as fine-tune base model"
+            href={`/finetune?base=${encodeURIComponent(model.id)}`}
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[13px] font-medium text-ink hover:bg-surface-2"
+            title="Pakai sebagai base model fine-tune"
           >
-            <Sparkles className="size-4" /> Fine-tune
+            <Sparkles className="size-3.5" /> Fine-tune
           </Link>
         )}
       </div>
@@ -251,11 +398,11 @@ function HubModelCard({ model }: { model: HubModel }) {
         <div className="space-y-2 border-t border-border px-3 py-2.5">
           {loadingQuants ? (
             <p className="flex items-center gap-2 text-[13px] text-ink-soft">
-              <Loader2 className="size-3.5 animate-spin" /> Reading quants…
+              <Loader2 className="size-3.5 animate-spin" /> Membaca quant…
             </p>
           ) : quants && quants.length === 0 ? (
             <p className="text-[13px] text-ink-soft">
-              This repo has no .gguf files — try another GGUF repo.
+              Repo ini tidak punya file .gguf — coba repo GGUF lain.
             </p>
           ) : (
             <>
@@ -275,18 +422,20 @@ function HubModelCard({ model }: { model: HubModel }) {
                 </select>
                 <Button type="button" size="sm" onClick={pull} disabled={pulling || !quant}>
                   {pulling ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                  {pulling ? (percent != null ? `${percent}%` : "Pulling…") : `Pull hf.co/…:${quant}`}
+                  {pulling
+                    ? percent != null
+                      ? `${percent}%`
+                      : "Pulling…"
+                    : `Pull hf.co/…:${quant}`}
                 </Button>
                 {model.gated ? (
-                  <span className="text-[11px] text-warning">
-                    gated — requires HF_TOKEN on the server
-                  </span>
+                  <span className="text-[11px] text-warning">gated — butuh HF_TOKEN di server</span>
                 ) : null}
               </div>
               {pulling && percent != null ? (
                 <div className="h-1 overflow-hidden rounded bg-surface-2">
                   <div
-                    className={cn("h-full bg-primary transition-[width] duration-300")}
+                    className="h-full bg-primary transition-[width] duration-300"
                     style={{ width: `${percent}%` }}
                   />
                 </div>
@@ -298,57 +447,17 @@ function HubModelCard({ model }: { model: HubModel }) {
 
       {!isGguf ? (
         <div className="border-t border-border px-3 py-2 text-[12px] text-ink-soft">
-          <span className="font-medium">safetensors</span> format — not directly chattable. Use it
-          for{" "}
-          <Link href="/finetune" className="text-primary underline underline-offset-2">
-            fine-tuning
+          Format <span className="font-medium">safetensors</span> — gak bisa di-chat langsung. Pakai
+          buat{" "}
+          <Link
+            href={`/finetune?base=${encodeURIComponent(model.id)}`}
+            className="text-primary underline underline-offset-2"
+          >
+            fine-tune
           </Link>
-          , or find its GGUF version if you want to chat directly.
+          , atau cari versi GGUF-nya kalau mau langsung chat.
         </div>
       ) : null}
     </div>
-  );
-}
-
-function FilterGroup({
-  label,
-  info,
-  children,
-}: {
-  label: string;
-  info?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <p className="flex items-center gap-1 text-[11px] font-semibold tracking-wide text-ink-soft uppercase">
-        {label}
-        {info}
-      </p>
-      <div className="flex flex-wrap gap-1.5 lg:flex-col lg:items-start">{children}</div>
-    </div>
-  );
-}
-
-function FilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-md px-2 py-1 text-left text-[13px] transition-colors",
-        active ? "bg-primary-soft font-medium text-primary" : "text-ink hover:bg-surface-2"
-      )}
-    >
-      {children}
-    </button>
   );
 }

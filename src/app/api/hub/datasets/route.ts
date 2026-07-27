@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   try {
     const datasets = await searchHfDatasets({
       search: sp.get("search") ?? undefined,
+      filter: sp.get("category") ?? undefined,
       sort: sp.get("sort") ?? undefined,
     });
     return Response.json({ datasets });

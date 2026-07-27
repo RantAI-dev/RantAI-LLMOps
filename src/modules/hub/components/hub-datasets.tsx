@@ -1,83 +1,110 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Download, ExternalLink, Heart, Loader2, Search, Sparkles } from "lucide-react";
+import { Copy, Database, Download, ExternalLink, Heart, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { InfoTip } from "@/components/ui/tooltip";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterToolbar } from "@/components/ui/filter-toolbar";
+import { LoadingState } from "@/components/ui/loading-state";
 import type { HubDataset } from "@/lib/hf-hub";
 import { useHubDatasets } from "@/modules/hub/hooks/use-hub-datasets";
 import { compact } from "@/modules/hub/lib/format";
-import { cn } from "@/lib/utils";
 
 const SORTS = [
-  { value: "trending", label: "Trending" },
-  { value: "downloads", label: "Downloads" },
-  { value: "likes", label: "Likes" },
-  { value: "modified", label: "Updated" },
+  { value: "trending", label: "Trending", hint: "HOT" },
+  { value: "downloads", label: "Downloads", hint: "DL" },
+  { value: "likes", label: "Likes", hint: "♥" },
+  { value: "modified", label: "Updated", hint: "NEW" },
+];
+
+const CATEGORIES = [
+  { value: "all", label: "Semua kategori", hint: "ALL" },
+  { value: "task_categories:text-generation", label: "Text generation", hint: "GEN" },
+  { value: "task_categories:conversational", label: "Conversational", hint: "CHAT" },
+  { value: "task_categories:question-answering", label: "Question answering", hint: "QA" },
 ];
 
 export function HubDatasets() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("trending");
-  const { datasets, loading, error } = useHubDatasets(search, sort);
+  const [category, setCategory] = useState("all");
+  const { datasets, loading, error, reload } = useHubDatasets(
+    search,
+    sort,
+    category === "all" ? "" : category
+  );
   const router = useRouter();
 
+  function resetFilters() {
+    setSearch("");
+    setSort("trending");
+    setCategory("all");
+  }
+
   function pickForFinetune(id: string) {
-    toast.success(`Dataset "${id}" selected for fine-tuning`);
+    toast.success(`Dataset "${id}" dipilih untuk fine-tune`);
     router.push(`/finetune?dataset=${encodeURIComponent(id)}`);
   }
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-soft" />
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search datasets on Hugging Face… (e.g. rugby, alpaca)"
-            className="pl-9"
+    <div className="space-y-4">
+      <FilterToolbar
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search"
+        searchAriaLabel="Cari dataset Hugging Face"
+        searchAside={
+          <FilterDropdown
+            label="Sort"
+            value={sort}
+            onChange={setSort}
+            options={SORTS}
+            searchPlaceholder="Type sort…"
           />
-        </div>
-        <div className="flex items-center gap-1">
-          {SORTS.map((s) => (
-            <button
-              key={s.value}
-              type="button"
-              onClick={() => setSort(s.value)}
-              className={cn(
-                "rounded-md px-2 py-1.5 text-[12px] transition-colors",
-                sort === s.value ? "bg-primary-soft font-medium text-primary" : "text-ink hover:bg-surface-2"
-              )}
-            >
-              {s.label}
-            </button>
-          ))}
-          <InfoTip label="About datasets" className="ml-0.5">
-            Datasets don&apos;t need to be downloaded — the trainer pulls them from Hugging Face by id
-            at run time. “Use in fine-tune” copies the id for use in the form.
-          </InfoTip>
-        </div>
+        }
+      >
+        <FilterDropdown
+          label="Kategori"
+          value={category}
+          onChange={setCategory}
+          options={CATEGORIES}
+          searchPlaceholder="Type category…"
+        />
+      </FilterToolbar>
+
+      <div className="flex flex-col gap-2 rounded-lg border border-hairline bg-surface-2 px-3 py-2.5 text-[12px] leading-5 text-ink-soft sm:flex-row sm:items-center sm:justify-between">
+        <p>
+          Dataset HF tidak perlu di-download. Trainer mengambilnya by-id saat fine-tune dijalankan.
+        </p>
+        <Link
+          href="/datasets"
+          className={buttonVariants({ size: "sm", variant: "outline", className: "shrink-0" })}
+        >
+          <Database className="size-4" /> Lihat dataset lokal
+        </Link>
       </div>
 
       {error ? (
-        <div className="rounded-lg border border-dashed border-danger/40 bg-danger/5 p-4 text-sm text-danger">
-          {error}
-        </div>
-      ) : null}
-
-      {loading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-soft">
-          <Loader2 className="size-4 animate-spin" /> Loading from Hugging Face…
-        </div>
+        <ErrorState title="Dataset gagal dimuat" description={error} onRetry={reload} />
+      ) : loading ? (
+        <LoadingState label="Memuat dataset dari Hugging Face…" />
       ) : datasets.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-soft">
-          No matching datasets.
-        </div>
+        <EmptyState
+          icon={Database}
+          title="Dataset tidak ditemukan"
+          description="Coba kata kunci atau kategori lain."
+          action={
+            <Button type="button" size="sm" variant="outline" onClick={resetFilters}>
+              Reset filter
+            </Button>
+          }
+        />
       ) : (
         <div className="space-y-2">
           {datasets.map((d) => (
@@ -108,7 +135,7 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         target="_blank"
         rel="noreferrer"
         className="grid size-8 place-items-center rounded-md text-ink-soft hover:bg-surface-2"
-        title="Open on Hugging Face"
+        title="Buka di Hugging Face"
       >
         <ExternalLink className="size-4" />
       </a>
@@ -118,9 +145,9 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         variant="outline"
         onClick={() => {
           void navigator.clipboard?.writeText(dataset.id);
-          toast.success("Dataset id copied");
+          toast.success("Dataset id disalin");
         }}
-        title="Copy id"
+        title="Salin id"
       >
         <Copy className="size-4" />
       </Button>

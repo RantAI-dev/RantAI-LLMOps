@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { HubDataset } from "@/lib/hf-hub";
 
 /** Debounced search of Hugging Face datasets via the BFF (`/api/hub/datasets`). */
-export function useHubDatasets(search: string, sort: string) {
+export function useHubDatasets(search: string, sort: string, category: string) {
   const [datasets, setDatasets] = useState<HubDataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -17,6 +18,7 @@ export function useHubDatasets(search: string, sort: string) {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
       if (sort) params.set("sort", sort);
+      if (category) params.set("category", category);
       fetch(`/api/hub/datasets?${params.toString()}`)
         .then((r) => r.json() as Promise<{ datasets?: HubDataset[]; error?: string }>)
         .then((d) => {
@@ -27,7 +29,7 @@ export function useHubDatasets(search: string, sort: string) {
         })
         .catch(() => {
           if (cancelled) return;
-          setError("Failed to load from Hugging Face");
+          setError("Gagal memuat dari Hugging Face");
           setLoading(false);
         });
     }, 350);
@@ -35,7 +37,9 @@ export function useHubDatasets(search: string, sort: string) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search, sort]);
+  }, [search, sort, category, revision]);
 
-  return { datasets, loading, error };
+  const reload = useCallback(() => setRevision((value) => value + 1), []);
+
+  return { datasets, loading, error, reload };
 }
