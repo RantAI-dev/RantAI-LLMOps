@@ -1,25 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { HubModel } from "@/lib/hf-hub";
 
+export type HubModelFormat = "gguf" | "safetensors" | "all";
+
 /**
- * Debounced search of Hugging Face models via the BFF. Always the GGUF
- * (chat-ready) repos from `/api/hub/models`; when `includeSafetensors` is on,
- * also the safetensors fine-tune bases from `/api/hub/base-models`, merged and
- * tagged by `format` so nothing is silently hidden. A new query supersedes the
- * in-flight one (guarded `cancelled` flag).
+ * Debounced search of Hugging Face models via the BFF. Fetches only the selected
+ * format, or merges chat-ready GGUF and trainable safetensors results for `all`.
  */
 export function useHubModels(
   search: string,
   task: string,
   sort: string,
-  includeSafetensors: boolean
+  format: HubModelFormat
 ) {
   const [models, setModels] = useState<HubModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,16 +30,18 @@ export function useHubModels(
       if (task) params.set("task", task);
       if (sort) params.set("sort", sort);
 
-      const ggufReq = fetch(`/api/hub/models?${params.toString()}`).then(
-        (r) => r.json() as Promise<{ models?: HubModel[]; error?: string }>
-      );
-      // Safetensors bases are best-effort: a failure there must not blank out
-      // the GGUF results, so it resolves to an empty list on error.
-      const stReq: Promise<{ models?: HubModel[] }> = includeSafetensors
-        ? fetch(`/api/hub/base-models?q=${encodeURIComponent(search)}`)
-            .then((r) => r.json() as Promise<{ models?: HubModel[] }>)
-            .catch(() => ({ models: [] }))
-        : Promise.resolve({ models: [] });
+      const ggufReq: Promise<{ models?: HubModel[]; error?: string }> =
+        format === "safetensors"
+          ? Promise.resolve({ models: [] })
+          : fetch(`/api/hub/models?${params.toString()}`).then((r) => r.json());
+
+      const stParams = new URLSearchParams();
+      if (search) stParams.set("q", search);
+      if (sort) stParams.set("sort", sort);
+      const stReq: Promise<{ models?: HubModel[]; error?: string }> =
+        format === "gguf"
+          ? Promise.resolve({ models: [] })
+          : fetch(`/api/hub/base-models?${stParams.toString()}`).then((r) => r.json());
 
       Promise.all([ggufReq, stReq])
         .then(([gguf, st]) => {
@@ -49,12 +51,12 @@ export function useHubModels(
             seen.has(m.id) ? false : (seen.add(m.id), true)
           );
           setModels(merged);
-          setError(gguf.error ?? null);
+          setError(gguf.error ?? st.error ?? null);
           setLoading(false);
         })
         .catch(() => {
           if (cancelled) return;
-          setError("Failed to load from Hugging Face");
+          setError("Gagal memuat dari Hugging Face");
           setLoading(false);
         });
     }, 350);
@@ -62,7 +64,9 @@ export function useHubModels(
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [search, task, sort, includeSafetensors]);
+  }, [search, task, sort, format, revision]);
 
-  return { models, loading, error };
+  const reload = useCallback(() => setRevision((value) => value + 1), []);
+
+  return { models, loading, error, reload };
 }

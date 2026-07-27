@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { quantFromFile } from "@/lib/hf-hub";
+import {
+  quantFromFile,
+  searchHfDatasets,
+  searchHfTrainableModels,
+} from "@/lib/hf-hub";
+
+vi.mock("@/lib/settings-store", () => ({
+  getHfToken: vi.fn().mockResolvedValue(null),
+}));
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("quantFromFile", () => {
   it("extracts common quant tags from GGUF filenames", () => {
@@ -23,5 +39,38 @@ describe("quantFromFile", () => {
 
   it("falls back to the last segment when no quant token is present", () => {
     expect(quantFromFile("some-model-name.gguf")).toBe("NAME");
+  });
+});
+
+describe("Hugging Face search queries", () => {
+  it("sends dataset category and sort filters to the Hub API", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchHfDatasets({
+      search: "alpaca",
+      filter: "task_categories:text-generation",
+      sort: "likes",
+    });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("search")).toBe("alpaca");
+    expect(url.searchParams.get("filter")).toBe("task_categories:text-generation");
+    expect(url.searchParams.get("sort")).toBe("likes");
+  });
+
+  it("honors the selected sort for safetensors models", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await searchHfTrainableModels({ search: "qwen", sort: "modified" });
+
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(url.searchParams.get("search")).toBe("qwen");
+    expect(url.searchParams.get("sort")).toBe("lastModified");
   });
 });

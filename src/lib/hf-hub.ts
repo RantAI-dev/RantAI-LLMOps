@@ -43,6 +43,8 @@ export type HubSearch = {
   search?: string;
   /** HF pipeline_tag, e.g. "text-generation". */
   task?: string;
+  /** HF Hub tag filter, e.g. "task_categories:text-generation". */
+  filter?: string;
   sort?: string;
   limit?: number;
 };
@@ -125,6 +127,7 @@ export type HubDataset = {
 export async function searchHfDatasets(opts: HubSearch): Promise<HubDataset[]> {
   const params = new URLSearchParams({ direction: "-1" });
   if (opts.search) params.set("search", opts.search);
+  if (opts.filter) params.set("filter", opts.filter);
   params.set("sort", SORT_FIELD[opts.sort ?? "trending"] ?? "trendingScore");
   params.set("limit", String(Math.min(Math.max(opts.limit ?? 30, 1), 60)));
 
