@@ -26,6 +26,7 @@ import {
   Workflow,
 } from "lucide-react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -144,7 +145,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 isSidebarOpen ? "gap-2 px-1" : "justify-center"
               )}
             >
-              <div className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded bg-white shadow-[0_2px_6px_rgba(0,0,0,0.12)]">
+              <div className="relative grid size-8 shrink-0 place-items-center overflow-hidden rounded bg-card shadow-[0_2px_6px_rgba(0,0,0,0.12)]">
                 <Image
                   src="/rantai-logo.png"
                   alt="RantAI"
@@ -248,13 +249,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   />
                 </div>
               </div>
-              <button
-                type="button"
-                className="grid size-9 place-items-center rounded-md text-foreground hover:bg-surface-2"
-                aria-label="Notifications"
-              >
-                <Bell className="size-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <ThemeToggle />
+                <button
+                  type="button"
+                  className="grid size-9 place-items-center rounded-md text-foreground hover:bg-surface-2"
+                  aria-label="Notifications"
+                >
+                  <Bell className="size-4" />
+                </button>
+              </div>
             </div>
           </header>
 

@@ -58,7 +58,7 @@ export function DatasetDetailToolbar({
         type="button"
         variant="outline"
         size="sm"
-        className="h-8 gap-1.5 border-hairline bg-white"
+        className="h-8 gap-1.5 border-hairline bg-card"
         onClick={handleDownload}
         disabled={downloading}
       >

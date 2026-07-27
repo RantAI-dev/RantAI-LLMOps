@@ -55,4 +55,4 @@ export const RAG_INDEX_STATUS_STYLES: Record<
 };
 
 export const panelClassName = "rounded-lg border border-hairline bg-surface";
-export const tableWrapClassName = "overflow-x-auto rounded-lg border border-hairline bg-white";
+export const tableWrapClassName = "overflow-x-auto rounded-lg border border-hairline bg-card";

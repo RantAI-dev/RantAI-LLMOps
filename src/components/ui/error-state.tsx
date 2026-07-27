@@ -24,7 +24,7 @@ export function ErrorState({
       )}
       role="alert"
     >
-      <div className="grid size-12 place-items-center rounded-full bg-white text-danger">
+      <div className="grid size-12 place-items-center rounded-full bg-card text-danger">
         <AlertTriangle className="size-6" aria-hidden />
       </div>
       <div className="space-y-1">

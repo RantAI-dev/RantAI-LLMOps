@@ -78,7 +78,7 @@ export function ModelDetailView({
       </header>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-[#ffe7d8] p-1">
+        <TabsList className="h-auto w-full flex-wrap justify-start gap-1 bg-primary-soft p-1">
           {DETAIL_TABS.filter((tab) => tab.id !== "huggingface" || model.provider === "Hugging Face").map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
           ))}
@@ -179,7 +179,7 @@ function FilesTab({ model }: { model: RegistryModel }) {
     );
   }
   return (
-    <div className="overflow-hidden rounded-lg border border-hairline bg-white">
+    <div className="overflow-hidden rounded-lg border border-hairline bg-card">
       <Table className="text-[13px]">
         <TableHeader>
           <TableRow className="bg-surface">
