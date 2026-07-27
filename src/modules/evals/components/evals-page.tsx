@@ -17,8 +17,8 @@ type Tab = "single" | "compare" | "retention" | "grounding";
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
   const {
-    options, jobs, loading, submitting, preparing, error, submit, stopEval,
-    comparing, compareProgress, submitCompare, stopCompare,
+    options, jobs, loading, submitting, preparing, error, submit,
+    comparing, compareProgress, submitCompare,
   } = useEvals();
   const [tab, setTab] = useState<Tab>("single");
 
@@ -77,7 +77,7 @@ export function EvalsPage() {
               ) : null}
               <div>
                 <h2 className="mb-2 text-sm font-semibold text-primary">Run history</h2>
-                <EvalJobList jobs={jobs} onStop={stopEval} />
+                <EvalJobList jobs={jobs} />
               </div>
             </>
           ) : tab === "compare" ? (
@@ -87,7 +87,6 @@ export function EvalsPage() {
               comparing={comparing}
               compareProgress={compareProgress}
               onCompare={submitCompare}
-              onStopCompare={stopCompare}
             />
           ) : tab === "retention" ? (
             <RetentionView

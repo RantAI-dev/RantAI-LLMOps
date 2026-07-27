@@ -61,7 +61,7 @@ function duration(from?: string, to?: string): string | null {
   return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 }
 
-export function EvalJobList({ jobs, onStop }: { jobs: EvalJob[]; onStop?: (id: string) => void }) {
+export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
   if (jobs.length === 0) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-[13px] text-ink-soft">
@@ -109,15 +109,6 @@ export function EvalJobList({ jobs, onStop }: { jobs: EvalJob[]; onStop?: (id: s
                   )}
                   {!active && !failed && job.scores.length === 0 ? "scoring…" : job.status}
                 </span>
-                {active && onStop ? (
-                  <button
-                    type="button"
-                    onClick={() => onStop(job.id)}
-                    className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft hover:bg-surface-2 hover:text-danger"
-                  >
-                    Cancel
-                  </button>
-                ) : null}
               </div>
             </div>
             {active ? (

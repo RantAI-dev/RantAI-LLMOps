@@ -25,7 +25,6 @@ export function FinetunePage() {
     submit,
     createDataset,
     deleteDataset,
-    stopJob,
     deleteJob,
   } = useFinetune();
   const [tab, setTab] = useState<Tab>("single");
@@ -88,7 +87,7 @@ export function FinetunePage() {
 
           <div>
             <h2 className="mb-2 text-sm font-semibold text-primary">Training jobs</h2>
-            <JobList jobs={jobs} onStop={stopJob} onDelete={deleteJob} />
+            <JobList jobs={jobs} onDelete={deleteJob} />
           </div>
         </>
       )}

@@ -56,13 +56,6 @@ export function useGenerations() {
     };
   }, []);
 
-  // User-initiated stop. Kept SEPARATE from cancelledRef so aborting a run
-  // doesn't leave the unmount guard tripped for the next run.
-  const abortRef = useRef(false);
-  const stopCompare = useCallback(() => {
-    abortRef.current = true;
-  }, []);
-
   const answerAll = useCallback(
     async (
       prompts: string[],
@@ -72,7 +65,7 @@ export function useGenerations() {
     ): Promise<string[]> => {
       const answers: string[] = [];
       for (let i = 0; i < prompts.length; i++) {
-        if (cancelledRef.current || abortRef.current) break;
+        if (cancelledRef.current) break;
         setProgress({ phase, index: i, total: prompts.length });
         try {
           answers.push(await complete(prompts[i], temperature, model));
@@ -100,17 +93,16 @@ export function useGenerations() {
       setError(null);
       setRows([]);
       setRunning(true);
-      abortRef.current = false;
       try {
         setProgress({ phase: "loading-base", index: 0, total: prompts.length });
         await loadModel(p.base);
         const baseAnswers = await answerAll(prompts, p.temperature, "base", p.base.modelId);
-        if (cancelledRef.current || abortRef.current) return false;
+        if (cancelledRef.current) return false;
 
         setProgress({ phase: "loading-ft", index: 0, total: prompts.length });
         await loadModel(p.ft);
         const ftAnswers = await answerAll(prompts, p.temperature, "fine-tuned", p.ft.modelId);
-        if (cancelledRef.current || abortRef.current) return false;
+        if (cancelledRef.current) return false;
 
         setRows(
           prompts.map((prompt, i) => ({
@@ -133,5 +125,5 @@ export function useGenerations() {
     [answerAll]
   );
 
-  return { running, progress, rows, error, runCompare, stopCompare };
+  return { running, progress, rows, error, runCompare };
 }

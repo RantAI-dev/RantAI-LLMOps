@@ -116,19 +116,6 @@ export function useFinetune() {
     [refreshOptions]
   );
 
-  const stopJob = useCallback(
-    async (id: string) => {
-      try {
-        const res = await fetch(`/api/finetune/jobs/${id}/stop`, { method: "POST" });
-        if (!res.ok) throw new Error();
-      } catch {
-        toast.error("Failed to stop job");
-      }
-      await loadJobs();
-    },
-    [loadJobs]
-  );
-
   const deleteJob = useCallback(
     async (id: string) => {
       try {
@@ -177,7 +164,6 @@ export function useFinetune() {
     submit,
     createDataset,
     deleteDataset,
-    stopJob,
     deleteJob,
     refreshJobs: loadJobs,
   };

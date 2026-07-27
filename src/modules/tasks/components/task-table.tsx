@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, MoreHorizontal, Play, Square, Trash2 } from "lucide-react";
+import { Eye, MoreHorizontal, Play, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { taskUi } from "@/modules/tasks/constants/task-ui";
 import { formatDateTime, formatDuration, latestRun, taskProgress, taskStatus } from "@/modules/tasks/lib/utils";
-import type { Task, TaskStatus } from "@/modules/tasks/types";
+import type { Task } from "@/modules/tasks/types";
 import { cn } from "@/lib/utils";
 
 import { TaskStatusBadge } from "./task-status-badge";
@@ -28,7 +28,6 @@ import { TaskStatusBadge } from "./task-status-badge";
 type TaskTableProps = {
   tasks: Task[];
   onView: (id: string) => void;
-  onStop: (id: string) => void;
   onDelete: (id: string) => void;
   onCreateClick: () => void;
 };
@@ -43,7 +42,6 @@ const outputStyles: Record<string, string> = {
 export function TaskTable({
   tasks,
   onView,
-  onStop,
   onDelete,
   onCreateClick,
 }: TaskTableProps) {
@@ -123,9 +121,7 @@ export function TaskTable({
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <TaskRowActions
-                    status={status}
                     onView={() => onView(task.id)}
-                    onStop={() => onStop(task.id)}
                     onDelete={() => onDelete(task.id)}
                   />
                 </TableCell>
@@ -139,29 +135,18 @@ export function TaskTable({
 }
 
 function TaskRowActions({
-  status,
   onView,
-  onStop,
   onDelete,
 }: {
-  status: TaskStatus;
   onView: () => void;
-  onStop: () => void;
   onDelete: () => void;
 }) {
-  // v0.40.0: only Stop (cancel) and Delete are real for compute-provider jobs.
-  const canStop = status === "Running" || status === "Paused" || status === "Retrying";
-
+  // v0.40.0: only Delete is real for compute-provider jobs.
   return (
     <div className="inline-flex items-center gap-1">
       <Button type="button" variant="ghost" size="icon-xs" onClick={onView} title="View detail">
         <Eye className="size-3.5" />
       </Button>
-      {canStop ? (
-        <Button type="button" variant="ghost" size="icon-xs" onClick={onStop} title="Stop">
-          <Square className="size-3.5" />
-        </Button>
-      ) : null}
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

@@ -14,7 +14,6 @@ export function useTasks() {
     selectedTask: ctx.selectedTask,
     selectedTaskId: ctx.selectedTaskId,
     setSelectedTaskId: ctx.setSelectedTaskId,
-    stopTask: ctx.stopTask,
     deleteTask: ctx.deleteTask,
     isLoading: ctx.tasksLoading,
     isError: ctx.tasksError,

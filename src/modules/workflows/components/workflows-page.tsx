@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, CircleAlert, Loader2, Play, Square, Workflow } from "lucide-react";
+import { CheckCircle2, CircleAlert, Loader2, Play, Workflow } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/ui/tooltip";
@@ -47,7 +47,7 @@ function StageRow({ stage, last }: { stage: Stage; last: boolean }) {
 
 /** Workflows: one-click fine-tune → eval → export GGUF pipeline. */
 export function WorkflowsPage() {
-  const { running, stages, result, error, run, stop, runs, clearRuns } = usePipeline();
+  const { running, stages, result, error, run, runs, clearRuns } = usePipeline();
   const [opts, setOpts] = useState<FinetuneOptions | null>(null);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
   const [model, setModel] = useState("");
@@ -216,11 +216,6 @@ export function WorkflowsPage() {
                   </>
                 )}
               </Button>
-              {running ? (
-                <Button type="button" variant="destructive" onClick={stop}>
-                  <Square className="size-4" /> Stop
-                </Button>
-              ) : null}
               <InfoTip label="About running the pipeline">
                 Runs automatically in sequence. May take a few minutes.
               </InfoTip>

@@ -161,7 +161,6 @@ export function EvalCompare({
   comparing,
   compareProgress,
   onCompare,
-  onStopCompare,
 }: {
   options: EvalOptions;
   jobs: EvalJob[];
@@ -172,7 +171,6 @@ export function EvalCompare({
     benchmark: string,
     limit: number
   ) => Promise<boolean>;
-  onStopCompare: () => void;
 }) {
   const [benchmark, setBenchmark] = useState("arc_easy");
   const [picked, setPicked] = useState<string[]>([]);
@@ -297,15 +295,6 @@ export function EvalCompare({
                   `Run on ${picked.length || "…"} models`
                 )}
               </Button>
-              {comparing ? (
-                <button
-                  type="button"
-                  onClick={onStopCompare}
-                  className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft hover:bg-surface-2 hover:text-danger"
-                >
-                  Stop
-                </button>
-              ) : null}
             </div>
           </>
         )}

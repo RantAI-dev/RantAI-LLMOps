@@ -72,10 +72,9 @@ export function useSweep() {
   const [error, setError] = useState<string | null>(null);
 
   // A sweep can poll for many minutes per combo. `cancelledRef` halts the loop
-  // and is flipped either by the user (stopSweep) or by the unmount cleanup;
-  // aborting the in-flight request stops a leaked long background poll.
-  // `unmountedRef` distinguishes the two cases so a user-initiated stop can still
-  // reset the UI, while an unmount avoids setState on a gone component.
+  // and is flipped by the unmount cleanup; aborting the in-flight request stops a
+  // leaked long background poll. `unmountedRef` lets the finally block skip
+  // setState on a gone component.
   const cancelledRef = useRef(false);
   const unmountedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -124,7 +123,7 @@ export function useSweep() {
       setError(null);
       setResults([]);
       setRunning(true);
-      // Clear any leftover cancel from a previous stopped run so this one starts fresh.
+      // Clear any leftover cancel from a previous run's teardown so this one starts fresh.
       cancelledRef.current = false;
       abortRef.current = new AbortController();
       // A stable-ish run tag without Date in the hot path is fine here (client runtime).
@@ -211,11 +210,5 @@ export function useSweep() {
     [waitTrain]
   );
 
-  /** User-initiated cancel: halt launching further combos and abort the in-flight fetch. */
-  const stopSweep = useCallback(() => {
-    cancelledRef.current = true;
-    abortRef.current?.abort();
-  }, []);
-
-  return { running, progress, results, error, runSweep, stopSweep };
+  return { running, progress, results, error, runSweep };
 }

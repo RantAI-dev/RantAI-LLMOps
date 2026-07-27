@@ -35,11 +35,9 @@ function StatusBadge({ status }: { status: string }) {
 
 export function JobList({
   jobs,
-  onStop,
   onDelete,
 }: {
   jobs: TrainingJob[];
-  onStop: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
   if (jobs.length === 0) {
@@ -64,15 +62,7 @@ export function JobList({
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <StatusBadge status={job.status} />
-                {active ? (
-                  <button
-                    type="button"
-                    onClick={() => onStop(job.id)}
-                    className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft hover:bg-surface-2 hover:text-danger"
-                  >
-                    Stop
-                  </button>
-                ) : (
+                {active ? null : (
                   <button
                     type="button"
                     onClick={() => onDelete(job.id)}

@@ -14,11 +14,9 @@ import { runOptimistic } from "@/lib/optimistic";
 import { useResourceFetch } from "@/lib/use-resource-fetch";
 import { fetchTasks, seedTasks } from "@/modules/tasks/services/tasks-service";
 import { latestRun, taskProgress, taskStatus } from "@/modules/tasks/lib/utils";
-import { appendRunLog } from "@/modules/tasks/lib/run-engine";
 import type {
   Task,
   TaskFilters,
-  TaskRun,
 } from "@/modules/tasks/types";
 
 const defaultTaskFilters: TaskFilters = {
@@ -48,7 +46,6 @@ type LlmOpsContextValue = {
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   selectedTask: Task | null;
-  stopTask: (id: string) => void;
   deleteTask: (id: string) => void;
   tasksLoading: boolean;
   tasksError: boolean;
@@ -119,50 +116,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
     [tasks, selectedTaskId]
   );
 
-  /** Replace the latest (active) run of a task via an updater. */
-  const updateLatestRun = useCallback(
-    (id: string, updater: (run: TaskRun, task: Task) => TaskRun) => {
-      setTasks((prev) =>
-        prev.map((task) => {
-          if (task.id !== id || task.runs.length === 0) return task;
-          const [latest, ...rest] = task.runs;
-          return { ...task, runs: [updater(latest, task), ...rest] };
-        })
-      );
-    },
-    []
-  );
-
-  const stopTask = useCallback(
-    (id: string) => {
-      // Optimistically mark the run cancelled; on failure re-sync from TL + toast.
-      void runOptimistic({
-        apply: () =>
-          updateLatestRun(id, (run) => {
-            if (run.status !== "Running" && run.status !== "Paused" && run.status !== "Retrying") {
-              return run;
-            }
-            return appendRunLog(
-              {
-                ...run,
-                status: "Cancelled",
-                finishedAt: new Date().toISOString(),
-                outputStatus: "None",
-                timeline: run.timeline.map((s) =>
-                  s.id === "completed" ? { ...s, label: "Cancelled", status: "failed" as const } : s
-                ),
-              },
-              "Run cancelled by user"
-            );
-          }),
-        request: () => fetch(`/api/tasks/${encodeURIComponent(id)}/stop`, { method: "POST" }),
-        rollback: () => reloadTasks(),
-        errorMessage: "Failed to stop the task on the server",
-      });
-    },
-    [updateLatestRun, reloadTasks]
-  );
-
   const deleteTask = useCallback(
     (id: string) => {
       // Optimistically drop the row; on failure re-sync from TL + toast.
@@ -209,7 +162,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       selectedTaskId,
       setSelectedTaskId,
       selectedTask,
-      stopTask,
       deleteTask,
       tasksLoading,
       tasksError,
@@ -222,7 +174,6 @@ export function LlmOpsProvider({ children }: { children: ReactNode }) {
       filteredTasks,
       selectedTaskId,
       selectedTask,
-      stopTask,
       deleteTask,
       tasksLoading,
       tasksError,

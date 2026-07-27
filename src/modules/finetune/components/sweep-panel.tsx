@@ -26,7 +26,7 @@ function parseList(raw: string): number[] {
 
 /** Hyperparameter sweep: train a grid of hyperparameter configs (one per combo). */
 export function SweepPanel({ options }: { options: FinetuneOptions }) {
-  const { running, progress, results, error, runSweep, stopSweep } = useSweep();
+  const { running, progress, results, error, runSweep } = useSweep();
   const [model, setModel] = useState("");
   const [dataset, setDataset] = useState("");
   const [lr, setLr] = useState("0.0002, 0.0004");
@@ -148,15 +148,6 @@ export function SweepPanel({ options }: { options: FinetuneOptions }) {
                   `Run sweep (${comboCount || "…"} combinations)`
                 )}
               </Button>
-              {running ? (
-                <button
-                  type="button"
-                  onClick={stopSweep}
-                  className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft hover:bg-surface-2 hover:text-danger"
-                >
-                  Stop
-                </button>
-              ) : null}
               <p className="text-[12px] text-ink-soft">{comboCount} training run(s).</p>
             </div>
           </>

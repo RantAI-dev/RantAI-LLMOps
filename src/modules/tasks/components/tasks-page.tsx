@@ -23,7 +23,6 @@ export function TasksPage() {
     filters,
     setFilters,
     resetFilters,
-    stopTask,
     deleteTask,
     isLoading,
     isError,
@@ -91,7 +90,6 @@ export function TasksPage() {
         <TaskTable
           tasks={filteredTasks}
           onView={openTask}
-          onStop={stopTask}
           onDelete={deleteTask}
           onCreateClick={() => router.push("/finetune")}
         />
@@ -100,7 +98,6 @@ export function TasksPage() {
       <TaskDetailDrawer
         task={selectedTask}
         onClose={closeTask}
-        onStop={stopTask}
         onDelete={deleteTask}
       />
     </div>

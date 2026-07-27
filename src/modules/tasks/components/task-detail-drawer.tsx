@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Download, Square, Trash2 } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,21 +24,18 @@ import { TaskStatusBadge } from "./task-status-badge";
 type TaskDetailDrawerProps = {
   task: Task | null;
   onClose: () => void;
-  onStop: (id: string) => void;
   onDelete: (id: string) => void;
 };
 
 export function TaskDetailDrawer({
   task,
   onClose,
-  onStop,
   onDelete,
 }: TaskDetailDrawerProps) {
   if (!task) return null;
 
   const run = latestRun(task);
   const status = taskStatus(task);
-  const canStop = status === "Running" || status === "Paused" || status === "Retrying";
   const hp = task.hyperparameters;
 
   return (
@@ -60,15 +57,10 @@ export function TaskDetailDrawer({
           <SheetDescription>{task.id}</SheetDescription>
         </SheetHeader>
 
-        {/* v0.40.0: jobs run via the compute provider — Stop (cancel) and Delete
-            are the real, supported actions. Start/Pause/Retry/Clone don't map to
-            REMOTE jobs (you start a run from Fine-tune/Evals), so they're gone. */}
+        {/* v0.40.0: jobs run via the compute provider — Delete is the real,
+            supported action. Start/Pause/Retry/Clone don't map to REMOTE jobs
+            (you start a run from Fine-tune/Evals), so they're gone. */}
         <div className="flex flex-wrap gap-2 border-b border-border px-5 py-3">
-          {canStop ? (
-            <Button type="button" size="sm" variant="outline" onClick={() => onStop(task.id)}>
-              <Square className="size-3.5" /> Stop
-            </Button>
-          ) : null}
           <Button
             type="button"
             size="sm"

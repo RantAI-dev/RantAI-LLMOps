@@ -103,10 +103,9 @@ export function usePipeline() {
       // the disabled button is bypassed).
       if (runningRef.current) return false;
       runningRef.current = true;
-      // Reset the cancel flag for THIS run. A prior stop() (or a previous run's
-      // teardown) leaves cancelledRef.current === true; without this reset the
-      // polling/SSE loops below would bail immediately and a fresh run after a
-      // stop could never start.
+      // Reset the cancel flag for THIS run. A previous run's unmount teardown
+      // leaves cancelledRef.current === true; without this reset the polling/SSE
+      // loops below would bail immediately and a fresh run could never start.
       cancelledRef.current = false;
       const startedAt = new Date().toISOString();
       setError(null);
@@ -283,22 +282,7 @@ export function usePipeline() {
     [setStage]
   );
 
-  // Halt an in-flight pipeline: flip the cancel flag so the polling/SSE loops
-  // bail on their next check, and abort the active controller so any pending
-  // fetch/stream read is torn down immediately. run()'s `finally` clears
-  // runningRef (unconditionally) once the aborted run unwinds, so a subsequent
-  // run() isn't blocked by the in-flight guard. We flip `running` here for
-  // instant UI feedback because run()'s finally intentionally skips
-  // setRunning(false) on cancel (to avoid recording a cancelled run to history).
-  // Any TL job already launched keeps running server-side — this only stops the
-  // client-side orchestration.
-  const stop = useCallback(() => {
-    cancelledRef.current = true;
-    abortRef.current?.abort();
-    setRunning(false);
-  }, []);
-
-  return { running, stages, result, error, run, stop, runs, clearRuns };
+  return { running, stages, result, error, run, runs, clearRuns };
 }
 
 /** Freeze the finished pipeline into a history record. */
