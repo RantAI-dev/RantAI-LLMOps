@@ -41,9 +41,12 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Incorrect password" }, { status: 401 });
   }
   const res = Response.json({ ok: true });
-  // `Secure` in production so the session cookie never rides a plaintext HTTP
-  // request (omitted in dev so local http://localhost login still works).
-  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  // `Secure` only when the request actually arrived over HTTPS (via a TLS proxy
+  // → X-Forwarded-Proto, or a direct https connection). Keying on NODE_ENV would
+  // drop the cookie on a plain-HTTP prod deployment — browsers refuse a Secure
+  // cookie over http — which silently breaks login.
+  const proto = req.headers.get("x-forwarded-proto") ?? new URL(req.url).protocol.replace(":", "");
+  const secure = proto === "https" ? "; Secure" : "";
   res.headers.append(
     "Set-Cookie",
     `${AUTH_COOKIE}=${await sessionToken()}; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=${AUTH_MAX_AGE}`
