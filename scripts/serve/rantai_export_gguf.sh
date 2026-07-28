@@ -16,7 +16,11 @@ LCPP="$HOME/.transformerlab/llama.cpp"
 GGUF="$MERGED/$TAG.$OUTTYPE.gguf"
 
 echo "[1/4] merge adapter -> fp16 base ($BASE)"
-"$PY" - "$ADIR" "$BASE" "$MERGED" <<'PYEOF'
+# Merge on CPU (CUDA_VISIBLE_DEVICES=""): merging LoRA into the base is just weight
+# arithmetic and needs no GPU. Loading a larger base (e.g. 8B) onto the GB10 GPU can
+# spuriously OOM under sm_121 (PyTorch has no official >12.0 support) — small models
+# fit, big ones don't. CPU-only makes export reliable for any model size/architecture.
+CUDA_VISIBLE_DEVICES="" "$PY" - "$ADIR" "$BASE" "$MERGED" <<'PYEOF'
 import sys, torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -35,7 +39,13 @@ PYEOF
 
 echo "[2/4] ensure llama.cpp + gguf"
 "$PIP" install -q gguf >/dev/null 2>&1 || true
-[ -f "$LCPP/convert_hf_to_gguf.py" ] || git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LCPP"
+# Keep llama.cpp current so its converter recognises newer architectures (e.g.
+# Apertus). A clone-once would freeze on an old version that only knows older archs.
+if [ -d "$LCPP/.git" ]; then
+  git -C "$LCPP" fetch -q --depth 1 origin 2>/dev/null && git -C "$LCPP" reset -q --hard FETCH_HEAD 2>/dev/null || true
+else
+  git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LCPP"
+fi
 
 echo "[3/4] convert -> GGUF ($OUTTYPE)"
 PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$GGUF" --outtype "$OUTTYPE"

@@ -393,10 +393,17 @@ export function FinetuneForm({
               </span>
               <Input
                 id="ft-max-steps"
-                type="number"
-                min={-1}
+                type="text"
+                inputMode="numeric"
                 value={maxSteps}
-                onChange={(e) => setMaxSteps(Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : 60)}
+                onChange={(e) => {
+                  const v = e.target.value.trim();
+                  // Allow clearing or a lone "-" mid-typing; both mean the default (-1 = full epochs).
+                  // A plain number input rejected "-" and snapped to 60, so -1 was untypable.
+                  if (v === "" || v === "-") return setMaxSteps(-1);
+                  const n = Number(v);
+                  if (Number.isInteger(n) && n >= -1) setMaxSteps(n);
+                }}
               />
             </div>
             <div className="block">

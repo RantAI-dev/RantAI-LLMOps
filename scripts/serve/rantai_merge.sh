@@ -14,7 +14,9 @@ if [ -z "$ADIR" ]; then echo "ADAPTER_NOT_FOUND for job $JOB" >&2; exit 3; fi
 OUT="$HOME/.transformerlab/rantai_merged/$NAME"
 
 if [ ! -f "$OUT/config.json" ]; then
-  "$PY" - "$ADIR" "$BASE" "$OUT" >&2 <<'PYEOF'
+  # Merge on CPU: no GPU needed, and loading a large base onto the GB10 can OOM
+  # under sm_121. CPU-only is reliable for any model size/architecture.
+  CUDA_VISIBLE_DEVICES="" "$PY" - "$ADIR" "$BASE" "$OUT" >&2 <<'PYEOF'
 import sys, torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
