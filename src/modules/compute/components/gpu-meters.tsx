@@ -91,7 +91,7 @@ export function GpuMeters({
           >
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-1.5">
-                <Cpu className="size-3.5 shrink-0 text-accent" aria-hidden />
+                <Cpu className="size-3.5 shrink-0 text-primary" aria-hidden />
                 <span className="truncate text-[12px] font-medium text-ink">
                   GPU {g.index} · {g.name}
                 </span>

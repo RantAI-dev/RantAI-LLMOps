@@ -28,6 +28,8 @@ export function FinetunePage() {
     deleteJob,
   } = useFinetune();
   const [tab, setTab] = useState<Tab>("single");
+  // Set when "New dataset" creates one, so the form above selects it immediately.
+  const [presetDataset, setPresetDataset] = useState<string | undefined>();
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
@@ -75,9 +77,10 @@ export function FinetunePage() {
                 error={error}
                 onSubmit={submit}
                 onDeleteDataset={deleteDataset}
+                presetDataset={presetDataset}
               />
 
-              <DatasetForm onCreate={createDataset} />
+              <DatasetForm onCreate={createDataset} onCreated={setPresetDataset} />
             </>
           ) : tab === "sweep" ? (
             <SweepPanel options={options} />

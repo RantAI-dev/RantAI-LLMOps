@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { createDataset } from "@/lib/finetune";
+import { createDataset, createDatasetOnS3 } from "@/lib/finetune";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,11 +8,17 @@ export const dynamic = "force-dynamic";
 type Body = {
   name?: string;
   rows?: Array<{ prompt?: string; completion?: string }>;
+  /** Save to S3/MinIO at `s3://<bucket>/<prefix>/<id>/train.jsonl`. When set, the
+   *  dataset is trainable by `s3://` URI (a TL-local dataset is not). */
+  bucket?: string;
+  prefix?: string;
 };
 
 /**
- * Creates a local prompt/completion dataset for fine-tuning. Called from the
- * Fine-tune page's "New dataset" form.
+ * Creates a prompt/completion dataset for fine-tuning. With `bucket`, it is
+ * written to S3/MinIO and the response carries the `s3://` ref the trainer can
+ * pull (the intended path — a TL-local dataset gets mistaken for an HF id).
+ * Without `bucket`, it falls back to the legacy TL-local store.
  */
 export async function POST(req: NextRequest) {
   let body: Body;
@@ -31,6 +37,10 @@ export async function POST(req: NextRequest) {
     );
   }
   try {
+    if (body.bucket?.trim()) {
+      const { id, ref } = await createDatasetOnS3(body.name, rows, body.bucket, body.prefix);
+      return Response.json({ id, ref });
+    }
     const id = await createDataset(body.name, rows);
     return Response.json({ id });
   } catch (err) {

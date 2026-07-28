@@ -33,7 +33,7 @@ function LossSparkline({ values }: { values: number[] }) {
     })
     .join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full text-accent">
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full text-primary">
       <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
     </svg>
   );

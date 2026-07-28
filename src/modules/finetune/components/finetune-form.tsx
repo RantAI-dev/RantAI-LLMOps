@@ -30,6 +30,7 @@ export function FinetuneForm({
   error,
   onSubmit,
   onDeleteDataset,
+  presetDataset,
 }: {
   options: FinetuneOptions;
   loading: boolean;
@@ -37,6 +38,8 @@ export function FinetuneForm({
   error: string | null;
   onSubmit: (body: Record<string, unknown>) => Promise<boolean>;
   onDeleteDataset: (id: string) => Promise<void>;
+  /** When set (e.g. a just-created dataset), select it in the dataset field. */
+  presetDataset?: string;
 }) {
   const [method, setMethod] = useState<Method>("sft");
   const [baseModel, setBaseModel] = useState("");
@@ -84,6 +87,12 @@ export function FinetuneForm({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync from the URL on mount
     if (b) setBaseQuery(b);
   }, []);
+
+  // Select a dataset the "New dataset" form just created (its s3:// ref or id).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconcile the field to the newly-created dataset
+    if (presetDataset) setDataset(presetDataset);
+  }, [presetDataset]);
 
   // Show the chosen dataset in the select even if it's a HF id not in the local
   // list — the trainer pulls HF datasets by id at runtime.
@@ -416,8 +425,8 @@ export function FinetuneForm({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
-            <label className="flex flex-1 cursor-pointer items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2">
+            <label className="flex cursor-pointer items-center gap-2">
               <input
                 type="checkbox"
                 checked={loadIn4bit}
@@ -435,7 +444,7 @@ export function FinetuneForm({
           </div>
 
           <p className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
-            <Link href="/settings" className="font-medium text-accent underline-offset-2 hover:underline">
+            <Link href="/settings" className="font-medium text-primary underline underline-offset-2 hover:opacity-80">
               Set your Hugging Face token in Settings
             </Link>
             <InfoTip label="About gated models">

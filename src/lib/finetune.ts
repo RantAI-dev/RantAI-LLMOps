@@ -24,6 +24,7 @@ import {
   type FineTunedModel,
 } from "@/lib/models-catalog";
 import { listOllamaModels } from "@/lib/ollama";
+import { putObject } from "@/lib/s3";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
@@ -323,6 +324,37 @@ export async function createDataset(
   });
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
   return id;
+}
+
+/** Slugify a dataset name into a safe id/path segment (shared by both stores). */
+export function slugifyDatasetName(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+/**
+ * Save a prompt/completion dataset straight to S3/MinIO and return its `s3://`
+ * URI — the reference the trainer resolves at run time (unlike a TL-local
+ * dataset, which the trainer would mistake for a Hugging Face hub id). The
+ * destination (bucket + prefix) is chosen by the caller, so this isn't tied to
+ * any one project's layout. Written as `<prefix>/<id>/train.jsonl` so a future
+ * `eval.jsonl` can sit beside it and be picked up as a validation split.
+ */
+export async function createDatasetOnS3(
+  name: string,
+  rows: Array<{ prompt: string; completion: string }>,
+  bucket: string,
+  prefix = "datasets"
+): Promise<{ id: string; ref: string }> {
+  const id = slugifyDatasetName(name);
+  if (!id) throw new Error("Dataset name is required");
+  if (rows.length === 0) throw new Error("At least one row is required");
+  if (!bucket.trim()) throw new Error("A destination bucket is required");
+  const jsonl =
+    rows.map((r) => JSON.stringify({ prompt: r.prompt, completion: r.completion })).join("\n") + "\n";
+  const cleanPrefix = prefix.replace(/^\/+|\/+$/g, "");
+  const key = `${cleanPrefix ? `${cleanPrefix}/` : ""}${id}/train.jsonl`;
+  const ref = await putObject(bucket.trim(), key, jsonl);
+  return { id, ref };
 }
 
 /** A user-input problem (bad file / name) — the route maps this to HTTP 400. */

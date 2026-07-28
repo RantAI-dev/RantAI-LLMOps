@@ -46,6 +46,45 @@ export function s3Configured(): boolean {
   return Boolean(ENDPOINT && ACCESS_KEY && SECRET_KEY);
 }
 
+/** Config the UI needs to offer an S3 destination: is it usable, and where. */
+export function s3Config(): { configured: boolean; buckets: string[]; defaultBucket: string } {
+  const buckets = [...ALLOWED_BUCKETS];
+  return {
+    configured: s3Configured(),
+    buckets,
+    defaultBucket: buckets[0] ?? EVAL_SET_BUCKET,
+  };
+}
+
+/**
+ * Upload an object (used to save a user-authored dataset straight to S3, so the
+ * trainer can pull it by `s3://` URI — a corpus/dataset never leaves the box).
+ * Returns the canonical `s3://bucket/key` reference. Same allowlist guard as the
+ * readers: `bucket` must be permitted, so these creds can't be aimed anywhere.
+ */
+export async function putObject(
+  bucket: string,
+  key: string,
+  body: string,
+  contentType = "application/jsonl"
+): Promise<string> {
+  if (!s3Configured()) {
+    throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
+  }
+  assertAllowedBucket(bucket);
+  const res = await client().fetch(objectUrl(bucket, key), {
+    method: "PUT",
+    body,
+    headers: { "content-type": contentType },
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Failed to upload to S3 (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
+  return `s3://${bucket}/${key}`;
+}
+
 function client(): AwsClient {
   return new AwsClient({
     accessKeyId: ACCESS_KEY,
