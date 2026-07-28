@@ -206,7 +206,7 @@ def _load_training_dataset(spec: str):
             eval_local = _pull(eval_remote) if fs.exists(eval_remote) else None
         else:
             train_local, eval_local = _pull(spec), None
-        lab.log(f"Dataset source: S3/MinIO ({endpoint or 'default endpoint'})")
+        lab.log(f"Dataset source: S3 ({endpoint or 'default endpoint'})")
         return _from_files(train_local, eval_local)
 
     if spec.startswith("http://") or spec.startswith("https://"):
