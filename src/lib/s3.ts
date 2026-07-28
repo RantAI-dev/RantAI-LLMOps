@@ -72,10 +72,14 @@ export async function putObject(
     throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
   }
   assertAllowedBucket(bucket);
+  // Encode to bytes and set Content-Length explicitly. Some S3-compatible servers
+  // (e.g. RustFS) reject a length-less/chunked PUT with 411 MissingContentLength,
+  // which is what a plain string body produces once aws4fetch re-wraps it.
+  const bytes = new TextEncoder().encode(body);
   const res = await client().fetch(objectUrl(bucket, key), {
     method: "PUT",
-    body,
-    headers: { "content-type": contentType },
+    body: bytes,
+    headers: { "content-type": contentType, "content-length": String(bytes.byteLength) },
     signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) {
