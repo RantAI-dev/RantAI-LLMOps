@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, Cpu, Server, Star, Trash2 } from "lucide-react";
+import { Cpu, Server, Star, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -17,12 +17,7 @@ import {
   removeComputeProvider,
   seedComputeProviders,
 } from "@/modules/compute/services/compute-service";
-import type {
-  Cluster,
-  ClusterState,
-  ComputeProvider,
-  ProviderStatus,
-} from "@/modules/compute/types";
+import type { ComputeProvider, ProviderStatus } from "@/modules/compute/types";
 import { cn } from "@/lib/utils";
 
 const providerStatusStyles: Record<ProviderStatus, string> = {
@@ -32,31 +27,16 @@ const providerStatusStyles: Record<ProviderStatus, string> = {
   Disabled: "bg-surface-2 text-ink-faint-strong",
 };
 
-const clusterStateStyles: Record<ClusterState, string> = {
-  up: "bg-success-soft text-success",
-  init: "bg-warning-soft text-warning",
-  stopped: "bg-surface-2 text-ink-faint-strong",
-  down: "bg-surface-2 text-ink-faint-strong",
-  failed: "bg-danger-soft text-danger",
-  unknown: "bg-surface-2 text-ink-faint-strong",
-};
-
 export function ComputePage() {
   const [providers, setProviders] = useState<ComputeProvider[]>(seedComputeProviders);
   // `always: true` — the BFF reads the real provider list with a server-side key,
   // independent of the app-auth mock flag.
   const providersFetch = useResourceFetch(setProviders, fetchComputeProviders, { always: true });
 
-  const summary = useMemo(() => {
-    const localGpus = providers
-      .flatMap((p) => p.accelerators)
-      .reduce((sum, a) => sum + a.count, 0);
-    const activeClusters = providers
-      .flatMap((p) => p.clusters)
-      .filter((c) => c.state === "up").length;
-    const defaultProvider = providers.find((p) => p.isDefault);
-    return { localGpus, activeClusters, defaultProvider };
-  }, [providers]);
+  const localGpus = useMemo(
+    () => providers.flatMap((p) => p.accelerators).reduce((sum, a) => sum + a.count, 0),
+    [providers]
+  );
 
   const removeProvider = (id: string) => {
     setProviders((prev) => prev.filter((p) => p.id !== id)); // optimistic
@@ -70,9 +50,7 @@ export function ComputePage() {
 
   const cards = [
     { label: "Providers", value: String(providers.length), icon: Server, tint: "bg-primary-soft text-primary" },
-    { label: "Default", value: summary.defaultProvider?.name ?? "—", icon: Star, tint: "bg-warning-soft text-warning" },
-    { label: "Local GPUs", value: String(summary.localGpus), icon: Cpu, tint: "bg-success-soft text-success" },
-    { label: "Active clusters", value: String(summary.activeClusters), icon: Boxes, tint: "bg-info-soft text-info" },
+    { label: "Local GPUs", value: String(localGpus), icon: Cpu, tint: "bg-success-soft text-success" },
   ];
 
   return (
@@ -87,7 +65,7 @@ export function ComputePage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
         {cards.map((card) => (
           <Card key={card.label} className="shadow-[0_1px_2px_rgba(0,0,0,0.1)]">
             <CardHeader className="pb-1">
@@ -191,36 +169,6 @@ function ProviderCard({
           </div>
         </div>
       ) : null}
-
-      {provider.clusters.length > 0 ? (
-        <div className="mt-3 space-y-2 border-t border-border pt-3">
-          <p className="text-xs font-medium text-ink">Clusters</p>
-          {provider.clusters.map((cluster) => (
-            <ClusterRow key={cluster.name} cluster={cluster} />
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ClusterRow({ cluster }: { cluster: Cluster }) {
-  const running = cluster.jobs.filter((j) => j.state === "running").length;
-  return (
-    <div className="rounded-md border border-border bg-surface p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-ink">{cluster.name}</span>
-          <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", clusterStateStyles[cluster.state])}>
-            {cluster.state}
-          </span>
-        </div>
-        <span className="text-xs text-ink-soft">
-          {cluster.numNodes} node{cluster.numNodes > 1 ? "s" : ""}
-          {running > 0 ? ` · ${running} running` : ""}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-ink-soft">{cluster.resourcesStr}</p>
     </div>
   );
 }

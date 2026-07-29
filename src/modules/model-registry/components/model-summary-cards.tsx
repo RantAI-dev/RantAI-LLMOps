@@ -1,6 +1,6 @@
 "use client";
 
-import { Boxes, CheckCircle2, Eye, Rocket } from "lucide-react";
+import { Boxes } from "lucide-react";
 
 import { SummaryCardGrid, type SummaryCard } from "@/components/ui/summary-card-grid";
 import { modelRegistryUi } from "@/modules/model-registry/constants/model-registry-ui";
@@ -14,12 +14,19 @@ type ModelSummaryCardsProps = {
   };
 };
 
+// Only the real count is shown. The backend catalog carries no per-model lifecycle
+// status, so "Ready to Deploy", "Need Review" and "Running in Production" were
+// hardcoded constants (Ready/NeedReview always equalled Total, Production always 0) —
+// removed rather than show fabricated status.
 export function ModelSummaryCards({ stats }: ModelSummaryCardsProps) {
   const cards: SummaryCard[] = [
-    { label: "Total Models", value: stats.total, icon: Boxes, iconWrapClassName: "bg-warning-soft", iconClassName: "text-warning-gold" },
-    { label: "Ready to Deploy", value: stats.readyToDeploy, icon: CheckCircle2, iconWrapClassName: "bg-success-soft", iconClassName: "text-success-bright" },
-    { label: "Need Review", value: stats.needReview, icon: Eye, iconWrapClassName: "bg-warning-soft-2", iconClassName: "text-warning-solid" },
-    { label: "Running in Production", value: stats.inProduction, icon: Rocket, iconWrapClassName: "bg-info-soft", iconClassName: "text-info-bright" },
+    {
+      label: "Total Models",
+      value: stats.total,
+      icon: Boxes,
+      iconWrapClassName: "bg-warning-soft",
+      iconClassName: "text-warning-gold",
+    },
   ];
 
   return (

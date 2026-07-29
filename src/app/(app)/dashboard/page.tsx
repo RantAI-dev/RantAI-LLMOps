@@ -66,6 +66,7 @@ const EMPTY_INFERENCE: InferenceStats = {
 type Summary = {
   models: number;
   fineTuned: number;
+  fineTunedReady: number;
   loaded: string | null;
   datasets: number;
   jobsActive: number;
@@ -122,6 +123,7 @@ async function loadSummary(): Promise<Summary> {
   return {
     models: servable.length,
     fineTuned: (cat.fineTuned ?? []).length,
+    fineTunedReady: (cat.fineTuned ?? []).filter((f) => f.ready).length,
     loaded: cat.loaded,
     datasets: (ds.datasets ?? []).length,
     jobsActive: jobs.filter((j) => ACTIVE.has(j.status.toUpperCase())).length,
@@ -219,7 +221,7 @@ export default function Page() {
               iconBg="bg-purple-soft"
               iconColor="text-purple-bright"
               value={data.fineTuned}
-              sub={data.loaded ? `Loaded: ${data.loaded.split("/").pop()}` : "No model loaded"}
+              sub={`${data.fineTunedReady} ready to serve (GGUF)`}
             />
             <MetricCard
               title="Datasets"
