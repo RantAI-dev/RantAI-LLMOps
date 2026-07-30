@@ -464,6 +464,14 @@ def train_with_unsloth():
                     else:
                         # Fallback format
                         text = f"### Instruction:\n{user_turn}\n\n### Response:\n{assistant_turn}"
+                    # A2: guarantee an explicit end-of-sequence token so the model
+                    # learns where to STOP. Most instruct chat templates already
+                    # append EOS; the plain-text fallback does not (and a few
+                    # templates omit it) — appending only when missing is safe and
+                    # fixes the "never stops generating" (run-on) failure mode.
+                    eos = tokenizer.eos_token or ""
+                    if eos and not text.rstrip().endswith(eos):
+                        text = text + eos
                     return {"text": text}
                 elif "text" in example:
                     # Already formatted - ensure it's a string
@@ -568,6 +576,77 @@ def train_with_unsloth():
                 tokenizer=tokenizer,
                 callbacks=[transformerlab_callback],
             )
+
+            # ----------------------------------------------------------------
+            # Completion-only loss (A1): compute the loss on the ASSISTANT answer
+            # ONLY — never on the prompt/context/question. A plain SFTTrainer over
+            # a single `text` field trains on the WHOLE sequence, so the model is
+            # rewarded for reproducing the retrieved context and the question
+            # scaffolding. At inference that surfaces as regurgitated passages,
+            # echoed "Pertanyaan siswa:" template, and run-on. `train_on_responses_only`
+            # is a first-class Unsloth feature — this configures the recipe
+            # correctly, it does NOT patch Unsloth. We fail LOUD if the mask looks
+            # wrong rather than silently train on the wrong thing (see docstring).
+            try:
+                from unsloth.chat_templates import train_on_responses_only
+
+                if getattr(tokenizer, "chat_template", None):
+                    # Derive the turn markers from THIS model's own chat template
+                    # so it works for Apertus / Qwen / Llama without hardcoding.
+                    _U, _A = "%%RANTAI_USER%%", "%%RANTAI_ASSISTANT%%"
+                    _probe = tokenizer.apply_chat_template(
+                        [{"role": "user", "content": _U}, {"role": "assistant", "content": _A}],
+                        tokenize=False,
+                        add_generation_prompt=False,
+                    )
+                    _iu, _ia = _probe.index(_U), _probe.index(_A)
+                    instruction_part = _probe[:_iu]
+                    response_part = _probe[_iu + len(_U):_ia]
+                else:
+                    # Mirror the plain-text fallback used in format_dataset above.
+                    instruction_part, response_part = "### Instruction:\n", "### Response:\n"
+
+                lab.log(f"Enabling completion-only loss. Response marker: {response_part!r}")
+
+                # The marker MUST appear in the formatted data, otherwise masking
+                # blanks every token and the run learns nothing — refuse to proceed.
+                if response_part not in dataset["train"][0]["text"]:
+                    raise RuntimeError(
+                        f"response marker {response_part!r} not found in a formatted sample; "
+                        "completion-only masking would be degenerate"
+                    )
+
+                trainer = train_on_responses_only(
+                    trainer,
+                    instruction_part=instruction_part,
+                    response_part=response_part,
+                )
+
+                # Sanity-check the mask on one example: it must leave SOME tokens
+                # trainable and mask SOME. 0% or 100% trainable => wrong markers.
+                try:
+                    _labels = trainer.train_dataset[0].get("labels")
+                    if _labels:
+                        _tot = len(_labels)
+                        _keep = sum(1 for l in _labels if l != -100)
+                        lab.log(f"  mask check: {_keep}/{_tot} tokens trainable ({_keep / _tot:.0%})")
+                        if _keep == 0 or _keep == _tot:
+                            raise RuntimeError(
+                                f"degenerate completion-only mask ({_keep}/{_tot} trainable); wrong turn markers"
+                            )
+                except RuntimeError:
+                    raise
+                except Exception as _e:
+                    lab.log(f"  (mask sanity-check skipped: {_e})")
+
+                lab.log("✅ Completion-only loss ON — prompt masked, loss on the answer only")
+            except Exception as e:
+                lab.log(f"❌ Could not enable completion-only loss: {e}")
+                import traceback
+
+                traceback.print_exc()
+                lab.finish("Training aborted - completion-only masking failed")
+                return {"status": "error", "error": f"completion-only masking failed: {e}"}
 
             lab.log("✅ SFTTrainer created successfully")
 
