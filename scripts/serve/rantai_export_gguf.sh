@@ -51,6 +51,57 @@ echo "[3/4] convert -> GGUF ($OUTTYPE)"
 PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$GGUF" --outtype "$OUTTYPE"
 
 echo "[4/4] ollama create $TAG"
-MF=$(mktemp); printf 'FROM %s\n' "$GGUF" > "$MF"
+MF=$(mktemp)
+# Ollama does NOT reliably translate a GGUF's embedded Jinja `tokenizer.chat_template`
+# into its own Go template for non-standard archs (e.g. Apertus) — it silently falls
+# back to `TEMPLATE {{ .Prompt }}` (passthrough), so the model is served WITHOUT its
+# chat markers (<|user_start|>…<|assistant_start|>) and behaves erratically. Derive an
+# explicit Ollama TEMPLATE + stop tokens from the merged tokenizer's own chat template
+# so every model (Apertus/Qwen/Llama/…) is served in the exact format it was trained on.
+"$PY" - "$MERGED" "$GGUF" "$MF" <<'PYMF'
+import sys, re
+from transformers import AutoTokenizer
+merged, gguf, mfpath = sys.argv[1], sys.argv[2], sys.argv[3]
+lines = ["FROM " + gguf]
+try:
+    tok = AutoTokenizer.from_pretrained(merged)
+    if not getattr(tok, "chat_template", None):
+        raise RuntimeError("merged tokenizer has no chat_template")
+    # Probe the tokenizer's own chat template with sentinels, then read off the exact
+    # wrapper strings around system / user / assistant content.
+    S, U, A = "%%NQRSYS%%", "%%NQRUSR%%", "%%NQRASST%%"
+    a = tok.apply_chat_template([{"role": "user", "content": U}],
+                                tokenize=False, add_generation_prompt=True)
+    b = tok.apply_chat_template([{"role": "system", "content": S}, {"role": "user", "content": U}],
+                                tokenize=False, add_generation_prompt=True)
+    c = tok.apply_chat_template([{"role": "user", "content": U}, {"role": "assistant", "content": A}],
+                                tokenize=False, add_generation_prompt=False)
+    iu = a.index(U)
+    user_pre, user_to_asst = a[:iu], a[iu + len(U):]
+    isys, iu2 = b.index(S), b.index(U)
+    sys_pre, sys_to_user = b[:isys], b[isys + len(S):iu2]
+    asst_end = c[c.index(A) + len(A):]
+    tmpl = ("{{ if .System }}" + sys_pre + "{{ .System }}" + sys_to_user +
+            "{{ else }}" + user_pre + "{{ end }}{{ .Prompt }}" + user_to_asst +
+            "{{ .Response }}" + asst_end)
+    if "{{ .Prompt }}" not in tmpl or not user_to_asst.strip():
+        raise RuntimeError("derived template looks degenerate")
+    lines.append('TEMPLATE """' + tmpl + '"""')
+    # Stop on every structural marker (+ EOS) so generation halts at the turn boundary
+    # instead of running on / hallucinating the next turn.
+    stops = re.findall(r"<[^>\s]+>", sys_pre + sys_to_user + user_pre + user_to_asst + asst_end)
+    if tok.eos_token:
+        stops.append(tok.eos_token)
+    seen = set()
+    for s in stops:
+        if s and s not in seen:
+            seen.add(s)
+            lines.append("PARAMETER stop " + s)
+    sys.stderr.write("[export] derived Ollama TEMPLATE + %d stop tokens\n" % len(seen))
+except Exception as e:
+    sys.stderr.write("[export] WARNING: could not derive chat TEMPLATE (%s); serving "
+                     "FROM-only — chat formatting may be wrong\n" % e)
+open(mfpath, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+PYMF
 ollama create "$TAG" -f "$MF"
 echo "OK: $TAG ready in Ollama"
