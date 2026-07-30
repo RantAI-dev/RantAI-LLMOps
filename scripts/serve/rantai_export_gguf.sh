@@ -81,6 +81,24 @@ try:
     isys, iu2 = b.index(S), b.index(U)
     sys_pre, sys_to_user = b[:isys], b[isys + len(S):iu2]
     asst_end = c[c.index(A) + len(A):]
+    # llama.cpp/Ollama auto-prepends BOS iff the tokenizer does (GGUF add_bos_token).
+    # If so, a BOS left inside the TEMPLATE would DOUBLE it -> off-distribution garbage
+    # (empirically: on-topic questions get refused). Strip a leading BOS from the
+    # wrapper pieces and let the runtime add it exactly once. Kept conditional so models
+    # that do NOT auto-add BOS still get it from the template.
+    bos = tok.bos_token or ""
+    auto_bos = False
+    if bos and tok.bos_token_id is not None:
+        try:
+            ids = tok("probe", add_special_tokens=True)["input_ids"]
+            auto_bos = bool(ids) and ids[0] == tok.bos_token_id
+        except Exception:
+            auto_bos = False
+    if auto_bos:
+        if sys_pre.startswith(bos):
+            sys_pre = sys_pre[len(bos):]
+        if user_pre.startswith(bos):
+            user_pre = user_pre[len(bos):]
     tmpl = ("{{ if .System }}" + sys_pre + "{{ .System }}" + sys_to_user +
             "{{ else }}" + user_pre + "{{ end }}{{ .Prompt }}" + user_to_asst +
             "{{ .Response }}" + asst_end)
