@@ -1,13 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Columns2, Loader2, Play } from "lucide-react";
+import { Columns2, History, Loader2, Play, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useGenerations, type GenTarget } from "@/modules/generations/hooks/use-generations";
+import {
+  clearGenHistory,
+  deleteGenRun,
+  loadGenHistory,
+  saveGenRun,
+  type GenHistoryEntry,
+} from "@/modules/generations/lib/history-storage";
 
 const selectClass =
   "h-9 w-full rounded-md border border-input bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -37,6 +44,16 @@ export function GenerationsPage() {
   // fine-tune runs share a name), so keying/selecting by name is ambiguous.
   const [ftId, setFtId] = useState("");
   const [promptText, setPromptText] = useState(DEFAULT_PROMPTS);
+  // Persisted comparison runs + which one is currently being viewed (null = latest live result).
+  const [history, setHistory] = useState<GenHistoryEntry[]>([]);
+  const [viewId, setViewId] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Load persisted runs once on mount. Client-only (localStorage) so it stays
+    // hydration-safe: server + first client render show none, then this fills them in.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHistory(loadGenHistory());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,16 +114,27 @@ export function GenerationsPage() {
   const prompts = promptText.split("\n").map((s) => s.trim()).filter(Boolean);
   const canRun = baseId && selectedFt && prompts.length > 0 && !running;
 
-  const handleRun = () => {
+  const handleRun = async () => {
     if (!selectedFt) return;
+    const baseLabel = baseModels.find((m) => m.id === baseId)?.name ?? baseId;
+    const ftLabel = selectedFt.name;
     const base: GenTarget = { modelId: baseId, label: "base" };
     // Load the GGUF export if present, else the fused safetensors directly.
     const ft: GenTarget = {
       modelId: selectedFt.loadModelId ?? selectedFt.fusedModelId,
       label: "fine-tuned",
     };
-    runCompare({ base, ft, prompts, temperature: 0.3 });
+    setViewId(null); // show the live run, not a saved one
+    const result = await runCompare({ base, ft, prompts, temperature: 0.3 });
+    // Persist the finished run so it can be shown later without re-running.
+    if (result && result.length > 0) {
+      setHistory(saveGenRun({ baseLabel, ftLabel, rows: result }));
+    }
   };
+
+  // Which result set to render: a saved run when one is selected, else the live rows.
+  const viewEntry = viewId ? history.find((h) => h.id === viewId) ?? null : null;
+  const displayRows = viewEntry ? viewEntry.rows : rows;
 
   if (!catalog) {
     return (
@@ -214,10 +242,73 @@ export function GenerationsPage() {
         )}
       </div>
 
-      {rows.length > 0 ? (
+      {history.length > 0 ? (
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-primary">
+              <History className="size-4" /> Saved comparisons ({history.length})
+            </h2>
+            <button
+              type="button"
+              className="text-[12px] text-ink-soft hover:text-danger"
+              onClick={() => {
+                setHistory(clearGenHistory());
+                setViewId(null);
+              }}
+            >
+              Clear all
+            </button>
+          </div>
+          <ul className="divide-y divide-border">
+            {history.map((h) => (
+              <li key={h.id} className="flex items-center gap-2 py-2">
+                <button
+                  type="button"
+                  onClick={() => setViewId(h.id)}
+                  className={cn(
+                    "min-w-0 flex-1 text-left",
+                    viewId === h.id ? "font-medium text-primary" : "text-ink hover:text-primary"
+                  )}
+                >
+                  <span className="block truncate text-[13px]">
+                    {h.ftLabel} <span className="text-ink-soft">vs</span> {h.baseLabel}
+                  </span>
+                  <span className="text-[11px] text-ink-soft">
+                    {h.rows.length} prompt{h.rows.length > 1 ? "s" : ""} ·{" "}
+                    {new Date(h.createdAt).toLocaleString()}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  title="Delete"
+                  className="text-ink-soft hover:text-danger"
+                  onClick={() => {
+                    setHistory(deleteGenRun(h.id));
+                    if (viewId === h.id) setViewId(null);
+                  }}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {displayRows.length > 0 ? (
         <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-primary">Results</h2>
-          {rows.map((row, i) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold text-primary">Results</h2>
+            {viewEntry ? (
+              <span className="text-[12px] text-ink-soft">
+                · saved {new Date(viewEntry.createdAt).toLocaleString()} ({viewEntry.ftLabel} vs{" "}
+                {viewEntry.baseLabel})
+              </span>
+            ) : (
+              <span className="text-[12px] text-ink-soft">· latest run</span>
+            )}
+          </div>
+          {displayRows.map((row, i) => (
             <div key={i} className="overflow-hidden rounded-xl border border-border bg-surface">
               <div className="border-b border-border bg-surface-2 px-4 py-2 text-[13px] font-medium text-ink">
                 {row.prompt}

@@ -84,11 +84,11 @@ export function useGenerations() {
       ft: GenTarget;
       prompts: string[];
       temperature: number;
-    }) => {
+    }): Promise<GenRow[] | null> => {
       const prompts = p.prompts.map((s) => s.trim()).filter(Boolean);
       if (prompts.length === 0) {
         setError("Enter at least one prompt.");
-        return false;
+        return null;
       }
       setError(null);
       setRows([]);
@@ -97,24 +97,23 @@ export function useGenerations() {
         setProgress({ phase: "loading-base", index: 0, total: prompts.length });
         await loadModel(p.base);
         const baseAnswers = await answerAll(prompts, p.temperature, "base", p.base.modelId);
-        if (cancelledRef.current) return false;
+        if (cancelledRef.current) return null;
 
         setProgress({ phase: "loading-ft", index: 0, total: prompts.length });
         await loadModel(p.ft);
         const ftAnswers = await answerAll(prompts, p.temperature, "fine-tuned", p.ft.modelId);
-        if (cancelledRef.current) return false;
+        if (cancelledRef.current) return null;
 
-        setRows(
-          prompts.map((prompt, i) => ({
-            prompt,
-            base: baseAnswers[i] ?? "",
-            fineTuned: ftAnswers[i] ?? "",
-          }))
-        );
-        return true;
+        const result = prompts.map((prompt, i) => ({
+          prompt,
+          base: baseAnswers[i] ?? "",
+          fineTuned: ftAnswers[i] ?? "",
+        }));
+        setRows(result);
+        return result;
       } catch (err) {
         if (!cancelledRef.current) setError((err as Error).message);
-        return false;
+        return null;
       } finally {
         if (!cancelledRef.current) {
           setRunning(false);
