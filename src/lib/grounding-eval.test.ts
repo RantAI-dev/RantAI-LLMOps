@@ -32,6 +32,11 @@ describe("looksLikeRefusal", () => {
       "Informasi itu tidak ada di materi.",
       "Hal tersebut tidak dijelaskan dalam materi yang diberikan.",
       "Maaf, hal itu di luar materi ini.",
+      // The dataset's OTHER refusal wording — "bacaan", not "materi". Missing this
+      // scored the model's correct refusals of off-topic questions as over-refusals.
+      "Maaf, jawabannya tidak terdapat pada bacaan yang diberikan.",
+      "Hal itu tidak dijelaskan dalam teks.",
+      "Jawaban itu tidak ada dalam konteks yang diberikan.",
     ]) {
       expect(looksLikeRefusal(text), text).toBe(true);
     }

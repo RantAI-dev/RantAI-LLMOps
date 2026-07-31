@@ -72,17 +72,19 @@ export type GroundingReport = {
 };
 
 /**
- * Phrases that count as a refusal. The dataset's own refusal is the first one;
- * the rest catch a model that refuses in its own words rather than verbatim,
- * which would otherwise be scored as a hallucination.
+ * Phrases that count as a refusal. Matched by SHAPE, not one exact wording,
+ * because a refusal is expressed many ways: the dataset alone uses both
+ * "…belum ada di materi" and "…tidak terdapat pada bacaan yang diberikan", and a
+ * model refuses in its own words. Any of them must score as a refusal, not a
+ * hallucination — and a reference refusal the scorer fails to recognise silently
+ * turns a correct model refusal into a phantom "over-refusal".
  */
 const REFUSAL_PATTERNS: RegExp[] = [
-  /belum ada di materi/i,
-  /tidak ada di materi/i,
-  /tidak terdapat (?:di|dalam) materi/i,
-  /tidak dijelaskan (?:di|dalam) materi/i,
-  /tidak tersedia (?:di|dalam) materi/i,
-  /maaf[^.]{0,40}materi/i,
+  // An absence ("belum/tidak ada|terdapat|dijelaskan|tersedia") tied to the source,
+  // named as materi/bacaan/teks/konteks, with any of di/dalam/pada in between.
+  /(?:belum|tidak)\s+(?:ada|terdapat|dijelaskan|tersedia)[^.]{0,25}(?:materi|bacaan|teks|konteks)/i,
+  // The apology form: "Maaf, … materi/bacaan/teks/konteks" within the sentence.
+  /maaf[^.]{0,50}(?:materi|bacaan|teks|konteks)/i,
 ];
 
 export function looksLikeRefusal(text: string): boolean {
