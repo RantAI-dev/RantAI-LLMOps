@@ -1,0 +1,50 @@
+name: dataset-pipeline-task
+# Same pattern as unsloth-llm-train: Transformer Lab clones THIS repo per job and
+# runs `github_repo_dir`. The corpus-to-SFT pipeline lives here (not in the Next.js
+# API route) because parsing hundreds of born-digital PDFs is CPU-heavy and long —
+# it belongs on a TL worker, orchestrated like a training job.
+github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
+github_repo_dir: trainers/dataset-pipeline
+
+# No accelerator: stages 1-4 & 6 are pure CPU (pymupdf + text rules). Stage 5
+# (teacher-AI) does NOT run a model here — it calls the already-wired Ollama/vLLM
+# endpoint over the network, so this task itself never needs a GPU.
+resources:
+  cpus: "4+"
+
+# s3fs = read PDFs and read/write every intermediate JSONL straight from MinIO,
+# so nothing large ever lands on TL disk permanently (checkpoints excepted).
+setup: "uv pip install pymupdf==1.26.4 s3fs==2025.9.0 requests==2.32.5"
+run: "python dataset-pipeline/run.py"
+
+envs:
+  PYTHONUNBUFFERED: "1"
+  # S3/MinIO — same names the Next.js side already uses (see src/lib/s3.ts).
+  S3_ENDPOINT_URL: "{{secret._S3_ENDPOINT_URL}}"
+  AWS_ACCESS_KEY_ID: "{{secret._AWS_ACCESS_KEY_ID}}"
+  AWS_SECRET_ACCESS_KEY: "{{secret._AWS_SECRET_ACCESS_KEY}}"
+  AWS_REGION: "{{secret._AWS_REGION}}"
+  # Teacher endpoint for stage 5 (unused by stages 1-3).
+  OLLAMA_BASE_URL: "{{secret._OLLAMA_BASE_URL}}"
+
+parameters:
+  # Where the source PDFs live and where the built dataset is written.
+  bucket: "buku-korpus"
+  pdf_prefix: ""              # limit the inventory to a sub-path, "" = whole bucket
+  version: "v3"              # output goes to s3://<bucket>/sft/<version>/
+
+  # Which stages to (re)run, comma-separated. Each stage is resumable and reads
+  # its predecessor's JSONL, so "1,2,3" is the CPU-only Phase 1.
+  stages: "1,2,3"
+
+  # Stage 2 chunking knobs (chars; ~4 chars/token proxy).
+  target_chars: 1700          # ~425 tok
+  min_chars: 1000             # ~250 tok — never break a chunk below this
+  overlap_chars: 200
+
+  # Stage 4-6 knobs (ignored in Phase 1).
+  n_positive: 5000
+  n_contrastive: 1300
+  n_distractor: 700
+  teacher_model: "hf.co/aisingapore/Apertus-SEA-LION-v4-8B-IT-GGUF:Q8_0"
+  seed: 7

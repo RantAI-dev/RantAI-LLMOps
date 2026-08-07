@@ -1,15 +1,18 @@
 "use client";
 
-import { Database, Download, Upload } from "lucide-react";
+import { CloudDownload, Database, Download, Upload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PdfCorpusPanel } from "@/modules/corpus";
 import { DatasetCard } from "@/modules/datasets/components/dataset-card";
 import { DatasetFiltersBar } from "@/modules/datasets/components/dataset-filters";
 import { DatasetSummaryCards } from "@/modules/datasets/components/dataset-summary-cards";
+import { ImportS3Dialog } from "@/modules/datasets/components/import-s3-dialog";
 import { UploadDatasetDialog } from "@/modules/datasets/components/upload-dataset-dialog";
 import { datasetUi } from "@/modules/datasets/constants/dataset-ui";
 import { datasetHref } from "@/modules/datasets/lib/routes";
@@ -30,6 +33,7 @@ export function DatasetsPage() {
 
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [importS3Open, setImportS3Open] = useState(false);
 
   // Filter/search state lives here (not in the shared DatasetsProvider) so typing
   // only re-renders this page — not every consumer of the datasets data context.
@@ -106,6 +110,10 @@ export function DatasetsPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+          <Button type="button" variant="outline" onClick={() => setImportS3Open(true)}>
+            <CloudDownload className="size-4" />
+            Import from S3
+          </Button>
           <Button type="button" variant="outline" onClick={() => setUploadOpen(true)}>
             <Upload className="size-4" />
             Upload dataset
@@ -123,40 +131,60 @@ export function DatasetsPage() {
         onUploaded={() => reloadDatasets()}
       />
 
-      <DatasetSummaryCards datasets={datasets} />
+      <ImportS3Dialog
+        open={importS3Open}
+        onClose={() => setImportS3Open(false)}
+        onImported={() => reloadDatasets()}
+      />
 
-      {!datasetsLoading && !datasetsError ? (
-        <DatasetFiltersBar
-          filters={filters}
-          onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
-          onReset={resetFilters}
-        />
-      ) : null}
+      <Tabs defaultValue="library">
+        <TabsList className="h-auto w-full justify-start gap-1 rounded-lg border border-hairline bg-surface p-1">
+          <TabsTrigger value="library">Library</TabsTrigger>
+          <TabsTrigger value="pdf">From PDF</TabsTrigger>
+        </TabsList>
 
-      {datasetsLoading ? (
-        <LoadingState label="Loading datasets…" />
-      ) : datasetsError ? (
-        <ErrorState onRetry={reloadDatasets} />
-      ) : showEmpty ? (
-        <EmptyState onBrowseHub={goToHub} />
-      ) : showFilteredEmpty ? (
-        <div className="rounded-lg border border-dashed border-border p-8 text-center">
-          <p className="text-sm text-ink-soft">No datasets match your filters.</p>
-          <Button type="button" variant="outline" className="mt-3" onClick={resetFilters}>
-            Reset filters
-          </Button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-          {filteredDatasets.map((dataset) => (
-            <DatasetCard
-              key={dataset.id}
-              dataset={dataset}
-              onView={() => router.push(datasetHref(dataset.id))}
+        <TabsContent value="library" className="mt-2 space-y-4">
+          <DatasetSummaryCards datasets={datasets} />
+
+          {!datasetsLoading && !datasetsError ? (
+            <DatasetFiltersBar
+              filters={filters}
+              onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))}
+              onReset={resetFilters}
             />
-          ))}
-        </div>
-      )}
+          ) : null}
+
+          {datasetsLoading ? (
+            <LoadingState label="Loading datasets…" />
+          ) : datasetsError ? (
+            <ErrorState onRetry={reloadDatasets} />
+          ) : showEmpty ? (
+            <EmptyState onBrowseHub={goToHub} />
+          ) : showFilteredEmpty ? (
+            <div className="rounded-lg border border-dashed border-border p-8 text-center">
+              <p className="text-sm text-ink-soft">No datasets match your filters.</p>
+              <Button type="button" variant="outline" className="mt-3" onClick={resetFilters}>
+                Reset filters
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
+              {filteredDatasets.map((dataset) => (
+                <DatasetCard
+                  key={dataset.id}
+                  dataset={dataset}
+                  onView={() => router.push(datasetHref(dataset.id))}
+                />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Corpus pre-processing: a book PDF in, citation-headed chunks out. */}
+        <TabsContent value="pdf" className="mt-2">
+          <PdfCorpusPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

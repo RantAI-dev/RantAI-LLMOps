@@ -65,7 +65,7 @@ export function s3Config(): { configured: boolean; buckets: string[]; defaultBuc
 export async function putObject(
   bucket: string,
   key: string,
-  body: string,
+  body: string | Uint8Array<ArrayBuffer>,
   contentType = "application/jsonl"
 ): Promise<string> {
   if (!s3Configured()) {
@@ -75,7 +75,8 @@ export async function putObject(
   // Encode to bytes and set Content-Length explicitly. Some S3-compatible servers
   // (e.g. RustFS) reject a length-less/chunked PUT with 411 MissingContentLength,
   // which is what a plain string body produces once aws4fetch re-wraps it.
-  const bytes = new TextEncoder().encode(body);
+  // Binary bodies (a raw PDF kept in the corpus bucket) pass through as-is.
+  const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
   const res = await client().fetch(objectUrl(bucket, key), {
     method: "PUT",
     body: bytes,
@@ -167,6 +168,264 @@ export async function getEvalSetText(key: string, bucket = EVAL_SET_BUCKET): Pro
   // so this stops the read path being used to fetch arbitrary objects by key.
   if (!/\.jsonl$/i.test(key)) throw new Error("Only .jsonl eval sets can be read.");
   const res = await client().fetch(objectUrl(bucket, key), { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Failed to read ${key} from S3 (${res.status})`);
+  return res.text();
+}
+
+// ---------------------------------------------------------------------------
+// Generic dataset objects (browse + import an existing S3 dataset by ref).
+//
+// Unlike the eval-set path (locked to .jsonl in the eval bucket), a training
+// dataset can live in ANY allowed bucket as .jsonl or .csv. Nothing here copies
+// data — the browse/import flow only records an `s3://bucket/key` reference the
+// trainer resolves at run time, so a corpus never leaves the box and never gets
+// duplicated onto TL disk.
+// ---------------------------------------------------------------------------
+
+export type S3DatasetFormat = "jsonl" | "csv";
+export type S3Object = { key: string; name: string; sizeKb: number | null; format: S3DatasetFormat };
+
+/** Broader format tag for the file *browser* (source picking can be any file). */
+export type S3FileFormat = S3DatasetFormat | "pdf" | "other";
+export type S3Entry = { key: string; name: string; sizeKb: number | null; format: S3FileFormat };
+export type S3Folder = { prefix: string; name: string };
+
+function fileFormat(key: string): S3FileFormat {
+  if (/\.jsonl$/i.test(key)) return "jsonl";
+  if (/\.csv$/i.test(key)) return "csv";
+  if (/\.pdf$/i.test(key)) return "pdf";
+  return "other";
+}
+
+/** True for the two formats that can actually be loaded/imported as a dataset. */
+export function isDatasetFormat(format: S3FileFormat): format is S3DatasetFormat {
+  return format === "jsonl" || format === "csv";
+}
+
+/** The buckets the UI is allowed to browse (from `S3_ALLOWED_BUCKETS`). */
+export function allowedBuckets(): string[] {
+  return [...ALLOWED_BUCKETS];
+}
+
+function datasetFormat(key: string): S3DatasetFormat | null {
+  if (/\.jsonl$/i.test(key)) return "jsonl";
+  if (/\.csv$/i.test(key)) return "csv";
+  return null;
+}
+
+/**
+ * List the dataset objects (`.jsonl` / `.csv`) in an allowed bucket. Hidden keys
+ * (a leading `_`, e.g. the import manifest) are skipped so the manifest doesn't
+ * show up as a pickable dataset. Same ListObjectsV2 pagination as `listEvalSets`.
+ */
+export async function listDatasetObjects(bucket: string, prefix = ""): Promise<S3Object[]> {
+  if (!s3Configured()) return [];
+  assertAllowedBucket(bucket);
+  const out: S3Object[] = [];
+  let token: string | undefined;
+  do {
+    const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
+    if (prefix) q.set("prefix", prefix);
+    if (token) q.set("continuation-token", token);
+    const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const block = m[1];
+      const rawKey = /<Key>([\s\S]*?)<\/Key>/.exec(block)?.[1];
+      const key = rawKey === undefined ? undefined : unescapeXml(rawKey);
+      if (!key) continue;
+      const base = key.split("/").pop() ?? key;
+      if (base.startsWith("_")) continue; // hidden (manifest, internal)
+      const format = datasetFormat(key);
+      if (!format) continue;
+      const size = Number(/<Size>(\d+)<\/Size>/.exec(block)?.[1] ?? "");
+      out.push({
+        key,
+        name: base,
+        sizeKb: Number.isFinite(size) ? Math.round(size / 1024) : null,
+        format,
+      });
+    }
+    const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+    const rawToken = truncated
+      ? /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1]
+      : undefined;
+    token = rawToken === undefined ? undefined : unescapeXml(rawToken);
+  } while (token);
+  return out.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * Browse a bucket like a file tree: ALL files (any format) + sub-folders under
+ * `prefix`, one level deep (delimiter `/`). Unlike `listDatasetObjects` this does
+ * not filter to `.jsonl`/`.csv` — the source of an augmentation run is PDFs, and
+ * format only matters later at load time. Hidden `_`-prefixed keys are skipped.
+ */
+export async function listBucketEntries(
+  bucket: string,
+  prefix = ""
+): Promise<{ folders: S3Folder[]; objects: S3Entry[] }> {
+  if (!s3Configured()) return { folders: [], objects: [] };
+  assertAllowedBucket(bucket);
+  const folders: S3Folder[] = [];
+  const objects: S3Entry[] = [];
+  let token: string | undefined;
+  do {
+    const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000", delimiter: "/" });
+    if (prefix) q.set("prefix", prefix);
+    if (token) q.set("continuation-token", token);
+    const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
+    const xml = await res.text();
+    // Sub-folders (CommonPrefixes when a delimiter is set).
+    for (const m of xml.matchAll(/<CommonPrefixes>[\s\S]*?<Prefix>([\s\S]*?)<\/Prefix>[\s\S]*?<\/CommonPrefixes>/g)) {
+      const raw = m[1] === undefined ? undefined : unescapeXml(m[1]);
+      if (!raw) continue;
+      const name = raw.replace(/\/$/, "").split("/").pop() ?? raw;
+      if (name.startsWith("_")) continue;
+      folders.push({ prefix: raw, name });
+    }
+    // Files directly under this prefix.
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const block = m[1];
+      const rawKey = /<Key>([\s\S]*?)<\/Key>/.exec(block)?.[1];
+      const key = rawKey === undefined ? undefined : unescapeXml(rawKey);
+      if (!key || key === prefix) continue; // the folder placeholder itself
+      const base = key.split("/").pop() ?? key;
+      if (!base || base.startsWith("_")) continue;
+      const size = Number(/<Size>(\d+)<\/Size>/.exec(block)?.[1] ?? "");
+      objects.push({
+        key,
+        name: base,
+        sizeKb: Number.isFinite(size) ? Math.round(size / 1024) : null,
+        format: fileFormat(key),
+      });
+    }
+    const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+    const rawToken = truncated
+      ? /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1]
+      : undefined;
+    token = rawToken === undefined ? undefined : unescapeXml(rawToken);
+  } while (token);
+  folders.sort((a, b) => a.name.localeCompare(b.name));
+  objects.sort((a, b) => a.name.localeCompare(b.name));
+  return { folders, objects };
+}
+
+/**
+ * Cheap probe of what lives under a prefix (recursive, first page only): how many
+ * non-hidden files total, and how many are loadable datasets (`.jsonl`/`.csv`).
+ * Used to classify a folder import — a PDF-only folder is a *corpus source*, not a
+ * trainable dataset. `total` is capped at one 1000-key page (enough to classify).
+ */
+export async function probePrefix(
+  bucket: string,
+  prefix = ""
+): Promise<{ total: number; datasets: number; sample: string[] }> {
+  if (!s3Configured()) return { total: 0, datasets: 0, sample: [] };
+  assertAllowedBucket(bucket);
+  const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
+  if (prefix) q.set("prefix", prefix);
+  const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
+  const xml = await res.text();
+  let total = 0;
+  let datasets = 0;
+  const sample: string[] = [];
+  for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+    const rawKey = /<Key>([\s\S]*?)<\/Key>/.exec(m[1])?.[1];
+    const key = rawKey === undefined ? undefined : unescapeXml(rawKey);
+    if (!key || key === prefix) continue;
+    const base = key.split("/").pop() ?? key;
+    if (!base || base.startsWith("_")) continue;
+    total += 1;
+    if (datasetFormat(key)) datasets += 1;
+    if (sample.length < 5) sample.push(base);
+  }
+  return { total, datasets, sample };
+}
+
+/**
+ * List every `.pdf` key under a prefix, recursively (no delimiter). Used to add a
+ * whole folder of source PDFs to the processing pool. Hidden `_`-prefixed keys
+ * are skipped. Paginates through the full listing.
+ */
+export async function listAllPdfs(bucket: string, prefix = ""): Promise<string[]> {
+  if (!s3Configured()) return [];
+  assertAllowedBucket(bucket);
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000" });
+    if (prefix) q.set("prefix", prefix);
+    if (token) q.set("continuation-token", token);
+    const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const rawKey = /<Key>([\s\S]*?)<\/Key>/.exec(m[1])?.[1];
+      const key = rawKey === undefined ? undefined : unescapeXml(rawKey);
+      if (!key || !/\.pdf$/i.test(key)) continue;
+      const base = key.split("/").pop() ?? key;
+      if (base.startsWith("_")) continue;
+      keys.push(key);
+    }
+    const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+    const rawToken = truncated
+      ? /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1]
+      : undefined;
+    token = rawToken === undefined ? undefined : unescapeXml(rawToken);
+  } while (token);
+  return keys.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Raw object fetch — returns the underlying S3 `Response` so a route can stream
+ * the body straight to the browser (e.g. a PDF viewer). MinIO is internal, so the
+ * browser can't reach it directly; this proxies it through the Next server.
+ */
+export async function fetchObject(bucket: string, key: string): Promise<Response> {
+  if (!s3Configured()) throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
+  assertAllowedBucket(bucket);
+  return client().fetch(objectUrl(bucket, key), { signal: AbortSignal.timeout(30000) });
+}
+
+/** Whether an object exists (used to validate an import before recording it). */
+export async function objectExists(bucket: string, key: string): Promise<boolean> {
+  if (!s3Configured()) return false;
+  assertAllowedBucket(bucket);
+  const res = await client().fetch(objectUrl(bucket, key), {
+    method: "HEAD",
+    signal: AbortSignal.timeout(8000),
+  });
+  return res.ok;
+}
+
+/** Read a dataset object (`.jsonl` / `.csv`) by key — for the preview tab. */
+export async function getDatasetObjectText(bucket: string, key: string): Promise<string> {
+  if (!s3Configured()) throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
+  assertAllowedBucket(bucket);
+  if (!datasetFormat(key)) throw new Error("Only .jsonl / .csv datasets can be read.");
+  const res = await client().fetch(objectUrl(bucket, key), { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error(`Failed to read ${key} from S3 (${res.status})`);
+  return res.text();
+}
+
+/** Read an object's text if present; `null` on 404. Used for the JSON manifest. */
+export async function getObjectMaybe(bucket: string, key: string): Promise<string | null> {
+  if (!s3Configured()) return null;
+  assertAllowedBucket(bucket);
+  const res = await client().fetch(objectUrl(bucket, key), { signal: AbortSignal.timeout(8000) });
+  if (res.status === 404) return null;
   if (!res.ok) throw new Error(`Failed to read ${key} from S3 (${res.status})`);
   return res.text();
 }

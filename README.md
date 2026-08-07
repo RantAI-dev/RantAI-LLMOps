@@ -72,9 +72,46 @@ server-side variables (none are `NEXT_PUBLIC_*`):
 | `APP_PASSWORD` | — | Shared-password access gate. **Required in production** (app fails closed / 503 if empty or a known-weak value). |
 | `AUTH_SECRET` | — | Per-deployment secret folded into the session token. **Required in production.** Generate with `openssl rand -hex 32`. |
 
-Optional S3/MinIO variables (read by [`src/lib/s3.ts`](src/lib/s3.ts) for grounded eval sets):
-`S3_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `EVAL_SET_BUCKET`.
-These are likewise server-only credentials and never reach the browser.
+Optional S3/MinIO variables (read by [`src/lib/s3.ts`](src/lib/s3.ts) for grounded eval sets,
+trainable datasets, and the PDF corpus): `S3_ENDPOINT_URL`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
+`AWS_SECRET_ACCESS_KEY`, `EVAL_SET_BUCKET`, `S3_ALLOWED_BUCKETS`. These are likewise server-only
+credentials and never reach the browser. `S3_ALLOWED_BUCKETS` is an allowlist — a bucket must be
+listed there before any route may read or write it.
+
+---
+
+## Corpus pre-processing (PDF → citation-headed chunks)
+
+**Dataset → “From PDF”** turns a school-book PDF into chunks ready to load into a RAG knowledge
+base. It implements Fase 1 of `rencana-teknis-asisten-belajar-rag-sft.pdf`:
+
+| Step | What happens |
+| --- | --- |
+| Triage | Pages with no usable text layer are counted and reported. A scanned book is flagged for the OCR/VL path rather than turned into empty chunks. |
+| Clean | Repeated running headers/footers and page numbers are removed; cover, colophon and daftar isi are dropped. |
+| Structure | Chapters come from the PDF's bookmarks when it has them, otherwise from heading typography, otherwise from the `Bab N \| Title` running header. Which one was used is shown in the UI. |
+| Chunk | ~500-token chunks (configurable) with 15% overlap, cut at paragraph and sub-heading boundaries. |
+| Cite | Every chunk is prefixed with `[Buku IPA Kelas 3, Bab 2: Wujud Benda]`, so the source travels *inside* the text and survives retrieval even when the store drops metadata. |
+
+Analyze is a dry run — nothing is written until you press save. Saving writes four objects per
+book under the chosen bucket:
+
+```txt
+raw/<jenjang>/kelas-<n>/<mapel>/<id>.pdf     the original, untouched
+processed/…/<id>.md                          cleaned Markdown
+chunks/…/<id>.jsonl                          ingest-ready chunks
+catalog/…/<id>.json                          metadata, checksum, triage, chapter map
+```
+
+Implementation: [`src/lib/pdf-corpus.ts`](src/lib/pdf-corpus.ts) holds the pipeline as pure
+functions (no PDF library, fully unit-tested); [`src/lib/pdf-extract.ts`](src/lib/pdf-extract.ts)
+is the only file that imports `pdfjs-dist`; the route is
+[`/api/corpus/process`](src/app/api/corpus/process/route.ts).
+
+> Uploads are capped at 64 MB. The cap lives in
+> [`src/lib/upload-limits.ts`](src/lib/upload-limits.ts) because it must match
+> `experimental.proxyClientMaxBodySize` in [`next.config.ts`](next.config.ts) — over that limit
+> Next silently *truncates* a proxied body instead of rejecting it.
 
 ---
 
@@ -109,7 +146,7 @@ src/
     api/                    # transport: config, client (fetch wrapper), session, auth
     feature-status.ts       # which features are live / mock — the honesty registry
     utils.ts                # cn()
-  modules/<feature>/        # auth, compute, datasets, experiments, llm-ops,
+  modules/<feature>/        # auth, compute, corpus, datasets, experiments, llm-ops,
                             # model-registry, tasks, tasks-gallery
     components/ hooks/ lib/ data/ constants/ services/ context/ types.ts index.ts
   styles/design-tokens.css  # ~60 semantic color tokens + the type scale

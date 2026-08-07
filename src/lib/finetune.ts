@@ -25,6 +25,7 @@ import {
 } from "@/lib/models-catalog";
 import { listOllamaModels } from "@/lib/ollama";
 import { putObject } from "@/lib/s3";
+import { listImportedS3Datasets } from "@/lib/s3-datasets";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
@@ -246,7 +247,11 @@ export async function previewTlDataset(id: string, limit = 25): Promise<DatasetP
 
 /** Form data for the Fine-tune page: trainable models + datasets (local + recommended). */
 export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
-  const [downloaded, local] = await Promise.all([fetchDownloaded(), fetchLocalDatasets()]);
+  const [downloaded, local, s3Imports] = await Promise.all([
+    fetchDownloaded(),
+    fetchLocalDatasets(),
+    listImportedS3Datasets().catch(() => []),
+  ]);
   // Trainable bases = downloaded safetensors models (exclude GGUF and our own
   // TransformerLab/ fused outputs) PLUS recommended HF bases. v0.40.0 pulls the
   // base from HF at train time, so the recommended ones are usable even though
@@ -264,13 +269,26 @@ export async function fetchFinetuneOptions(): Promise<FinetuneOptions> {
     sizeMb: typeof d.size === "number" && d.size > 0 ? d.size / (1024 * 1024) : null,
     downloaded: true,
   }));
+  // ...then S3 imports (trainable by their `s3://` ref; not on TL disk, so
+  // `downloaded: false` — no delete button, and the trainer resolves the URI).
+  // "corpus" entries are raw sources (PDFs) for the augmentation pipeline, not
+  // trainable, so they're excluded from the fine-tune picker.
+  const s3Datasets: FinetuneDataset[] = s3Imports
+    .filter((d) => d.format !== "corpus")
+    .map((d) => ({
+    id: d.ref,
+    name: d.name,
+    description: `S3 · ${d.ref}`,
+    sizeMb: typeof d.sizeKb === "number" && d.sizeKb > 0 ? d.sizeKb / 1024 : null,
+    downloaded: false,
+  }));
   // ...then recommended ones not already local.
   const recommended = RECOMMENDED_DATASETS.filter((d) => !localIds.has(d.id)).map((d) => ({
     ...d,
     downloaded: false,
   }));
 
-  return { models, datasets: [...localDatasets, ...recommended] };
+  return { models, datasets: [...localDatasets, ...s3Datasets, ...recommended] };
 }
 
 /** Delete a local dataset (TL `/data/delete`). Returns whether TL accepted it. */

@@ -1,3 +1,4 @@
+import { s3ToDataset, type S3DatasetRow } from "@/modules/datasets/lib/from-s3";
 import { tlToDataset } from "@/modules/datasets/lib/from-tl";
 import { loadDatasetsFromStorage } from "@/modules/datasets/lib/storage";
 import type { Dataset } from "@/modules/datasets/types";
@@ -18,16 +19,19 @@ export function seedDatasets(): Dataset[] {
 
 type DatasetsResponse = {
   datasets?: Array<{ id: string; description: string; sizeMb: number | null }>;
+  s3?: S3DatasetRow[];
 };
 
-/** Async load — real datasets from TL via the datasets BFF. */
+/** Async load — real datasets from TL + imported S3 references, via the BFF. */
 export async function fetchDatasets(): Promise<Dataset[]> {
   try {
     const res = await fetch("/api/datasets/list", { cache: "no-store" });
     if (!res.ok) throw new Error(`datasets ${res.status}`);
     const data = (await res.json()) as DatasetsResponse;
     const now = new Date().toISOString();
-    return (data.datasets ?? []).map((d) => tlToDataset(d, now));
+    const tl = (data.datasets ?? []).map((d) => tlToDataset(d, now));
+    const s3 = (data.s3 ?? []).map((d) => s3ToDataset(d));
+    return [...s3, ...tl];
   } catch {
     // BFF unreachable (or non-browser context): degrade to the cached list, not mock.
     return loadDatasetsFromStorage([]);

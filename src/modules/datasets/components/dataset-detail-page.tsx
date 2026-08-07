@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
+import { decodeDetailId } from "@/lib/detail-href";
 import { DatasetDetailView } from "@/modules/datasets/components/dataset-detail-view";
 import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
 
@@ -16,7 +17,7 @@ import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
 export function DatasetDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string | string[] }>();
-  const id = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
+  const id = decodeDetailId(Array.isArray(params.id) ? params.id.join("/") : (params.id ?? ""));
 
   const { getDatasetById, datasetsLoading } = useDatasets();
 

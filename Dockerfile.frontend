@@ -32,6 +32,14 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+# pdfjs-dist loads @napi-rs/canvas at runtime (DOMMatrix/Path2D polyfill) via a
+# dynamic require the standalone tracer can't follow, so it's copied in explicitly
+# — including its platform binary (…-linux-x64-musl). Without it PDF extraction
+# throws "DOMMatrix is not defined" and every corpus process fails.
+COPY --from=builder /app/node_modules/@napi-rs ./node_modules/@napi-rs
+# pdfjs also loads its worker (pdf.worker.mjs) dynamically at run time, which the
+# tracer misses — copy the whole package so the worker + build assets are present.
+COPY --from=builder /app/node_modules/pdfjs-dist ./node_modules/pdfjs-dist
 USER appuser
 VOLUME ["/data"]
 EXPOSE 3000

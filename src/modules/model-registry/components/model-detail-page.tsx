@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
+import { decodeDetailId } from "@/lib/detail-href";
 import { DeleteModelDialog } from "@/modules/model-registry/components/delete-model-dialog";
 import { ModelDetailView } from "@/modules/model-registry/components/model-detail-view";
 import { useModelRegistry } from "@/modules/model-registry/hooks/use-model-registry";
@@ -17,25 +18,15 @@ import { baseSearchQuery } from "@/modules/model-registry/lib/utils";
 export function ModelDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string | string[] }>();
-  // Ids can carry ":" (Ollama tags like "…:latest") which arrives percent-encoded
-  // in the URL — decode each segment so the lookup matches the catalog id.
-  const rawId = Array.isArray(params.id) ? params.id.join("/") : (params.id ?? "");
-  const id = rawId
-    .split("/")
-    .map((seg) => {
-      try {
-        return decodeURIComponent(seg);
-      } catch {
-        return seg;
-      }
-    })
-    .join("/");
+  // Model ids can carry "/" (HF "owner/name") or ":" (Ollama "…:latest"); the id
+  // is base64url-encoded into one path segment, so decode it back to the catalog id.
+  const id = decodeDetailId(Array.isArray(params.id) ? params.id.join("/") : (params.id ?? ""));
 
   const { models, modelsLoading, deleteTargetId, setDeleteTargetId, deleteModel } =
     useModelRegistry();
   const stripLatest = (s: string) => s.replace(/:latest$/, "");
   const model =
-    models.find((m) => m.id === id || m.id === rawId) ??
+    models.find((m) => m.id === id) ??
     models.find((m) => stripLatest(m.id) === stripLatest(id)) ??
     null;
   const deleteTarget = deleteTargetId ? models.find((m) => m.id === deleteTargetId) ?? null : null;

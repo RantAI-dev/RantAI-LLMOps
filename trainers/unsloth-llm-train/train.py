@@ -161,7 +161,9 @@ def _load_training_dataset(spec: str):
       - a local file or directory   "/uidata/sft/train.jsonl", "/uidata/sft"
       - an http(s) URL              "https://minio.internal/sft/train.jsonl"
       - an S3 / MinIO URI           "s3://buku-korpus/sft/train.jsonl", or a prefix
-                                    ending in "/" holding train.jsonl (+ eval.jsonl)
+                                    /whole bucket ending in "/" — either holding
+                                    train.jsonl (+ eval.jsonl), or every .jsonl/.csv
+                                    under it concatenated into one training set
 
     Upstream only understood hub ids, which forced every dataset through
     huggingface.co — untenable for a corpus that is required to stay on-premise.
@@ -194,18 +196,54 @@ def _load_training_dataset(spec: str):
         local_dir = os.path.abspath("_dataset")
         os.makedirs(local_dir, exist_ok=True)
 
-        def _pull(remote):
-            local = os.path.join(local_dir, os.path.basename(remote))
+        def _pull(remote, local_name=None):
+            local = os.path.join(local_dir, local_name or os.path.basename(remote))
             lab.log(f"Pulling {remote} -> {local}")
             fs.get(remote, local)
             return local
 
         if spec.endswith("/"):
-            train_local = _pull(f"{spec}train.jsonl")
-            eval_remote = f"{spec}eval.jsonl"
-            eval_local = _pull(eval_remote) if fs.exists(eval_remote) else None
-        else:
-            train_local, eval_local = _pull(spec), None
+            # A prefix or whole-bucket reference (e.g. "s3://buku-korpus/sft/" or
+            # "s3://buku-korpus/"). Two modes, auto-selected:
+            #   1. Convention: if `train.jsonl` sits at the prefix, use it (+ an
+            #      optional `eval.jsonl` as the validation split). Back-compat.
+            #   2. Whole prefix/bucket: otherwise pull EVERY `.jsonl`/`.csv` under
+            #      the prefix (recursively) and concatenate them into one training
+            #      set — "load the whole bucket". `_`-prefixed keys (the UI's
+            #      import manifest) are skipped.
+            if fs.exists(f"{spec}train.jsonl"):
+                train_local = _pull(f"{spec}train.jsonl")
+                eval_remote = f"{spec}eval.jsonl"
+                eval_local = _pull(eval_remote) if fs.exists(eval_remote) else None
+                lab.log(f"Dataset source: S3 ({endpoint or 'default endpoint'}, train.jsonl convention)")
+                return _from_files(train_local, eval_local)
+
+            # s3fs.find returns bucket-relative keys ("bucket/dir/file.jsonl").
+            found = fs.find(spec)
+
+            def _keep(key):
+                base = key.rsplit("/", 1)[-1]
+                return not base.startswith("_") and (key.endswith(".jsonl") or key.endswith(".csv"))
+
+            keys = sorted(k for k in found if _keep(k))
+            if not keys:
+                raise RuntimeError(f"No .jsonl/.csv datasets found under {spec}")
+
+            # One load_dataset call takes a single builder, so don't mix formats:
+            # prefer JSONL shards; fall back to CSV only if there are no JSONL.
+            jsonl = [k for k in keys if k.endswith(".jsonl")]
+            csv = [k for k in keys if k.endswith(".csv")]
+            chosen, fmt = (jsonl, "json") if jsonl else (csv, "csv")
+            skipped = len(keys) - len(chosen)
+
+            locals_ = [_pull(f"s3://{k}", local_name=k.replace("/", "__")) for k in chosen]
+            lab.log(
+                f"Dataset source: S3 whole prefix {spec} — {len(locals_)} {fmt} file(s)"
+                + (f", skipped {skipped} of other format" if skipped else "")
+            )
+            return load_dataset(fmt, data_files={"train": locals_})
+
+        train_local, eval_local = _pull(spec), None
         lab.log(f"Dataset source: S3 ({endpoint or 'default endpoint'})")
         return _from_files(train_local, eval_local)
 

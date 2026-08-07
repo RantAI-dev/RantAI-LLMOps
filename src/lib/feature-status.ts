@@ -35,6 +35,14 @@ export const FEATURE_STATUS = {
   "dataset.qualityScan": "mock",
   "dataset.externalSources": "mock",
 
+  // Corpus pre-processing (Dataset → "From PDF") — real end-to-end: a book PDF
+  // is parsed in-process (pdfjs), cleaned, chapter-mapped and cut into
+  // citation-headed chunks, then written to S3/MinIO. Fase 1 of the corpus plan.
+  // The OCR path for scanned books is not built — those are detected and
+  // reported, never silently turned into empty chunks.
+  "dataset.pdfCorpus": "live",
+  "dataset.pdfOcr": "planned",
+
   // Interact — real chat playground: the UI streams from an OpenAI-compatible
   // engine (Ollama / llama.cpp / vLLM / Transformer Lab) via our `/api/chat` BFF.
   "chat.playground": "live",
