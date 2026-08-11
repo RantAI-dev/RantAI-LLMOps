@@ -4,9 +4,12 @@
  * v0.40.0 delegates serving to an external OpenAI-compatible engine. Until now
  * that was hardwired to Ollama in every route. This module makes the engine a
  * choice: Ollama (GGUF, serves every pulled model, run on the host) and vLLM
- * (safetensors, serves ONE model launched at container start, uses the GB10's
- * full precision). Both speak `/v1`, so once a route resolves the engine's base
- * URL + headers the rest of the proxy is identical.
+ * (safetensors, full precision). vLLM serves one base model, and — when launched
+ * with `--enable-lora` / VLLM_LORA_MODULES — additional LoRA adapters the client
+ * picks per request via the `model` field (base / asklearn / practice). Both
+ * engines speak `/v1`, so once a route resolves the engine's base URL + headers
+ * the rest of the proxy is identical, and each served name (base or adapter) is
+ * just another entry in `/v1/models`.
  *
  * vLLM is optional: it is only "configured" when VLLM_BASE_URL is set. Fase 0
  * proved it runs on the GB10; a permanent instance (and that env var) lands in
@@ -104,7 +107,8 @@ async function vllmInfo(): Promise<EngineInfo> {
     label: "vLLM",
     v1BaseUrl: VLLM_BASE_URL,
     configured: true,
-    // vLLM serves exactly one model; reachability == that model being listed.
+    // `/v1/models` lists the base first, then any LoRA adapters. Reachability ==
+    // at least the base being listed; `loaded` reports the base (models[0]).
     available: models.length > 0,
     loaded: models[0]?.id ?? null,
     models,

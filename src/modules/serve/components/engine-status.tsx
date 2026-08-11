@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 /** What each engine is for, in the user's terms — not how it's wired. */
 const ENGINE_BLURB: Record<string, string> = {
   ollama: "Fast & simple. Serves every downloaded GGUF model at once.",
-  vllm: "Full precision (safetensors) & high request concurrency. Serves one model.",
+  vllm: "Full precision (safetensors) & high concurrency. Serves a base model, plus LoRA adapters routed to per request.",
 };
 
 type Status = { label: string; tone: "ok" | "off" | "warn"; icon: typeof CheckCircle2 };
@@ -62,13 +62,38 @@ function EngineCard({ engine }: { engine: EngineInfo }) {
         </dl>
       ) : null}
 
-      {/* vLLM serves one model per instance by design — say so, so its fixed
-          model doesn't read as a limitation of this app. */}
+      {/* vLLM either serves a single fixed model, or a base + LoRA adapters the
+          client routes to by `model` name. Show whichever is live. */}
       {engine.configured && engine.id === "vllm" ? (
-        <p className="mt-2 text-[11px] leading-4 text-ink-faint">
-          vLLM serves one model per instance. Change the model via{" "}
-          <span className="font-mono">VLLM_MODEL</span> (a Hugging Face id or fine-tune path), then redeploy.
-        </p>
+        engine.models.length > 1 ? (
+          <div className="mt-2">
+            <p className="text-[11px] leading-4 text-ink-faint">
+              Serving a base + {engine.models.length - 1} adapter
+              {engine.models.length - 1 > 1 ? "s" : ""} — clients route by the{" "}
+              <span className="font-mono">model</span> field, no reload.
+            </p>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {engine.models.map((m, i) => (
+                <span
+                  key={m.id}
+                  title={i === 0 ? "base model" : "LoRA adapter"}
+                  className={cn(
+                    "rounded-full px-2 py-0.5 font-mono text-[11px]",
+                    i === 0 ? "bg-surface-2 text-ink-soft" : "bg-success-soft text-success"
+                  )}
+                >
+                  {m.name.split("/").pop()}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="mt-2 text-[11px] leading-4 text-ink-faint">
+            Serving one model. Attach LoRA adapters with{" "}
+            <span className="font-mono">VLLM_LORA_MODULES</span> (base + adapters, routed per
+            request), or change it via <span className="font-mono">VLLM_MODEL</span>, then redeploy.
+          </p>
+        )
       ) : null}
 
       {!engine.configured ? (
