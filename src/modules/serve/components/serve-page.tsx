@@ -1,6 +1,7 @@
 "use client";
 
 import { InfoTip } from "@/components/ui/tooltip";
+import { AdapterManager } from "@/modules/serve/components/adapter-manager";
 import { EngineStatus } from "@/modules/serve/components/engine-status";
 import { GatewayAccess } from "@/modules/serve/components/gateway-access";
 
@@ -24,6 +25,7 @@ export function ServePage() {
       </div>
 
       <EngineStatus />
+      <AdapterManager />
       <GatewayAccess />
     </div>
   );
