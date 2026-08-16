@@ -12,7 +12,6 @@ import { PdfCorpusPanel } from "@/modules/corpus";
 import { DatasetCard } from "@/modules/datasets/components/dataset-card";
 import { DatasetFiltersBar } from "@/modules/datasets/components/dataset-filters";
 import { DatasetSummaryCards } from "@/modules/datasets/components/dataset-summary-cards";
-import { ImportS3Dialog } from "@/modules/datasets/components/import-s3-dialog";
 import { UploadDatasetDialog } from "@/modules/datasets/components/upload-dataset-dialog";
 import { datasetUi } from "@/modules/datasets/constants/dataset-ui";
 import { datasetHref } from "@/modules/datasets/lib/routes";
@@ -33,7 +32,6 @@ export function DatasetsPage() {
 
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [importS3Open, setImportS3Open] = useState(false);
 
   // Filter/search state lives here (not in the shared DatasetsProvider) so typing
   // only re-renders this page — not every consumer of the datasets data context.
@@ -110,7 +108,7 @@ export function DatasetsPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-          <Button type="button" variant="outline" onClick={() => setImportS3Open(true)}>
+          <Button type="button" variant="outline" onClick={() => router.push("/datasets/import")}>
             <CloudDownload className="size-4" />
             Import from S3
           </Button>
@@ -129,12 +127,6 @@ export function DatasetsPage() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         onUploaded={() => reloadDatasets()}
-      />
-
-      <ImportS3Dialog
-        open={importS3Open}
-        onClose={() => setImportS3Open(false)}
-        onImported={() => reloadDatasets()}
       />
 
       <Tabs defaultValue="library">

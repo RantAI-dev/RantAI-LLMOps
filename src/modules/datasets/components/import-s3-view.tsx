@@ -1,18 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CloudDownload, Eye, Folder, ListPlus, Loader2, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { BreadcrumbNav } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
 import { cn } from "@/lib/utils";
 
 type S3Format = "jsonl" | "csv" | "pdf" | "other";
@@ -36,20 +31,17 @@ type BrowseResponse = {
 };
 
 /**
- * Import an existing dataset from S3/MinIO by *reference* — no upload, no copy.
- * Browse an allowed bucket, tick the `.jsonl` / `.csv` objects to register (or
- * paste raw `s3://…` refs), and they show up in the library + Fine-tune picker.
- * A manifest in S3 keeps the list; nothing is duplicated onto disk.
+ * Route-level "Import from S3" (`/datasets/import`). Same reference-only import
+ * flow that used to live in a cramped modal, given a full page so the bucket
+ * browser and the pool/library panels can breathe. Browse an allowed bucket,
+ * tick `.jsonl` / `.csv` objects to register (or paste raw `s3://…` refs), and
+ * they show up in the library + Fine-tune picker. A manifest in S3 keeps the
+ * list; nothing is duplicated onto disk.
  */
-export function ImportS3Dialog({
-  open,
-  onClose,
-  onImported,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onImported: () => void;
-}) {
+export function ImportS3View() {
+  const router = useRouter();
+  const { reloadDatasets } = useDatasets();
+
   const [configured, setConfigured] = useState(true);
   const [buckets, setBuckets] = useState<string[]>([]);
   const [bucket, setBucket] = useState("");
@@ -66,6 +58,13 @@ export function ImportS3Dialog({
   const [bulk, setBulk] = useState({ running: false, done: 0, failed: 0, total: 0 });
 
   const importedRefs = new Set(imported.map((d) => d.ref));
+
+  const back = () => router.push("/datasets");
+
+  // Keep the shared library list in sync, then let the caller decide navigation.
+  const afterImport = useCallback(() => {
+    void reloadDatasets();
+  }, [reloadDatasets]);
 
   const loadImported = useCallback(async () => {
     try {
@@ -110,20 +109,13 @@ export function ImportS3Dialog({
     void browse(bucket, depth < 0 ? "" : `${crumbs.slice(0, depth + 1).join("/")}/`);
 
   useEffect(() => {
-    if (!open) return;
     // Kick the loads off the effect's synchronous path (their setState lands in
     // async callbacks) — react-hooks/set-state-in-effect.
     void Promise.resolve().then(() => {
       void browse();
       void loadImported();
     });
-  }, [open, browse, loadImported]);
-
-  const close = () => {
-    setPasted("");
-    setSelected(new Set());
-    onClose();
-  };
+  }, [browse, loadImported]);
 
   const toggle = (key: string) => {
     setSelected((prev) => {
@@ -159,7 +151,7 @@ export function ImportS3Dialog({
       setImported(data.datasets ?? []);
       setSelected(new Set());
       setPasted("");
-      onImported();
+      afterImport();
     } catch (err) {
       toast.error((err as Error).message || "Failed to import");
     } finally {
@@ -180,7 +172,7 @@ export function ImportS3Dialog({
       if (!res.ok) throw new Error(data.error || "Failed to import bucket");
       toast.success(`Imported entire "${bucket}" bucket as one dataset.`);
       setImported(data.datasets ?? []);
-      onImported();
+      afterImport();
     } catch (err) {
       toast.error((err as Error).message || "Failed to import bucket");
     } finally {
@@ -279,200 +271,237 @@ export function ImportS3Dialog({
       const data = (await res.json().catch(() => ({}))) as { datasets?: ImportedEntry[] };
       setImported(data.datasets ?? imported.filter((d) => d.ref !== ref));
       toast.success("Removed from library (S3 object left intact).");
-      onImported();
+      afterImport();
     } catch {
       toast.error("Could not remove the import.");
     }
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (!next && !busy ? close() : undefined)}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-primary">Import from S3 / MinIO</DialogTitle>
-          <DialogDescription>
-            Load a dataset by <strong>reference</strong> — the trainer pulls it from S3 at run time,
-            nothing is copied to disk. Import a whole bucket, pick individual{" "}
-            <strong>.jsonl</strong> / <strong>.csv</strong> files, or turn PDFs into chunks.
-          </DialogDescription>
-        </DialogHeader>
-
-        {!configured ? (
-          <div className="rounded-md border border-hairline bg-surface p-3 text-[12px] text-ink-soft">
-            S3/MinIO isn’t configured. Set <code>S3_ENDPOINT_URL</code> + credentials to enable this.
+    <article className="min-w-0 w-full space-y-4">
+      <header className="space-y-2 border-b border-hairline pb-4">
+        <BreadcrumbNav
+          items={[{ label: "Dataset Library", onClick: back }, { label: "Import from S3" }]}
+        />
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-primary text-xl font-semibold">Import from S3 / MinIO</h1>
+            <p className="mt-1 max-w-2xl text-[13px] text-ink-soft">
+              Load a dataset by <strong>reference</strong> — the trainer pulls it from S3 at run
+              time, nothing is copied to disk. Import a whole bucket, pick individual{" "}
+              <strong>.jsonl</strong> / <strong>.csv</strong> files, or turn PDFs into chunks.
+            </p>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {/* Browse a bucket */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-medium text-ink">Bucket</span>
-                <select
-                  value={bucket}
-                  onChange={(e) => void browse(e.target.value)}
-                  disabled={loading || busy}
-                  className="h-8 rounded-md border border-input bg-surface px-2 text-sm text-ink"
-                >
-                  {buckets.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
-                </select>
-                {loading ? <Loader2 className="size-4 animate-spin text-ink-soft" /> : null}
-              </div>
+          <Button type="button" variant="outline" onClick={back} disabled={busy}>
+            Back to Library
+          </Button>
+        </div>
+      </header>
 
-              {/* Whole-bucket import: load every .jsonl/.csv under the bucket as one dataset. */}
-              {bucket ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2">
-                  <span className="min-w-0 text-[12px] text-ink">
-                    Load the <strong>whole “{bucket}” bucket</strong> as one dataset (all
-                    <strong> .jsonl/.csv</strong> under it).
-                  </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={busy || loading || importedRefs.has(`s3://${bucket}/`)}
-                    onClick={() => void importBucket()}
-                  >
-                    {importedRefs.has(`s3://${bucket}/`) ? "Added" : "Import bucket"}
-                  </Button>
-                </div>
-              ) : null}
-
-              {/* Breadcrumb — navigate folders. Only .jsonl/.csv can be ticked; other
-                  files (PDFs, …) are shown so a source folder can be explored. */}
-              <div className="flex flex-wrap items-center gap-1 text-[12px] text-ink-soft">
-                <button type="button" onClick={() => goTo(-1)} disabled={loading || busy} className="hover:text-ink hover:underline">
-                  {bucket || "bucket"}
-                </button>
-                {crumbs.map((seg, i) => (
-                  <span key={i} className="flex items-center gap-1">
-                    <span>/</span>
-                    <button type="button" onClick={() => goTo(i)} disabled={loading || busy} className="hover:text-ink hover:underline">
-                      {seg}
-                    </button>
-                  </span>
+      {!configured ? (
+        <div className="rounded-md border border-hairline bg-surface p-3 text-[12px] text-ink-soft">
+          S3/MinIO isn’t configured. Set <code>S3_ENDPOINT_URL</code> + credentials to enable this.
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+          {/* Left column: browse a bucket */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-medium text-ink">Bucket</span>
+              <select
+                value={bucket}
+                onChange={(e) => void browse(e.target.value)}
+                disabled={loading || busy}
+                className="h-8 rounded-md border border-input bg-surface px-2 text-sm text-ink"
+              >
+                {buckets.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
                 ))}
-              </div>
-
-              <div className="max-h-64 overflow-y-auto rounded-md border border-hairline">
-                {folders.length === 0 && objects.length === 0 && !loading ? (
-                  <p className="p-3 text-[12px] text-ink-soft">This folder is empty.</p>
-                ) : (
-                  <>
-                    {folders.map((f) => (
-                      <div
-                        key={f.prefix}
-                        className="flex items-center gap-2 border-b border-hairline px-3 py-2 last:border-b-0 hover:bg-surface"
-                      >
-                        <button
-                          type="button"
-                          disabled={loading || busy}
-                          onClick={() => void browse(bucket, f.prefix)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
-                          <Folder className="size-4 shrink-0 text-ink-soft" />
-                          <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{f.name}/</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void addFolderToPool(f.prefix)}
-                          className={PILL}
-                          title="Add all PDFs in this folder to the pool"
-                        >
-                          <ListPlus className="size-3" /> Pool
-                        </button>
-                      </div>
-                    ))}
-                    {objects.map((o) => {
-                      const already = importedRefs.has(`s3://${bucket}/${o.key}`);
-                      const selectable = isDatasetFormat(o.format);
-                      return (
-                        <label
-                          key={o.key}
-                          className={cn(
-                            "flex items-center gap-3 border-b border-hairline px-3 py-2 last:border-b-0",
-                            selectable ? "cursor-pointer hover:bg-surface" : "opacity-80",
-                            already && "opacity-60"
-                          )}
-                          title={selectable ? o.key : `${o.key} — only .jsonl / .csv can be imported`}
-                        >
-                          {selectable ? (
-                            <input
-                              type="checkbox"
-                              checked={selected.has(o.key)}
-                              disabled={busy || already}
-                              onChange={() => toggle(o.key)}
-                              className="size-4 shrink-0"
-                            />
-                          ) : (
-                            <span className="size-4 shrink-0" aria-hidden />
-                          )}
-                          <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{o.name}</span>
-
-                          {/* Right cluster: PDF actions, then format + size — grouped so
-                              they never collide with the (truncating) file name. */}
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {o.format === "pdf" ? (
-                              <>
-                                <a
-                                  href={`/api/corpus/pdf?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(o.key)}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className={PILL}
-                                  title="View PDF"
-                                >
-                                  <Eye className="size-3" /> View
-                                </a>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    void genChunks(o.key);
-                                  }}
-                                  disabled={processing.has(o.key)}
-                                  className={PILL}
-                                  title="Generate citation-headed chunks (JSONL) → S3"
-                                >
-                                  {processing.has(o.key) ? <Loader2 className="size-3 animate-spin" /> : <Wand2 className="size-3" />}
-                                  {processing.has(o.key) ? "…" : "Gen chunks"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    addToPool([o.key]);
-                                  }}
-                                  disabled={poolKeys.has(`${bucket}/${o.key}`)}
-                                  className={PILL}
-                                  title="Add this PDF to the pool"
-                                >
-                                  <ListPlus className="size-3" /> {poolKeys.has(`${bucket}/${o.key}`) ? "In pool" : "Pool"}
-                                </button>
-                              </>
-                            ) : null}
-                            <span
-                              className={cn(
-                                "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase",
-                                selectable ? "bg-primary-soft text-primary" : "bg-surface text-ink-soft"
-                              )}
-                            >
-                              {o.format}
-                            </span>
-                            <span className="w-14 text-right text-[11px] text-ink-soft">
-                              {already ? "added" : o.sizeKb != null ? `${o.sizeKb} KB` : "—"}
-                            </span>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
+              </select>
+              {loading ? <Loader2 className="size-4 animate-spin text-ink-soft" /> : null}
             </div>
+
+            {/* Whole-bucket import: load every .jsonl/.csv under the bucket as one dataset. */}
+            {bucket ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-primary/30 bg-primary-soft/40 px-3 py-2">
+                <span className="min-w-0 text-[12px] text-ink">
+                  Load the <strong>whole “{bucket}” bucket</strong> as one dataset (all
+                  <strong> .jsonl/.csv</strong> under it).
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy || loading || importedRefs.has(`s3://${bucket}/`)}
+                  onClick={() => void importBucket()}
+                >
+                  {importedRefs.has(`s3://${bucket}/`) ? "Added" : "Import bucket"}
+                </Button>
+              </div>
+            ) : null}
+
+            {/* Breadcrumb — navigate folders. Only .jsonl/.csv can be ticked; other
+                files (PDFs, …) are shown so a source folder can be explored. */}
+            <div className="flex flex-wrap items-center gap-1 text-[12px] text-ink-soft">
+              <button type="button" onClick={() => goTo(-1)} disabled={loading || busy} className="hover:text-ink hover:underline">
+                {bucket || "bucket"}
+              </button>
+              {crumbs.map((seg, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  <span>/</span>
+                  <button type="button" onClick={() => goTo(i)} disabled={loading || busy} className="hover:text-ink hover:underline">
+                    {seg}
+                  </button>
+                </span>
+              ))}
+            </div>
+
+            <div className="max-h-[60vh] overflow-y-auto rounded-md border border-hairline">
+              {folders.length === 0 && objects.length === 0 && !loading ? (
+                <p className="p-3 text-[12px] text-ink-soft">This folder is empty.</p>
+              ) : (
+                <>
+                  {folders.map((f) => (
+                    <div
+                      key={f.prefix}
+                      className="flex items-center gap-2 border-b border-hairline px-3 py-2 last:border-b-0 hover:bg-surface"
+                    >
+                      <button
+                        type="button"
+                        disabled={loading || busy}
+                        onClick={() => void browse(bucket, f.prefix)}
+                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      >
+                        <Folder className="size-4 shrink-0 text-ink-soft" />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{f.name}/</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void addFolderToPool(f.prefix)}
+                        className={PILL}
+                        title="Add all PDFs in this folder to the pool"
+                      >
+                        <ListPlus className="size-3" /> Pool
+                      </button>
+                    </div>
+                  ))}
+                  {objects.map((o) => {
+                    const already = importedRefs.has(`s3://${bucket}/${o.key}`);
+                    const selectable = isDatasetFormat(o.format);
+                    return (
+                      <label
+                        key={o.key}
+                        className={cn(
+                          "flex items-center gap-3 border-b border-hairline px-3 py-2 last:border-b-0",
+                          selectable ? "cursor-pointer hover:bg-surface" : "opacity-80",
+                          already && "opacity-60"
+                        )}
+                        title={selectable ? o.key : `${o.key} — only .jsonl / .csv can be imported`}
+                      >
+                        {selectable ? (
+                          <input
+                            type="checkbox"
+                            checked={selected.has(o.key)}
+                            disabled={busy || already}
+                            onChange={() => toggle(o.key)}
+                            className="size-4 shrink-0"
+                          />
+                        ) : (
+                          <span className="size-4 shrink-0" aria-hidden />
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{o.name}</span>
+
+                        {/* Right cluster: PDF actions, then format + size — grouped so
+                            they never collide with the (truncating) file name. */}
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {o.format === "pdf" ? (
+                            <>
+                              <a
+                                href={`/api/corpus/pdf?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(o.key)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className={PILL}
+                                title="View PDF"
+                              >
+                                <Eye className="size-3" /> View
+                              </a>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  void genChunks(o.key);
+                                }}
+                                disabled={processing.has(o.key)}
+                                className={PILL}
+                                title="Generate citation-headed chunks (JSONL) → S3"
+                              >
+                                {processing.has(o.key) ? <Loader2 className="size-3 animate-spin" /> : <Wand2 className="size-3" />}
+                                {processing.has(o.key) ? "…" : "Gen chunks"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  addToPool([o.key]);
+                                }}
+                                disabled={poolKeys.has(`${bucket}/${o.key}`)}
+                                className={PILL}
+                                title="Add this PDF to the pool"
+                              >
+                                <ListPlus className="size-3" /> {poolKeys.has(`${bucket}/${o.key}`) ? "In pool" : "Pool"}
+                              </button>
+                            </>
+                          ) : null}
+                          <span
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase",
+                              selectable ? "bg-primary-soft text-primary" : "bg-surface text-ink-soft"
+                            )}
+                          >
+                            {o.format}
+                          </span>
+                          <span className="w-14 text-right text-[11px] text-ink-soft">
+                            {already ? "added" : o.sizeKb != null ? `${o.sizeKb} KB` : "—"}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Right column: refs, pool, library, primary action. Sticks while the
+              (potentially long) bucket list scrolls on the left. */}
+          <div className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+            {/* Paste raw refs (multi-source) */}
+            <label className="block">
+              <span className="mb-1 block text-[13px] font-medium text-ink">
+                …or link by reference (one <code>s3://bucket/key</code> per line)
+              </span>
+              <textarea
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+                placeholder={"s3://datasets/sft/train.jsonl\ns3://corpus/eval.csv"}
+                rows={3}
+                disabled={busy}
+                className="w-full rounded-md border border-input bg-surface px-2 py-1.5 text-[13px] text-ink placeholder:text-ink-soft/60"
+              />
+            </label>
+
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => void submit()}
+              disabled={total === 0 || busy || !configured}
+            >
+              {busy ? <Loader2 className="size-4 animate-spin" /> : <CloudDownload className="size-4" />}
+              {busy ? "Importing…" : total > 0 ? `Import ${total}` : "Import"}
+            </Button>
 
             {/* Processing pool — collect PDFs (across folders) then bulk-generate chunks. */}
             {pool.length > 0 ? (
@@ -490,7 +519,7 @@ export function ImportS3Dialog({
                     Clear
                   </button>
                 </div>
-                <div className="max-h-24 space-y-1 overflow-y-auto">
+                <div className="max-h-40 space-y-1 overflow-y-auto">
                   {pool.map((p) => (
                     <div key={`${p.bucket}/${p.key}`} className="flex items-center gap-2 text-[11px] text-ink-soft">
                       <span className="min-w-0 flex-1 truncate" title={`${p.bucket}/${p.key}`}>
@@ -521,28 +550,11 @@ export function ImportS3Dialog({
               </div>
             ) : null}
 
-            {/* Paste raw refs (multi-source) */}
-            <label className="block">
-              <span className="mb-1 block text-[13px] font-medium text-ink">
-                …or link by reference (one <code>s3://bucket/key</code> per line)
-              </span>
-              <textarea
-                value={pasted}
-                onChange={(e) => setPasted(e.target.value)}
-                placeholder={"s3://datasets/sft/train.jsonl\ns3://corpus/eval.csv"}
-                rows={2}
-                disabled={busy}
-                className="w-full rounded-md border border-input bg-surface px-2 py-1.5 text-[13px] text-ink placeholder:text-ink-soft/60"
-              />
-            </label>
-
             {/* Currently imported (manage/remove) */}
             {imported.length > 0 ? (
               <div className="space-y-1">
-                <span className="text-[12px] font-medium text-ink-soft">
-                  In library ({imported.length})
-                </span>
-                <div className="max-h-28 space-y-1 overflow-y-auto">
+                <span className="text-[12px] font-medium text-ink-soft">In library ({imported.length})</span>
+                <div className="max-h-64 space-y-1 overflow-y-auto">
                   {imported.map((d) => (
                     <div
                       key={d.ref}
@@ -566,18 +578,8 @@ export function ImportS3Dialog({
               </div>
             ) : null}
           </div>
-        )}
-
-        <DialogFooter>
-          <Button type="button" variant="outline" onClick={close} disabled={busy}>
-            Close
-          </Button>
-          <Button type="button" onClick={submit} disabled={total === 0 || busy || !configured}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <CloudDownload className="size-4" />}
-            {busy ? "Importing…" : total > 0 ? `Import ${total}` : "Import"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      )}
+    </article>
   );
 }
