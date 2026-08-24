@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { EnginePicker } from "@/modules/playground/components/engine-picker";
 import { ModelPicker } from "@/modules/playground/components/model-picker";
+import { VllmModelPicker } from "@/modules/playground/components/vllm-model-picker";
 import { clearPrompt, peekPrompt } from "@/modules/prompts/lib/handoff";
 import { parseChatMetrics, parseChatSseError, parseChatSseLine } from "@/modules/playground/lib/sse";
 import type { ChatMessage, ChatMetrics } from "@/modules/playground/types";
@@ -30,10 +31,18 @@ export function ChatArea({
   const [input, setInput] = useState("");
   const [model, setModel] = useState("");
   // Which engine serves this chat. Ollama by default; the picker only appears
-  // when a second engine (vLLM) is configured. vLLM serves a single model, so
-  // when it's selected we send no model and let the backend resolve its one.
+  // when a second engine (vLLM) is configured.
   const [engine, setEngine] = useState<EngineInfo | null>(null);
   const isOllama = !engine || engine.id === "ollama";
+  // vLLM serves a base + its LoRA adapters (base / ask / learn / practice); the
+  // client picks one per request via `model`. Default to the grounded `ask`
+  // adapter (the base is a raw reasoning model that rambles). `effectiveVllmModel`
+  // snaps to a served name so we never send one vLLM doesn't have.
+  const [vllmModel, setVllmModel] = useState("ask");
+  const vllmModels = engine?.models ?? [];
+  const effectiveVllmModel = vllmModels.some((m) => m.id === vllmModel)
+    ? vllmModel
+    : (vllmModels.find((m) => m.id === "ask")?.id ?? vllmModels[0]?.id ?? vllmModel);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -106,8 +115,9 @@ export function ChatArea({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: history,
-          // vLLM serves one model → send none and let the backend resolve it.
-          model: isOllama ? model || undefined : undefined,
+          // Ollama: the picked model (or its hot default). vLLM: the picked
+          // served name / adapter (`ask` by default).
+          model: isOllama ? model || undefined : effectiveVllmModel || undefined,
           engine: engine?.id,
         }),
         signal: controller.signal,
@@ -172,11 +182,8 @@ export function ChatArea({
         {isOllama ? (
           <ModelPicker value={model} onChange={setModel} />
         ) : (
-          // vLLM serves one fixed model — show it read-only instead of the
-          // Ollama picker, whose list wouldn't apply.
-          <span className="max-w-[320px] truncate px-2 py-1 text-sm font-semibold text-primary" title={engine?.loaded ?? undefined}>
-            {engine?.loaded?.split("/").pop() ?? "vLLM model"}
-          </span>
+          // vLLM: pick the base or one of its LoRA adapters (defaults to `ask`).
+          <VllmModelPicker value={effectiveVllmModel} onChange={setVllmModel} models={vllmModels} />
         )}
         <EnginePicker value={engine?.id ?? "ollama"} onChange={setEngine} />
       </div>

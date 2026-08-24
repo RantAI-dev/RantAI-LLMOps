@@ -76,6 +76,12 @@ export async function POST(req: NextRequest) {
         // stuck in "…1 kg sawi hijau, 1 kg sawi hijau…" degeneration loops.
         frequency_penalty: body.frequency_penalty ?? 0.4,
         presence_penalty: body.presence_penalty ?? 0.3,
+        // The vLLM base (Llama-SEA-LION-v3.5-8B-R) is a reasoning model whose
+        // chat template emits <think>…</think> traces. Turn them off so the chat
+        // shows only the answer. The template's flag is `thinking` (NOT the
+        // Qwen-style `enable_thinking`); an unused kwarg is ignored by templates
+        // that don't read it, so this is safe for the adapters and any other model.
+        ...(engine.id === "vllm" ? { chat_template_kwargs: { thinking: false } } : {}),
       }),
       // Abort if the client disconnects, and hard-cap at 10 min so a hung engine
       // can't pin a request worker indefinitely.
