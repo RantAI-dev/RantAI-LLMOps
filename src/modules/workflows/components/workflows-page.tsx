@@ -47,7 +47,7 @@ function StageRow({ stage, last }: { stage: Stage; last: boolean }) {
 
 /** Workflows: one-click fine-tune → eval → export GGUF pipeline. */
 export function WorkflowsPage() {
-  const { running, stages, result, error, run, runs, clearRuns } = usePipeline();
+  const { running, stages, result, error, run, resume, runs, clearRuns } = usePipeline();
   const [opts, setOpts] = useState<FinetuneOptions | null>(null);
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([]);
   const [model, setModel] = useState("");
@@ -58,6 +58,7 @@ export function WorkflowsPage() {
   const [coverage, setCoverage] = useState(10);
   const [doEval, setDoEval] = useState(true);
   const [doExport, setDoExport] = useState(true);
+  const [ignoreCache, setIgnoreCache] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +99,7 @@ export function WorkflowsPage() {
       coverage,
       doEval,
       doExport,
+      ignoreCache,
     });
   };
 
@@ -171,6 +173,20 @@ export function WorkflowsPage() {
                 Export GGUF (so it can be chatted with)
               </label>
             </div>
+
+            <label className="mt-3 flex items-center gap-2 text-[12px] text-ink-soft">
+              <input
+                type="checkbox"
+                className="accent-primary"
+                checked={ignoreCache}
+                onChange={(e) => setIgnoreCache(e.target.checked)}
+              />
+              Force retrain — ignore cached adapters for an identical config
+              <InfoTip label="About caching">
+                By default an identical config (same base model, dataset, adapter name, epochs) reuses the
+                adapter it already produced instead of training again. Tick this to always train fresh.
+              </InfoTip>
+            </label>
 
             {doEval ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -255,7 +271,7 @@ export function WorkflowsPage() {
         </div>
       ) : null}
 
-      <WorkflowHistory runs={runs} onClear={clearRuns} />
+      <WorkflowHistory runs={runs} onClear={clearRuns} onResume={resume} resumeDisabled={running} />
     </div>
   );
 }

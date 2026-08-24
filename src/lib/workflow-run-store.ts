@@ -28,6 +28,12 @@ export type WorkflowRun = {
   loadModelId: string | null;
   trainJobId: string | null;
   overall: "success" | "partial" | "failed";
+  // Optional caching/versioning/resume fields (kept in sync with
+  // src/modules/workflows/lib/history.ts).
+  configHash?: string;
+  cacheVersion?: number;
+  requestedStages?: { eval: boolean; export: boolean };
+  cached?: boolean;
 };
 
 const DATA_DIR = process.env.RANTAI_DATA_DIR ?? path.join(process.cwd(), ".rantai-data");

@@ -26,6 +26,16 @@ export type WorkflowRun = {
   loadModelId: string | null;
   trainJobId: string | null;
   overall: RunOverall;
+  // --- Flyte-inspired caching + versioning + resume (all optional so runs
+  //     recorded before this feature stay valid) ---
+  /** Content hash of the training inputs — the cache key. */
+  configHash?: string;
+  /** CACHE_VERSION at record time; a mismatch disqualifies the run from cache reuse. */
+  cacheVersion?: number;
+  /** Which optional stages the user asked for — needed to resume exactly. */
+  requestedStages?: { eval: boolean; export: boolean };
+  /** True when this run reused a prior adapter instead of training a new one. */
+  cached?: boolean;
 };
 
 const API = "/api/workflows/runs";

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, CircleAlert, CircleDashed, MessageSquareMore, Trash2 } from "lucide-react";
+import { CheckCircle2, CircleAlert, CircleDashed, MessageSquareMore, RotateCcw, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -53,9 +53,13 @@ function StageDot({ status, label }: { status: string; label: string }) {
 export function WorkflowHistory({
   runs,
   onClear,
+  onResume,
+  resumeDisabled,
 }: {
   runs: WorkflowRun[];
   onClear: () => void;
+  onResume?: (run: WorkflowRun) => void;
+  resumeDisabled?: boolean;
 }) {
   if (runs.length === 0) {
     return (
@@ -106,6 +110,14 @@ export function WorkflowHistory({
                     {badge.label}
                   </span>
                   <span className="truncate text-sm font-medium text-ink">{r.adaptorName}</span>
+                  {r.cached ? (
+                    <span
+                      className="shrink-0 rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft"
+                      title="Reused a cached adapter (training skipped)"
+                    >
+                      ♻️ cache
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2 text-[11px] text-ink-soft">
                   {r.score != null ? (
@@ -123,6 +135,17 @@ export function WorkflowHistory({
                 {r.stages.map((s) => (
                   <StageDot key={s.key} status={s.status} label={s.label} />
                 ))}
+                {onResume && r.overall === "partial" && r.trainJobId ? (
+                  <button
+                    type="button"
+                    disabled={resumeDisabled}
+                    onClick={() => onResume(r)}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Re-run the failed stage(s), reusing the trained adapter"
+                  >
+                    <RotateCcw className="size-3.5" /> Resume
+                  </button>
+                ) : null}
                 {r.ggufReady && r.loadModelId ? (
                   <Link
                     href={`/interact?model=${encodeURIComponent(r.loadModelId)}`}
