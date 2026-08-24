@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { EnginePicker } from "@/modules/playground/components/engine-picker";
 import { ModelPicker } from "@/modules/playground/components/model-picker";
+import { clearPrompt, peekPrompt } from "@/modules/prompts/lib/handoff";
 import { parseChatMetrics, parseChatSseError, parseChatSseLine } from "@/modules/playground/lib/sse";
 import type { ChatMessage, ChatMetrics } from "@/modules/playground/types";
 import type { EngineInfo } from "@/modules/serve/hooks/use-engines";
@@ -59,6 +60,19 @@ export function ChatArea({
   // loop keeps calling setMessages after unmount and leaks tokens into whatever
   // session becomes active. The catch treats AbortError as a clean stop.
   useEffect(() => () => abortRef.current?.abort(), []);
+
+  // Prefill the input from a prompt handed off by the Prompt Registry ("Use in
+  // Playground"). Consume it once, deferred to dodge the cascading-render lint;
+  // clear only after applying so a StrictMode double-mount can't drop it.
+  useEffect(() => {
+    const handoff = peekPrompt();
+    if (!handoff) return;
+    const timer = setTimeout(() => {
+      setInput(handoff);
+      clearPrompt();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Apply a model preselected by the parent (from `/interact?model=`). Held in the
   // parent so a session-switch remount here doesn't drop it; we consume it once

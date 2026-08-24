@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+
+import { clearPrompt, peekPrompt } from "@/modules/prompts/lib/handoff";
 import { Columns2, History, Loader2, Play, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -53,6 +55,15 @@ export function GenerationsPage() {
     // hydration-safe: server + first client render show none, then this fills them in.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistory(loadGenHistory());
+  }, []);
+
+  useEffect(() => {
+    // Prefill from a prompt handed off by the Prompt Registry ("Use in Generations").
+    const handoff = peekPrompt();
+    if (!handoff) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time cross-page handoff read
+    setPromptText(handoff);
+    clearPrompt();
   }, []);
 
   useEffect(() => {

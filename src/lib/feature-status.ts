@@ -47,6 +47,10 @@ export const FEATURE_STATUS = {
   // Evals — real benchmark accuracy via TL's EleutherAI LM-Eval-Harness plugin:
   // pick a model + benchmark, run it, read the score. Through `/api/evals/*`.
   "eval.run": "live",
+
+  // Prompt Registry — versioned prompt management (versions, aliases, tags, diff,
+  // export) backed by a server-side file store. Through `/api/prompts/*`.
+  "prompts.registry": "live",
 } as const satisfies Record<string, FeatureStatus>;
 
 export type FeatureKey = keyof typeof FEATURE_STATUS;
