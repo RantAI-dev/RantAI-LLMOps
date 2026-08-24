@@ -51,6 +51,10 @@ export const FEATURE_STATUS = {
   // Prompt Registry — versioned prompt management (versions, aliases, tags, diff,
   // export) backed by a server-side file store. Through `/api/prompts/*`.
   "prompts.registry": "live",
+
+  // Traces — per-request record of chat inference (model, engine, tokens,
+  // latency), read from the real inference log. Through `/api/traces`.
+  "observability.traces": "live",
 } as const satisfies Record<string, FeatureStatus>;
 
 export type FeatureKey = keyof typeof FEATURE_STATUS;

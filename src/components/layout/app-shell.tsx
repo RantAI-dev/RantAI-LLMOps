@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
+  Activity,
   Bell,
   Boxes,
   BrainCog,
@@ -50,6 +51,7 @@ type NavItem = {
 /** Main app navigation — Dashboard first, then operations. */
 const mainNav: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: House },
+  { label: "Traces", href: "/traces", icon: Activity },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Interact", href: "/interact", icon: MessageSquareMore },
   { label: "Fine-tune", href: "/finetune", icon: Sparkles },

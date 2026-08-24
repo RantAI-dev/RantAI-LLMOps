@@ -19,6 +19,9 @@ const MAX_READ = 5000;
 export type InferenceEvent = {
   ts: number;
   model: string;
+  /** Which engine served it ("ollama" | "vllm"). Optional: older log lines
+   *  (written before per-request tracing) simply omit it. */
+  engine?: string;
   status: "ok" | "error";
   tokens: number;
   promptTokens: number;
@@ -56,6 +59,16 @@ async function readEvents(): Promise<InferenceEvent[]> {
     }
   }
   return out;
+}
+
+/**
+ * Recent individual request events, newest-first, for the per-request Traces
+ * view (the Dashboard only ever sees the aggregate from `getInferenceStats`).
+ * Reads the same log; capped by the store's MAX_READ window.
+ */
+export async function readRecentEvents(limit = 200): Promise<InferenceEvent[]> {
+  const events = await readEvents();
+  return events.slice(-Math.max(1, limit)).reverse();
 }
 
 export type InferenceStats = {
