@@ -220,6 +220,35 @@ services:
     networks:
       - llmops
 
+  # ─── Gateway for vLLM (auth + allowlist in front of the vLLM base+adapters) ───
+  # A SECOND instance of the same gateway.py, pointed at vLLM instead of Ollama, so
+  # external clients (RantAI Agents) can call the served adapters by name — the
+  # request's `model` field selects base / asklearn / practice, routed by vLLM.
+  # Kept separate from rantai-gateway so the Ollama endpoint (11435) is unaffected;
+  # this one publishes 11436. Point Agents that need the fine-tuned adapters here.
+  rantai-gateway-vllm:
+    image: ${BACKEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-backend@sha256:d4c323c76cbe7caf4f8c7eecbf9f052ef389bf38bdd104c380563134cd49d4be}
+    container_name: rantai-gateway-vllm
+    entrypoint: ["python3", "/opt/rantai/gateway.py"]
+    environment:
+      - GATEWAY_UPSTREAM=http://vllm:8000
+      - GATEWAY_PORT=8080
+      # Separate config file from the Ollama gateway (different allowlist); falls
+      # back to the env vars below until a UI writes it.
+      - GATEWAY_CONFIG_FILE=/uidata/gateway-vllm-config.json
+      - GATEWAY_API_KEYS=${GATEWAY_VLLM_API_KEYS:-}
+      # The vLLM served names: the base + each attached LoRA adapter.
+      - GATEWAY_ALLOWED_MODELS=${GATEWAY_VLLM_ALLOWED_MODELS:-base,asklearn,practice}
+    volumes:
+      - ui_data:/uidata:ro
+    ports:
+      - "${GATEWAY_VLLM_HOST_PORT:-11436}:8080"
+    depends_on:
+      - vllm
+    restart: unless-stopped
+    networks:
+      - llmops
+
   # ─── Frontend (Next.js) ──────────────────────────────────────────────────────
   frontend:
     # Override to test a locally built image: FRONTEND_IMAGE=rantai-llmops-fe:test
