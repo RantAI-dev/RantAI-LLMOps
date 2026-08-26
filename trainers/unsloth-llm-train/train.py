@@ -582,8 +582,8 @@ def train_with_unsloth():
                 # split exists, so the monitor can chart train vs eval loss. HF
                 # prints `{'eval_loss': ...}` to the log, which the frontend parses.
                 eval_strategy="steps" if "validation" in dataset else "no",
-                eval_steps=training_config["_config"]["save_steps"],
-                per_device_eval_batch_size=training_config["_config"]["batch_size"],
+                eval_steps=training_config["_config"].get("eval_steps", 5),
+                per_device_eval_batch_size=training_config["_config"].get("batch_size", 2),
                 load_best_model_at_end=False,
                 dataloader_num_workers=training_config["_config"]["dataloader_num_workers"],
             )

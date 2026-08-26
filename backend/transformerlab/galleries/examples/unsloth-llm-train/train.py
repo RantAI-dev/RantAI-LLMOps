@@ -335,6 +335,23 @@ def train_with_unsloth():
             lab.log("✅ Dataset formatted successfully")
             lab.log(f"Sample text length: {len(dataset['train'][0]['text']) if len(dataset['train']) > 0 else 0}")
 
+            # Validation split for EVAL LOSS: use a provided eval.jsonl split, else
+            # hold out a seeded 10% of train, so the monitor can chart train vs eval
+            # loss. %-format (not f-strings) to stay valid on the Py3.11 job venv.
+            if "validation" in dataset and len(dataset["validation"]) > 0:
+                dataset["validation"] = dataset["validation"].map(
+                    format_dataset,
+                    batched=False,
+                    remove_columns=[c for c in dataset["validation"].column_names if c != "text"],
+                )
+                lab.log("Using provided validation split: %d examples" % len(dataset["validation"]))
+            elif len(dataset["train"]) >= 20:
+                _split = dataset["train"].train_test_split(test_size=0.1, seed=3407)
+                dataset["train"], dataset["validation"] = _split["train"], _split["test"]
+                lab.log("Held out %d of train as validation for eval loss" % len(dataset["validation"]))
+            else:
+                lab.log("Train set too small for validation hold-out; eval loss disabled")
+
         except Exception as e:
             lab.log(f"⚠️  Error formatting dataset: {e}")
             import traceback
@@ -375,6 +392,12 @@ def train_with_unsloth():
                 resume_from_checkpoint=checkpoint if checkpoint else None,
                 save_total_limit=3,  # Keep only the last 3 checkpoints
                 save_strategy="steps",
+                # Eval loss: evaluate every few steps when a validation split exists,
+                # so short demo runs still produce an eval curve. HF prints
+                # {'eval_loss': ...}, which the training monitor parses and charts.
+                eval_strategy="steps" if "validation" in dataset else "no",
+                eval_steps=training_config["_config"].get("eval_steps", 5),
+                per_device_eval_batch_size=training_config["_config"].get("batch_size", 2),
                 load_best_model_at_end=False,
                 dataloader_num_workers=training_config["_config"]["dataloader_num_workers"],
             )
@@ -388,6 +411,7 @@ def train_with_unsloth():
                 model=model,
                 args=training_args,
                 train_dataset=dataset["train"],
+                eval_dataset=dataset.get("validation"),
                 tokenizer=tokenizer,
                 callbacks=[transformerlab_callback],
             )
