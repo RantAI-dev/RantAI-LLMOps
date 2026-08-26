@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 
 import { JobLogPanel, useJobOutput } from "@/components/job-log";
 import { GpuMeters } from "@/modules/compute/components/gpu-meters";
-import { parseLoss } from "@/modules/finetune/lib/parse-loss";
+import { parseEvalLoss, parseLoss } from "@/modules/finetune/lib/parse-loss";
 
 /**
  * Live training monitor for one job: polls the job's raw output (`provider_logs`,
@@ -18,23 +18,29 @@ import { parseLoss } from "@/modules/finetune/lib/parse-loss";
  * job, not just training.
  */
 
-function LossSparkline({ values }: { values: number[] }) {
+function LossSparkline({ values, evalValues = [] }: { values: number[]; evalValues?: number[] }) {
   const w = 300;
   const h = 48;
   const pad = 3;
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  // Share the y-scale across both series so train and eval are directly comparable.
+  const all = evalValues.length ? [...values, ...evalValues] : values;
+  const min = Math.min(...all);
+  const max = Math.max(...all);
   const span = max - min || 1;
-  const points = values
-    .map((v, i) => {
-      const x = pad + (i / (values.length - 1)) * (w - 2 * pad);
-      const y = pad + (1 - (v - min) / span) * (h - 2 * pad);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
+  const toPoints = (series: number[]) =>
+    series
+      .map((v, i) => {
+        const x = pad + (series.length > 1 ? i / (series.length - 1) : 0) * (w - 2 * pad);
+        const y = pad + (1 - (v - min) / span) * (h - 2 * pad);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full text-primary">
-      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="h-12 w-full">
+      <polyline className="text-primary" points={toPoints(values)} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+      {evalValues.length >= 2 ? (
+        <polyline className="text-warning" points={toPoints(evalValues)} fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+      ) : null}
     </svg>
   );
 }
@@ -44,7 +50,9 @@ export function TrainingMonitor({ jobId, active }: { jobId: string; active: bool
   const output = useJobOutput(jobId, active, open);
 
   const losses = useMemo(() => parseLoss(output), [output]);
+  const evalLosses = useMemo(() => parseEvalLoss(output), [output]);
   const lastLoss = losses.length ? losses[losses.length - 1] : null;
+  const lastEval = evalLosses.length ? evalLosses[evalLosses.length - 1] : null;
 
   return (
     <div className="mt-2 border-t border-hairline-2 pt-2">
@@ -56,7 +64,10 @@ export function TrainingMonitor({ jobId, active }: { jobId: string; active: bool
         {open ? <ChevronDown className="size-3.5" aria-hidden /> : <ChevronRight className="size-3.5" aria-hidden />}
         Log &amp; loss
         {lastLoss != null ? (
-          <span className="ml-1 tabular-nums text-ink-soft">· loss {lastLoss.toFixed(3)}</span>
+          <span className="ml-1 tabular-nums text-ink-soft">
+            · loss {lastLoss.toFixed(3)}
+            {lastEval != null ? ` · eval ${lastEval.toFixed(3)}` : ""}
+          </span>
         ) : null}
       </button>
 
@@ -65,12 +76,18 @@ export function TrainingMonitor({ jobId, active }: { jobId: string; active: bool
           {losses.length >= 2 ? (
             <div className="rounded-md border border-hairline-2 bg-background p-2">
               <div className="mb-1 flex items-center justify-between text-[11px] text-ink-soft">
-                <span>Training loss · {losses.length} steps</span>
+                <span>Loss · {losses.length} steps</span>
                 <span className="tabular-nums">
                   {losses[0].toFixed(3)} → {lastLoss?.toFixed(3)}
                 </span>
               </div>
-              <LossSparkline values={losses} />
+              <LossSparkline values={losses} evalValues={evalLosses} />
+              {evalLosses.length >= 2 ? (
+                <div className="mt-1 flex items-center gap-3 text-[10px]">
+                  <span className="text-primary">━ Training</span>
+                  <span className="text-warning">┄ Eval</span>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

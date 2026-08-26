@@ -501,6 +501,24 @@ def train_with_unsloth():
             lab.log("✅ Dataset formatted successfully")
             lab.log(f"Sample text length: {len(dataset['train'][0]['text']) if len(dataset['train']) > 0 else 0}")
 
+            # Validation split for EVAL LOSS: use a provided one (eval.jsonl ->
+            # dataset["validation"]) or hold out a small, seeded slice of train so
+            # the monitor can chart train loss vs eval loss. Formatted to the same
+            # `text` field the trainer consumes.
+            if "validation" in dataset and len(dataset["validation"]) > 0:
+                dataset["validation"] = dataset["validation"].map(
+                    format_dataset,
+                    batched=False,
+                    remove_columns=[c for c in dataset["validation"].column_names if c != "text"],
+                )
+                lab.log(f"Using provided validation split: {len(dataset['validation'])} examples")
+            elif len(dataset["train"]) >= 20:
+                _split = dataset["train"].train_test_split(test_size=0.1, seed=3407)
+                dataset["train"], dataset["validation"] = _split["train"], _split["test"]
+                lab.log(f"Held out {len(dataset['validation'])} of train as validation for eval loss")
+            else:
+                lab.log("Train set too small for a validation hold-out; eval loss disabled")
+
             # Samples longer than max_seq_length are truncated by the trainer, which is
             # invisible in the logs — for RAG-style data (retrieved context inside the
             # prompt) that silently drops the very passage the answer is grounded in.
@@ -560,6 +578,12 @@ def train_with_unsloth():
                 resume_from_checkpoint=checkpoint if checkpoint else None,
                 save_total_limit=3,  # Keep only the last 3 checkpoints
                 save_strategy="steps",
+                # Eval loss: evaluate at the checkpoint cadence when a validation
+                # split exists, so the monitor can chart train vs eval loss. HF
+                # prints `{'eval_loss': ...}` to the log, which the frontend parses.
+                eval_strategy="steps" if "validation" in dataset else "no",
+                eval_steps=training_config["_config"]["save_steps"],
+                per_device_eval_batch_size=training_config["_config"]["batch_size"],
                 load_best_model_at_end=False,
                 dataloader_num_workers=training_config["_config"]["dataloader_num_workers"],
             )
@@ -573,6 +597,7 @@ def train_with_unsloth():
                 model=model,
                 args=training_args,
                 train_dataset=dataset["train"],
+                eval_dataset=dataset.get("validation"),
                 tokenizer=tokenizer,
                 callbacks=[transformerlab_callback],
             )
