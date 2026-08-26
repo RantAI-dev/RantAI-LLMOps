@@ -5,6 +5,7 @@ import { useState } from "react";
 import { LoadingState } from "@/components/ui/loading-state";
 import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { ClassificationEval } from "@/modules/evals/components/classification-eval";
 import { EvalCompare } from "@/modules/evals/components/eval-compare";
 import { EvalForm } from "@/modules/evals/components/eval-form";
 import { EvalJobList } from "@/modules/evals/components/eval-job-list";
@@ -12,7 +13,7 @@ import { GroundingEval } from "@/modules/evals/components/grounding-eval";
 import { RetentionView } from "@/modules/evals/components/retention-view";
 import { useEvals } from "@/modules/evals/hooks/use-evals";
 
-type Tab = "single" | "compare" | "retention" | "grounding";
+type Tab = "single" | "compare" | "retention" | "grounding" | "classification";
 
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
@@ -45,6 +46,7 @@ export function EvalsPage() {
                 ["compare", "Compare"],
                 ["retention", "Retention"],
                 ["grounding", "Grounding"],
+                ["classification", "Classification"],
               ] as const
             ).map(([id, lbl]) => (
               <button
@@ -101,8 +103,10 @@ export function EvalsPage() {
               }}
               submitting={submitting}
             />
-          ) : (
+          ) : tab === "grounding" ? (
             <GroundingEval />
+          ) : (
+            <ClassificationEval />
           )}
         </>
       )}
