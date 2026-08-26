@@ -1,0 +1,12 @@
+{
+  "families": [
+    "Emotet",
+    "TrickBot",
+    "WannaCry",
+    "Mirai",
+    "AgentTesla",
+    "Ryuk",
+    "Zeus",
+    "RedLine"
+  ]
+}

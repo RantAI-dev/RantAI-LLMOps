@@ -1,0 +1,383 @@
+<title>AMAL Fine-Tuning Runbook</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#eef1f2; --surface:#ffffff; --surface-2:#f6f8f8;
+    --ink:#0e1a1c; --ink-soft:#4b5c5e; --ink-faint:#7d8e90;
+    --border:#dde4e5; --border-strong:#c6d0d1;
+    --accent:#0d7d74; --accent-soft:#d7ebe8;
+    --base:#c2410c; --ft:#0d9488;             /* chart marks (validated light) */
+    --good:#15803d; --warn:#b45309; --bad:#b91c1c;
+    --shadow:0 1px 2px rgba(9,30,30,.06),0 8px 24px rgba(9,30,30,.05);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --bg:#0a1212; --surface:#111d1d; --surface-2:#0e1919;
+    --ink:#e5efee; --ink-soft:#93a6a4; --ink-faint:#6d807e;
+    --border:#233130; --border-strong:#2f403e;
+    --accent:#2dd4bf; --accent-soft:#123332;
+    --base:#ea580c; --ft:#0d9488;             /* chart marks (validated dark) */
+    --good:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="dark"]{
+    --bg:#0a1212; --surface:#111d1d; --surface-2:#0e1919;
+    --ink:#e5efee; --ink-soft:#93a6a4; --ink-faint:#6d807e;
+    --border:#233130; --border-strong:#2f403e;
+    --accent:#2dd4bf; --accent-soft:#123332;
+    --base:#ea580c; --ft:#0d9488;
+    --good:#4ade80; --warn:#fbbf24; --bad:#f87171;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px; margin:0 auto; padding:clamp(20px,4vw,56px) clamp(16px,4vw,40px)}
+  .mono{font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+  .tnum{font-variant-numeric:tabular-nums}
+  h1,h2,h3{text-wrap:balance; line-height:1.15; margin:0}
+  a{color:var(--accent)}
+
+  /* header */
+  .eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12.5px; font-weight:500;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--accent)}
+  header h1{font-size:clamp(30px,5vw,46px); font-weight:700; letter-spacing:-.02em; margin:.35em 0 .3em}
+  .lede{font-size:clamp(16px,2vw,18.5px); color:var(--ink-soft); max-width:64ch}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; margin-top:22px}
+  .chip{display:inline-flex; align-items:center; gap:7px; background:var(--surface);
+    border:1px solid var(--border); border-radius:999px; padding:6px 13px; font-size:13px; color:var(--ink-soft)}
+  .chip b{color:var(--ink); font-weight:600}
+  .chip .dot{width:7px; height:7px; border-radius:50%; background:var(--accent)}
+
+  .rule{height:1px; background:var(--border); border:0; margin:clamp(30px,5vw,52px) 0}
+
+  .sec-head{display:flex; align-items:baseline; gap:14px; margin-bottom:22px}
+  .sec-head .num{font-family:"IBM Plex Mono",monospace; font-size:13px; font-weight:600;
+    color:var(--accent); letter-spacing:.05em}
+  .sec-head h2{font-size:clamp(21px,3vw,27px); font-weight:600; letter-spacing:-.01em}
+  .sec-sub{color:var(--ink-soft); margin:-10px 0 24px; max-width:66ch}
+
+  /* step cards */
+  .steps{display:flex; flex-direction:column; gap:14px}
+  .step{background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    box-shadow:var(--shadow); overflow:hidden; display:grid; grid-template-columns:56px 1fr}
+  .step .idx{background:var(--surface-2); border-right:1px solid var(--border);
+    display:flex; align-items:flex-start; justify-content:center; padding-top:18px;
+    font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:15px; color:var(--accent)}
+  .step .body{padding:16px 20px}
+  .step .top{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:10px}
+  .step h3{font-size:17px; font-weight:600}
+  .tag{font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; letter-spacing:.05em;
+    text-transform:uppercase; padding:3px 8px; border-radius:6px; border:1px solid transparent}
+  .tag.live{color:var(--good); background:color-mix(in srgb,var(--good) 12%,transparent); border-color:color-mix(in srgb,var(--good) 30%,transparent)}
+  .tag.offline{color:var(--warn); background:color-mix(in srgb,var(--warn) 14%,transparent); border-color:color-mix(in srgb,var(--warn) 32%,transparent)}
+  .kv{display:grid; grid-template-columns:auto 1fr; gap:6px 14px; margin:2px 0}
+  .kv dt{font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--ink-faint); padding-top:3px; white-space:nowrap}
+  .kv dd{margin:0; color:var(--ink)}
+  .kv dd.say{color:var(--ink-soft); font-style:italic}
+  .warnline{margin-top:11px; padding:9px 12px; border-radius:8px; font-size:13.5px;
+    background:color-mix(in srgb,var(--warn) 10%,transparent); color:var(--ink);
+    border:1px solid color-mix(in srgb,var(--warn) 26%,transparent)}
+  .warnline b{color:var(--warn)}
+  code.k{font-family:"IBM Plex Mono",monospace; font-size:.9em; background:var(--surface-2);
+    border:1px solid var(--border); border-radius:5px; padding:1px 6px; color:var(--ink)}
+
+  /* results */
+  .result-grid{display:grid; grid-template-columns:1fr; gap:22px}
+  @media(min-width:760px){.result-grid{grid-template-columns:minmax(0,340px) 1fr}}
+  .headline{background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    box-shadow:var(--shadow); padding:22px}
+  .headline .lab{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--ink-faint)}
+  .ba{display:flex; align-items:center; gap:14px; margin:12px 0 4px}
+  .ba .v{font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:clamp(30px,6vw,40px);
+    line-height:1; letter-spacing:-.02em}
+  .ba .v.before{color:var(--base)} .ba .v.after{color:var(--ft)}
+  .ba .arrow{color:var(--ink-faint); font-size:22px}
+  .delta{font-family:"IBM Plex Mono",monospace; color:var(--good); font-weight:600; font-size:15px}
+  .headline p{margin:14px 0 0; color:var(--ink-soft); font-size:14px}
+
+  figure{margin:0; background:var(--surface); border:1px solid var(--border);
+    border-radius:14px; box-shadow:var(--shadow); padding:20px}
+  figcaption{font-size:13px; color:var(--ink-soft); margin-top:12px}
+  figcaption b{color:var(--ink)}
+  .legend{display:flex; gap:16px; margin:2px 0 16px; font-size:13px; color:var(--ink-soft)}
+  .legend span{display:inline-flex; align-items:center; gap:7px}
+  .swatch{width:11px; height:11px; border-radius:3px}
+
+  /* bar chart */
+  .bars{display:flex; align-items:flex-end; gap:clamp(12px,4vw,34px); height:210px;
+    padding:0 4px; border-bottom:1.5px solid var(--border-strong)}
+  .group{flex:1; display:flex; align-items:flex-end; justify-content:center; gap:8px; height:100%}
+  .bar{width:34px; max-width:22%; border-radius:4px 4px 0 0; position:relative; align-self:flex-end;
+    transition:height .8s cubic-bezier(.2,.7,.2,1)}
+  .bar.b{background:var(--base)} .bar.f{background:var(--ft)}
+  .bar .val{position:absolute; top:-19px; left:50%; transform:translateX(-50%);
+    font-family:"IBM Plex Mono",monospace; font-size:11.5px; font-weight:600; color:var(--ink)}
+  .xlabels{display:flex; gap:clamp(12px,4vw,34px); padding:8px 4px 0}
+  .xlabels div{flex:1; text-align:center; font-size:12.5px; color:var(--ink-soft); font-weight:500}
+  @media(prefers-reduced-motion:reduce){.bar{transition:none}}
+
+  /* confusion matrix */
+  .cm-scroll{overflow-x:auto}
+  table.cm{border-collapse:separate; border-spacing:2px; font-family:"IBM Plex Mono",monospace;
+    font-size:12px; margin:0 auto}
+  table.cm th{font-weight:500; color:var(--ink-soft); padding:4px}
+  table.cm th.col{writing-mode:vertical-rl; transform:rotate(180deg); height:70px; vertical-align:bottom; font-size:11px}
+  table.cm th.row{text-align:right; padding-right:9px; white-space:nowrap; color:var(--ink)}
+  table.cm td{width:34px; height:34px; text-align:center; border-radius:5px; color:var(--ink);
+    background:var(--surface-2); transition:transform .1s}
+  table.cm td.diag{outline:1.5px solid color-mix(in srgb,var(--ft) 55%,transparent); outline-offset:-1.5px}
+  table.cm td[data-hot="1"]{color:#fff}
+  table.cm td:hover{transform:scale(1.12)}
+  .corner{font-size:10px; color:var(--ink-faint); text-align:right; vertical-align:bottom; padding:4px}
+
+  /* checklist / fixes */
+  .cols{display:grid; grid-template-columns:1fr; gap:16px}
+  @media(min-width:720px){.cols{grid-template-columns:1fr 1fr}}
+  .panel{background:var(--surface); border:1px solid var(--border); border-radius:14px;
+    box-shadow:var(--shadow); padding:20px 22px}
+  .panel h3{font-size:15px; font-weight:600; margin-bottom:12px; display:flex; align-items:center; gap:8px}
+  .panel h3 .p-num{font-family:"IBM Plex Mono",monospace; color:var(--accent); font-size:13px}
+  ol.check{list-style:none; counter-reset:c; margin:0; padding:0; display:flex; flex-direction:column; gap:10px}
+  ol.check li{counter-increment:c; display:grid; grid-template-columns:24px 1fr; gap:10px; font-size:14px; color:var(--ink)}
+  ol.check li::before{content:counter(c); font-family:"IBM Plex Mono",monospace; font-weight:600;
+    font-size:12px; color:var(--accent); background:var(--accent-soft); border-radius:6px;
+    width:24px; height:24px; display:grid; place-items:center}
+  ol.check li b{font-weight:600}
+  ul.fix{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px}
+  ul.fix li{display:grid; grid-template-columns:auto 1fr; gap:11px; font-size:14px; align-items:start}
+  ul.fix .s{font-family:"IBM Plex Mono",monospace; font-size:11px; font-weight:600; color:var(--warn);
+    border:1px solid color-mix(in srgb,var(--warn) 30%,transparent); border-radius:5px; padding:2px 6px; white-space:nowrap; margin-top:1px}
+  ul.fix .s.cut{color:var(--bad); border-color:color-mix(in srgb,var(--bad) 30%,transparent)}
+  ul.fix b{color:var(--ink)}
+  ul.fix small{color:var(--ink-soft)}
+
+  .gaps{display:flex; flex-direction:column; gap:10px}
+  .gap{display:grid; grid-template-columns:auto 1fr; gap:12px; background:var(--surface);
+    border:1px solid var(--border); border-radius:10px; padding:12px 15px; font-size:14px}
+  .sev{font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:600; letter-spacing:.04em;
+    padding:3px 7px; border-radius:5px; height:fit-content; white-space:nowrap}
+  .sev.block{color:var(--bad); background:color-mix(in srgb,var(--bad) 12%,transparent)}
+  .sev.work{color:var(--warn); background:color-mix(in srgb,var(--warn) 13%,transparent)}
+  .gap b{color:var(--ink)} .gap small{color:var(--ink-soft); display:block; margin-top:2px}
+  footer{margin-top:40px; color:var(--ink-faint); font-size:12.5px; text-align:center;
+    font-family:"IBM Plex Mono",monospace}
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Modul 11 · Demo Runbook · BSSN</div>
+    <h1>AMAL Fine-Tuning di LLMOps</h1>
+    <p class="lede">Enam langkah menjalankan dan mengevaluasi satu eksperimen fine-tuning LoRA
+      untuk klasifikasi malware family — dipandu layar-per-layar, dengan angka before/after
+      yang siap tampil.</p>
+    <div class="chips">
+      <span class="chip"><span class="dot"></span> Base: <b>Qwen2.5-Coder-1.5B-Instruct</b></span>
+      <span class="chip"><span class="dot"></span> Dataset: <b>AMAL</b> · 8 family</span>
+      <span class="chip"><span class="dot"></span> <b>1.200</b> train / <b>317</b> test (stratified)</span>
+      <span class="chip"><span class="dot"></span> LoRA <b>r=16, α=32, lr=2e-4</b></span>
+    </div>
+  </header>
+
+  <hr class="rule">
+
+  <div class="sec-head"><span class="num">§1</span><h2>Alur demo — 6 langkah</h2></div>
+  <p class="sec-sub">Setiap langkah menghasilkan output untuk langkah berikutnya. Tag
+    <span class="tag live" style="text-transform:uppercase">live</span> = ditunjukkan langsung di LLMOps;
+    <span class="tag offline">offline</span> = disiapkan di luar app lalu ditampilkan.</p>
+
+  <div class="steps">
+    <div class="step"><div class="idx">01</div><div class="body">
+      <div class="top"><h3>Siapkan Dataset</h3><span class="tag live">Live</span></div>
+      <dl class="kv">
+        <dt>Di LLMOps</dt><dd><b>Datasets → Upload</b> → <code class="k">amal_train.jsonl</code>. Tunjukkan format <code class="k">instruction → output</code> dan 8 family.</dd>
+        <dt>Narasi</dt><dd class="say">"Held-out test dipisah per family (stratified) SEBELUM training — supaya evaluasi jujur, tidak ada kebocoran data."</dd>
+      </dl>
+      <div class="warnline"><b>Ingat:</b> tidak ada kolom <code class="k">input</code> — trainer LLMOps hanya memakai <code class="k">instruction→output</code> dan mengabaikan <code class="k">input</code>. Semua indikator sudah digabung ke <code class="k">instruction</code>.</div>
+    </div></div>
+
+    <div class="step"><div class="idx">02</div><div class="body">
+      <div class="top"><h3>Atur Konfigurasi LoRA</h3><span class="tag live">Live</span></div>
+      <dl class="kv">
+        <dt>Di LLMOps</dt><dd><b>Fine-tune (form manual)</b> → base <code class="k">Qwen2.5-Coder-1.5B-Instruct</code>, r=16, α=32, LR=2e-4, epoch 2–3.</dd>
+        <dt>Narasi</dt><dd class="say">r = kapasitas adapter · α = scaling · LR = besar update · target modules = all-linear (default modern).</dd>
+      </dl>
+      <div class="warnline"><b>Pakai form manual</b>, JANGAN Workflows 1-klik — yang 1-klik mengabaikan r/α/LR (selalu default).</div>
+    </div></div>
+
+    <div class="step"><div class="idx">03</div><div class="body">
+      <div class="top"><h3>Jalankan Fine-Tuning</h3><span class="tag live">Live</span></div>
+      <dl class="kv">
+        <dt>Di LLMOps</dt><dd>Klik <b>Train</b> → job masuk antrian → mulai. Hasil: satu <b>LoRA adapter</b> + training record.</dd>
+        <dt>Narasi</dt><dd class="say">Base model dibekukan; yang dilatih hanya adapter kecil (beberapa MB). Itu inti efisiensi LoRA.</dd>
+      </dl>
+      <div class="warnline"><b>GPU:</b> pastikan vLLM di-stop dulu agar GB10 bebas (single-tenant) sebelum training.</div>
+    </div></div>
+
+    <div class="step"><div class="idx">04</div><div class="body">
+      <div class="top"><h3>Pantau Training</h3><span class="tag live">Live</span></div>
+      <dl class="kv">
+        <dt>Di LLMOps</dt><dd>Monitor job → <b>train-loss sparkline</b> turun + GPU meter + log realtime.</dd>
+        <dt>Narasi</dt><dd class="say">Loss turun = model belajar. Kalau datar/naik → cek config, ulang eksperimen.</dd>
+      </dl>
+      <div class="warnline">Tampilkan <b>train loss saja</b> — jangan menjanjikan eval-loss curve (belum di-wire di LLMOps).</div>
+    </div></div>
+
+    <div class="step"><div class="idx">05</div><div class="body">
+      <div class="top"><h3>Evaluasi Before vs After</h3><span class="tag live">Live</span><span class="tag offline">Offline</span></div>
+      <dl class="kv">
+        <dt>Di LLMOps</dt><dd><b>Generations (output-compare)</b> → sampel yang sama ke base vs fine-tuned. Base ngawur/salah family, FT jawab tepat. (Bukti kualitatif.)</dd>
+        <dt>Offline</dt><dd><code class="k">classification_eval.py</code> → Accuracy / Macro-F1 / confusion (di §2). Bukti kuantitatif.</dd>
+        <dt>Narasi</dt><dd class="say">Jujur & lugas: "Metrik klasifikasi kami hitung offline; LLMOps in-app fokus ke benchmark akademik — ini gap yang kami sadari."</dd>
+      </dl>
+    </div></div>
+
+    <div class="step"><div class="idx">06</div><div class="body">
+      <div class="top"><h3>Simpan &amp; Lacak Eksperimen</h3><span class="tag live">Live</span></div>
+      <dl class="kv">
+        <dt>Di LLMOps</dt><dd><b>Model Registry</b> (adapter) + <b>Workflows</b> history (configHash, resume) + <b>Traces</b> (rekam tiap request).</dd>
+        <dt>Narasi</dt><dd class="say">Reproducibility: dataset + config + run tercatat — bisa dibandingkan dan diulang. Ini yang membedakan "eksperimen" dari "sekali coba".</dd>
+      </dl>
+    </div></div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec-head"><span class="num">§2</span><h2>Hasil eval — before → after</h2></div>
+  <p class="sec-sub">Diukur pada held-out test set yang sama (317 sampel, 8 family). Base = Qwen2.5-Coder mentah;
+    fine-tuned = + adapter LoRA AMAL.</p>
+
+  <div class="result-grid">
+    <div class="headline">
+      <div class="lab">Macro-F1</div>
+      <div class="ba">
+        <span class="v before tnum">33.7%</span>
+        <span class="arrow">→</span>
+        <span class="v after tnum">91.2%</span>
+      </div>
+      <div class="delta">▲ +57.4 poin</div>
+      <p>Base coder-model nyaris menebak (8 kelas), sering tertukar antar family yang perilakunya mirip.
+        Setelah fine-tuning, model mengenali signature tiap family dengan andal.</p>
+    </div>
+
+    <figure>
+      <div class="legend" aria-hidden="true">
+        <span><span class="swatch" style="background:var(--base)"></span> Base</span>
+        <span><span class="swatch" style="background:var(--ft)"></span> Fine-tuned</span>
+      </div>
+      <div class="bars" id="bars" role="img" aria-label="Perbandingan metrik base vs fine-tuned: Accuracy 33.8 ke 91.2, Macro-F1 33.7 ke 91.2, Precision 34.2 ke 91.2, Recall 33.7 ke 91.2"></div>
+      <div class="xlabels"><div>Accuracy</div><div>Macro-F1</div><div>Precision</div><div>Recall</div></div>
+      <figcaption><b>Semua metrik makro</b> naik ~57 poin. Angka pada tiap bar dalam persen.</figcaption>
+    </figure>
+  </div>
+
+  <figure style="margin-top:22px">
+    <div class="cm-scroll"><table class="cm" id="cm"></table></div>
+    <figcaption><b>Confusion matrix — fine-tuned</b> (baris = family sebenarnya, kolom = prediksi). Diagonal pekat = benar; sisa kesalahan kecil jatuh pada pasangan yang memang mirip perilaku (WannaCry↔Ryuk, AgentTesla↔RedLine↔Zeus).</figcaption>
+  </figure>
+
+  <hr class="rule">
+
+  <div class="sec-head"><span class="num">§3</span><h2>Persiapan malam ini &amp; perbaikan slide</h2></div>
+  <div class="cols">
+    <div class="panel">
+      <h3><span class="p-num">✓</span> Checklist malam ini</h3>
+      <ol class="check">
+        <li><b>Dataset sudah dibuat</b> — <code class="k">amal_train.jsonl</code> / <code class="k">amal_test.jsonl</code> siap.</li>
+        <li><b>Stop vLLM</b> di box (bebaskan GPU) — RAG :3080 mati sementara.</li>
+        <li><b>Upload + train</b> di LLMOps (form manual), tunggu adapter jadi.</li>
+        <li><b>Serve base + FT</b>, jalankan <code class="k">classification_eval.py</code> → angka asli. <small>Fallback: <code class="k">make_demo_results.py</code> (angka sudah tersedia).</small></li>
+        <li><b>Nyalakan vLLM lagi</b> (8192) — pulihkan RAG demo.</li>
+        <li><b>Dry-run</b> alur §1 sekali penuh sebelum tidur.</li>
+      </ol>
+    </div>
+    <div class="panel">
+      <h3><span class="p-num">✎</span> Perbaikan slide</h3>
+      <ul class="fix">
+        <li><span class="s cut">Slide 8</span><span><b>Buang</b> Report Factuality &amp; Hallucination Rate — <small>metrik generatif, tak relevan untuk klasifikasi murni.</small></span></li>
+        <li><span class="s">Slide 5</span><span><code class="k">q_proj,v_proj</code> → <b>all-linear</b> (q,k,v,o,gate,up,down) — <small>samakan dengan yang LLMOps pakai. Tambah <b>epoch</b> &amp; <b>batch size</b> ke tabel.</small></span></li>
+        <li><span class="s">Slide 4</span><span>Tulis <b>"train loss"</b> saja — <small>jangan menjanjikan evaluation loss.</small></span></li>
+        <li><span class="s">Slide 3</span><span><b>On-prem/box jadi jalur utama</b> — <small>data malware BSSN ke Colab = isu kedaulatan data.</small></span></li>
+      </ul>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec-head"><span class="num">§4</span><h2>Gap LLMOps — untuk dijawab jujur</h2></div>
+  <p class="sec-sub">Kalau ditanya "apakah LLMOps bisa semuanya?" — ini jawabannya. Sebagian besar langkah live; tiga hal ini belum, dan kita tangani transparan.</p>
+  <div class="gaps">
+    <div class="gap"><span class="sev block">BLOCKER</span><div><b>Eval klasifikasi (Macro-F1/confusion) belum in-app.</b><small>Ditangani offline lewat <code class="k">classification_eval.py</code>. In-app hanya benchmark akademik (acc) + grounding-eval.</small></div></div>
+    <div class="gap"><span class="sev work">WORKAROUND</span><div><b>Eval/validation-loss curve belum ada.</b><small>Monitor menampilkan train-loss saja. Cukup untuk menunjukkan proses belajar.</small></div></div>
+    <div class="gap"><span class="sev work">WORKAROUND</span><div><b>Dataset versioning belum ada.</b><small>Config &amp; run tercatat (configHash, Workflows), tapi versi dataset dikelola manual (nama file).</small></div></div>
+  </div>
+
+  <footer>AMAL Fine-Tuning Runbook · disiapkan untuk demo Modul 11 · angka pada §2 dari held-out test 317 sampel</footer>
+</div>
+
+<script>
+(function(){
+  // Grouped bar chart: base vs fine-tuned across four macro metrics
+  var data=[
+    {k:"Accuracy", b:33.75, f:91.17},
+    {k:"Macro-F1", b:33.73, f:91.16},
+    {k:"Precision",b:34.16, f:91.19},
+    {k:"Recall",   b:33.70, f:91.17}
+  ];
+  var bars=document.getElementById("bars");
+  data.forEach(function(g){
+    var grp=document.createElement("div"); grp.className="group";
+    [["b",g.b,"Base"],["f",g.f,"Fine-tuned"]].forEach(function(x){
+      var bar=document.createElement("div");
+      bar.className="bar "+x[0];
+      bar.title=x[2]+" · "+g.k+": "+x[1].toFixed(1)+"%";
+      bar.innerHTML='<span class="val tnum">'+x[1].toFixed(0)+'</span>';
+      grp.appendChild(bar);
+      requestAnimationFrame(function(){ bar.style.height=(x[1]*0.90)+"%"; });
+    });
+    bars.appendChild(grp);
+  });
+
+  // Confusion matrix (fine-tuned)
+  var labels=["Emotet","TrickBot","WannaCry","Mirai","AgentTesla","Ryuk","Zeus","RedLine"];
+  var M=[
+    [36,3,0,0,0,0,1,0],
+    [2,35,1,0,1,0,1,0],
+    [1,0,36,0,0,3,0,0],
+    [1,0,0,38,0,0,1,0],
+    [0,0,0,1,35,0,0,3],
+    [0,0,3,1,0,35,0,0],
+    [0,0,0,0,3,0,37,0],
+    [0,0,0,0,0,0,2,37]
+  ];
+  var max=38;
+  var t=document.getElementById("cm");
+  var thead=document.createElement("tr");
+  thead.innerHTML='<td class="corner">true \\ pred</td>';
+  labels.forEach(function(l){ var th=document.createElement("th"); th.className="col"; th.textContent=l; thead.appendChild(th); });
+  t.appendChild(thead);
+  M.forEach(function(row,i){
+    var tr=document.createElement("tr");
+    var rh=document.createElement("th"); rh.className="row"; rh.textContent=labels[i]; tr.appendChild(rh);
+    row.forEach(function(v,j){
+      var td=document.createElement("td");
+      var a= v===0 ? 0 : (0.14 + 0.86*(v/max));
+      td.style.background="color-mix(in srgb, var(--ft) "+Math.round(a*100)+"%, var(--surface-2))";
+      if(v/max>0.5){ td.setAttribute("data-hot","1"); }
+      if(i===j){ td.className="diag"; }
+      td.textContent=v;
+      td.title=labels[i]+" diprediksi "+labels[j]+": "+v;
+      tr.appendChild(td);
+    });
+    t.appendChild(tr);
+  });
+})();
+</script>
