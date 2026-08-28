@@ -368,23 +368,50 @@ def train_with_unsloth():
             max_seq_length = training_config["_config"]["max_seq_length"]
             load_in_4bit = training_config["_config"]["load_in_4bit"]
 
-            model, tokenizer = FastLanguageModel.from_pretrained(
-                model_name=model_name,
-                max_seq_length=max_seq_length,
-                # Explicit BF16 when unquantized; let Unsloth decide under 4-bit.
-                dtype=None if load_in_4bit else torch.bfloat16,
-                load_in_4bit=load_in_4bit,
-                use_gradient_checkpointing="unsloth",  # Efficient backpropagation
-                # Pin the whole model to GPU 0. Left to `device_map='auto'`,
-                # accelerate offloads layers to CPU when it thinks GPU memory is
-                # tight — which happens on the GB10 (sm_121) once a co-resident
-                # vLLM has reserved VRAM. A CPU-offloaded (multi-device) model then
-                # cannot be trained ("can't train a model loaded with
-                # device_map='auto' in any distributed mode"). Forcing {"": 0}
-                # keeps it single-device; an 8–9B model + training fit alongside
-                # vLLM in the 121 GB unified memory.
-                device_map={"": 0},
-            )
+            # Vision-language bases (Gemma-3-VL, Qwen-VL, …) carry a `vision_config`.
+            # Unsloth's text-only FastLanguageModel cannot load them; the unified
+            # FastModel can, and we LoRA the language layers only — so an image
+            # model can be fine-tuned for a purely text task (e.g. the SEA-LION
+            # 4B, which ships only as a VL variant). Text bases keep the original
+            # FastLanguageModel path unchanged.
+            is_vl = False
+            try:
+                from transformers import AutoConfig
+
+                _cfg = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
+                is_vl = getattr(_cfg, "vision_config", None) is not None
+            except Exception as _det_err:
+                lab.log(f"(VL detection skipped: {_det_err})")
+
+            if is_vl:
+                from unsloth import FastModel
+
+                lab.log("🖼️  Vision-language base detected — FastModel, LoRA on language layers only")
+                model, tokenizer = FastModel.from_pretrained(
+                    model_name=model_name,
+                    max_seq_length=max_seq_length,
+                    dtype=None if load_in_4bit else torch.bfloat16,
+                    load_in_4bit=load_in_4bit,
+                    use_gradient_checkpointing="unsloth",
+                )
+            else:
+                model, tokenizer = FastLanguageModel.from_pretrained(
+                    model_name=model_name,
+                    max_seq_length=max_seq_length,
+                    # Explicit BF16 when unquantized; let Unsloth decide under 4-bit.
+                    dtype=None if load_in_4bit else torch.bfloat16,
+                    load_in_4bit=load_in_4bit,
+                    use_gradient_checkpointing="unsloth",  # Efficient backpropagation
+                    # Pin the whole model to GPU 0. Left to `device_map='auto'`,
+                    # accelerate offloads layers to CPU when it thinks GPU memory is
+                    # tight — which happens on the GB10 (sm_121) once a co-resident
+                    # vLLM has reserved VRAM. A CPU-offloaded (multi-device) model then
+                    # cannot be trained ("can't train a model loaded with
+                    # device_map='auto' in any distributed mode"). Forcing {"": 0}
+                    # keeps it single-device; an 8–9B model + training fit alongside
+                    # vLLM in the 121 GB unified memory.
+                    device_map={"": 0},
+                )
 
             # Add pad token if it doesn't exist
             if tokenizer.pad_token is None:
@@ -394,24 +421,39 @@ def train_with_unsloth():
 
             # Add LoRA adapters for efficient fine-tuning
             lab.log("Adding LoRA adapters...")
-            model = FastLanguageModel.get_peft_model(
-                model,
-                r=training_config["_config"]["lora_r"],  # Rank of LoRA matrices
-                target_modules=[
-                    "q_proj",
-                    "k_proj",
-                    "v_proj",
-                    "o_proj",
-                    "gate_proj",
-                    "up_proj",
-                    "down_proj",
-                ],
-                lora_alpha=training_config["_config"]["lora_alpha"],  # Scaling factor
-                lora_dropout=training_config["_config"]["lora_dropout"],  # Dropout rate
-                bias="none",  # Don't train bias
-                use_gradient_checkpointing="unsloth",
-                random_state=3407,
-            )
+            if is_vl:
+                # FastModel selects layers by role, not by explicit target_modules.
+                model = FastModel.get_peft_model(
+                    model,
+                    finetune_vision_layers=False,  # text task — leave the vision tower frozen
+                    finetune_language_layers=True,
+                    finetune_attention_modules=True,
+                    finetune_mlp_modules=True,
+                    r=training_config["_config"]["lora_r"],
+                    lora_alpha=training_config["_config"]["lora_alpha"],
+                    lora_dropout=training_config["_config"]["lora_dropout"],
+                    bias="none",
+                    random_state=3407,
+                )
+            else:
+                model = FastLanguageModel.get_peft_model(
+                    model,
+                    r=training_config["_config"]["lora_r"],  # Rank of LoRA matrices
+                    target_modules=[
+                        "q_proj",
+                        "k_proj",
+                        "v_proj",
+                        "o_proj",
+                        "gate_proj",
+                        "up_proj",
+                        "down_proj",
+                    ],
+                    lora_alpha=training_config["_config"]["lora_alpha"],  # Scaling factor
+                    lora_dropout=training_config["_config"]["lora_dropout"],  # Dropout rate
+                    bias="none",  # Don't train bias
+                    use_gradient_checkpointing="unsloth",
+                    random_state=3407,
+                )
 
             lab.log("✅ LoRA adapters added successfully")
 
