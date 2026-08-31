@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // GGUF conversion of a model can take a minute or two.
-export const maxDuration = 600;
+export const maxDuration = 300; // Vercel Hobby caps serverless functions at 300s
 
 /**
  * Serves a fine-tune by exporting it to GGUF and importing it into Ollama, and

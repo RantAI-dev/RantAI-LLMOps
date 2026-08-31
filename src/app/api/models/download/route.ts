@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // A model download can take a while (GGUF files are ~1–3 GB).
-export const maxDuration = 600;
+export const maxDuration = 300; // Vercel Hobby caps serverless functions at 300s
 
 /**
  * Pull a model into Ollama and STREAM progress back as SSE so the UI can show a

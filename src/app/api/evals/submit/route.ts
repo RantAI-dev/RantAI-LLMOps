@@ -6,7 +6,7 @@ import { logServerError } from "@/lib/log";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export const maxDuration = 600;
+export const maxDuration = 300; // Vercel Hobby caps serverless functions at 300s
 
 /**
  * Kicks off a benchmark eval on a model.

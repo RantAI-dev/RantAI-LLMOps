@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // Dataset download (if needed) + task setup can take a little while.
-export const maxDuration = 600;
+export const maxDuration = 300; // Vercel Hobby caps serverless functions at 300s
 
 /**
  * Kicks off a LoRA fine-tune: creates and queues a TRAIN task on Transformer
