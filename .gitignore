@@ -47,3 +47,13 @@ next-env.d.ts
 
 # Local AI dev log — carries live credentials, must NOT be tracked (see .dockerignore).
 AI_KNOWLEDGE_LOG.md
+
+# Loose docs & one-off HTML artifacts — keep the repo to code only
+/*.pdf
+/*.pptx
+/*.docx
+/*.html
+
+# Python build caches
+__pycache__/
+*.pyc
