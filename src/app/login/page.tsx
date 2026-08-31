@@ -6,6 +6,7 @@ import { Loader2, Lock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DEMO_MODE, DEMO_PASSWORD } from "@/lib/demo";
 
 export default function LoginPage() {
   // `LoginForm` reads the `?from=` param (useSearchParams), which needs a Suspense
@@ -21,7 +22,9 @@ function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const from = params.get("from") || "/";
-  const [password, setPassword] = useState("");
+  // In demo mode the gate is a showcase, not real security — prefill the public
+  // password so a visitor can sign in with one click (the hint below shows it).
+  const [password, setPassword] = useState(DEMO_MODE ? DEMO_PASSWORD : "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +62,9 @@ function LoginForm() {
           </span>
           <div>
             <div className="text-sm font-semibold text-primary">RantAI LLMOps</div>
-            <div className="text-[12px] text-ink-soft">Sign in with your team password</div>
+            <div className="text-[12px] text-ink-soft">
+              {DEMO_MODE ? "Mode demo — akses terbuka" : "Sign in with your team password"}
+            </div>
           </div>
         </div>
 
@@ -75,6 +80,12 @@ function LoginForm() {
           autoFocus
           className="mt-1"
         />
+
+        {DEMO_MODE ? (
+          <p className="mt-2 rounded-md bg-primary-soft px-3 py-2 text-[12px] text-primary">
+            🔓 Mode demo — password: <b>{DEMO_PASSWORD}</b> (sudah terisi, tinggal klik <b>Sign in</b>)
+          </p>
+        ) : null}
 
         {error ? (
           <p className="mt-2 rounded-md bg-danger-soft px-3 py-2 text-[12px] text-danger">{error}</p>

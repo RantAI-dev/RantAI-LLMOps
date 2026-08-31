@@ -1,11 +1,11 @@
 import type { NextRequest } from "next/server";
 
 import {
-  APP_PASSWORD,
   AUTH_COOKIE,
   AUTH_ENABLED,
   AUTH_MAX_AGE,
   constantTimeEqual,
+  EFFECTIVE_PASSWORD,
   sessionToken,
 } from "@/lib/auth";
 import { rateLimit } from "@/lib/rate-limit";
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  if (!body.password || !constantTimeEqual(body.password, APP_PASSWORD)) {
+  if (!body.password || !constantTimeEqual(body.password, EFFECTIVE_PASSWORD)) {
     return Response.json({ error: "Incorrect password" }, { status: 401 });
   }
   const res = Response.json({ ok: true });

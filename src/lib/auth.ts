@@ -12,8 +12,16 @@
  * rotating `AUTH_SECRET` invalidates every existing session. `sessionToken()`
  * uses Web Crypto so it works in both the Edge and the Node runtime.
  */
+import { DEMO_MODE, DEMO_PASSWORD } from "@/lib/demo";
+
 export const APP_PASSWORD = process.env.APP_PASSWORD ?? "";
-export const AUTH_ENABLED = APP_PASSWORD.length > 0;
+/**
+ * The password the gate actually checks. In demo mode it's a fixed, publicly-
+ * hinted password (default "rantai-admin") so any visitor can enter the showcase;
+ * otherwise it's APP_PASSWORD.
+ */
+export const EFFECTIVE_PASSWORD = DEMO_MODE ? DEMO_PASSWORD : APP_PASSWORD;
+export const AUTH_ENABLED = EFFECTIVE_PASSWORD.length > 0;
 export const AUTH_COOKIE = "rantai_auth";
 /** 30 days. */
 export const AUTH_MAX_AGE = 60 * 60 * 24 * 30;
@@ -36,6 +44,7 @@ const WEAK_PASSWORDS = new Set(["rantai-admin", "admin", "admin123", "password",
  * Always `null` in development, so local single-user dev stays frictionless.
  */
 export const AUTH_MISCONFIG: string | null = (() => {
+  if (DEMO_MODE) return null; // demo intentionally uses a known, publicly-hinted password
   if (process.env.NODE_ENV !== "production") return null;
   if (!AUTH_ENABLED) return "APP_PASSWORD is not set";
   if (WEAK_PASSWORDS.has(APP_PASSWORD.toLowerCase())) return "APP_PASSWORD is a known weak/default value";
@@ -50,7 +59,7 @@ if (AUTH_MISCONFIG) {
 
 /** Session token = SHA-256("rantai::" + secret + "::" + password), hex. */
 export async function sessionToken(): Promise<string> {
-  const data = new TextEncoder().encode(`rantai::${AUTH_SECRET}::${APP_PASSWORD}`);
+  const data = new TextEncoder().encode(`rantai::${AUTH_SECRET}::${EFFECTIVE_PASSWORD}`);
   const buf = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(buf))
     .map((b) => b.toString(16).padStart(2, "0"))

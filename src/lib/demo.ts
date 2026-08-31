@@ -15,6 +15,14 @@
  */
 export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
+/**
+ * The password shown as a hint on the demo login screen and accepted by the gate.
+ * A gate is kept (so the login flow is part of the showcase) but the password is
+ * public — anyone can enter. Override with NEXT_PUBLIC_DEMO_PASSWORD. Default is a
+ * "weak" value that only demo mode allows (production rejects it).
+ */
+export const DEMO_PASSWORD = process.env.NEXT_PUBLIC_DEMO_PASSWORD || "rantai-admin";
+
 /** Milliseconds in a minute/hour — for readable relative timestamps below. */
 const MIN = 60_000;
 const HOUR = 60 * MIN;
