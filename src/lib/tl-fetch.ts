@@ -7,6 +7,8 @@
  *    worker indefinitely (the previous calls had no upper time bound),
  *  - the list-payload unwrap (`Array.isArray(raw) ? raw : raw.data`).
  */
+import { DEMO_MODE } from "@/lib/demo";
+import { demoTlResponse } from "@/lib/demo/tl";
 import { inferenceHeaders, TL_ROOT } from "@/lib/inference";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -18,6 +20,8 @@ export type TlFetchInit = Omit<RequestInit, "headers"> & {
 
 /** Fetch a TL path (e.g. "/model/list") with auth headers + a timeout. */
 export function tlFetch(path: string, init: TlFetchInit = {}): Promise<Response> {
+  // DEMO_MODE: no TL backend exists — answer from fixtures instead of the network.
+  if (DEMO_MODE) return Promise.resolve(demoTlResponse(path, init));
   const { timeoutMs = DEFAULT_TIMEOUT_MS, headers, signal, ...rest } = init;
   return fetch(`${TL_ROOT}${path}`, {
     ...rest,

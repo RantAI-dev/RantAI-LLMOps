@@ -56,6 +56,7 @@ async function atomicWrite(file: string, data: string): Promise<void> {
 
 /** All runs, newest first (by ISO `startedAt`, which sorts lexicographically). */
 export async function listWorkflowRuns(): Promise<WorkflowRun[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoWorkflowRuns();
   let names: string[];
   try {
     names = await fs.readdir(RUNS_DIR);

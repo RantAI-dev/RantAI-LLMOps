@@ -37,6 +37,7 @@ export async function ollamaUp(): Promise<boolean> {
 
 /** Models pulled into Ollama (available to chat with), via `/api/tags`. */
 export async function listOllamaModels(): Promise<OllamaModel[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoOllamaModels();
   try {
     const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, {
       signal: AbortSignal.timeout(4000),

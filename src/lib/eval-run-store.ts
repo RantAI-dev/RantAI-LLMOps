@@ -114,6 +114,7 @@ export async function saveEvalRun(run: EvalRun): Promise<void> {
 }
 
 export async function listEvalRuns(): Promise<EvalRunSummary[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoEvalRunSummaries();
   let names: string[];
   try {
     names = await fs.readdir(RUNS_DIR);

@@ -215,3 +215,24 @@ cd backend
 ./install.sh multiuser_setup    # first time, slow
 ./run.sh                        # API on http://localhost:8338
 ```
+
+## Demo mode (backend-free, for Vercel)
+
+A fully mocked build for client showcases — every page is populated with realistic
+fixture data (a training job mid-run, traces, evals, prompts, workflows,
+deployments…) and the Playground streams a canned reply. **No Transformer Lab /
+vLLM / Ollama backend is required**, so it deploys straight to Vercel.
+
+Set three environment variables (Production **and** Preview), then deploy:
+
+| Variable | Value |
+| --- | --- |
+| `NEXT_PUBLIC_DEMO_MODE` | `true` — turns demo mode on (inlined at build time, so changing it needs a redeploy) |
+| `APP_PASSWORD` | the password clients enter at `/login` (avoid weak values) |
+| `AUTH_SECRET` | any long random string, e.g. `openssl rand -hex 24` |
+
+Deploy: import this repo in Vercel (Next.js is auto-detected) → add the three
+vars → deploy → open the URL, log in, and browse the full UI. The build target
+is the repo root; nothing else is needed. The mock lives under
+[`src/lib/demo/`](src/lib/demo/) and is off unless `NEXT_PUBLIC_DEMO_MODE=true`,
+so normal deployments are unaffected.

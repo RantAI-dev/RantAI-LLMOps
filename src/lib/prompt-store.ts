@@ -65,6 +65,7 @@ export async function createPrompt(input: {
 }
 
 export async function getPrompt(id: string): Promise<Prompt | null> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoPromptById(id);
   try {
     return JSON.parse(await fs.readFile(promptFile(id), "utf8")) as Prompt;
   } catch (err) {
@@ -79,6 +80,7 @@ export async function savePrompt(prompt: Prompt): Promise<void> {
 
 /** All prompts as summaries, most-recently-updated first. */
 export async function listPrompts(): Promise<PromptSummary[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoPromptSummaries();
   let names: string[];
   try {
     names = await fs.readdir(PROMPTS_DIR);
@@ -104,6 +106,7 @@ export async function deletePrompt(id: string): Promise<void> {
 /** Find the most-recently-updated prompt with this exact name (names are not
  *  guaranteed unique). Used by the resolve endpoint for programmatic access. */
 export async function findPromptByName(name: string): Promise<Prompt | null> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoPromptByName(name);
   let names: string[];
   try {
     names = await fs.readdir(PROMPTS_DIR);

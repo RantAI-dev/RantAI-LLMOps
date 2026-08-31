@@ -14,6 +14,12 @@ export async function completeOnLoadedModel(
   prompt: string,
   opts: { temperature?: number; maxTokens?: number; model?: string } = {}
 ): Promise<CompletionResult> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
+    return {
+      model: opts.model || "demo-sealion",
+      reply: `**(demo)** Contoh keluaran model untuk prompt:\n\n> ${prompt.slice(0, 200)}\n\nDi produksi, ini dihasilkan model SEA-LION yang di-serve LLMOps.`,
+    };
+  }
   // Prefer the explicit model, then whatever is hot in VRAM, then any pulled
   // model (Ollama lazily loads it). Ollama serves all pulled models, so unlike
   // TL's single worker there's almost always something to answer with.

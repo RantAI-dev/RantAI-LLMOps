@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { DEMO_MODE } from "@/lib/demo";
 import { INFERENCE_STREAM } from "@/lib/inference";
 import { resolveChatModel, resolveEngine } from "@/lib/inference-engines";
 import { logInference } from "@/lib/inference-log-store";
@@ -45,6 +46,20 @@ export async function POST(req: NextRequest) {
   const messages = body.messages;
   if (!Array.isArray(messages) || messages.length === 0) {
     return Response.json({ error: "`messages` array is required" }, { status: 400 });
+  }
+
+  // DEMO_MODE: no inference engine — stream a canned assistant reply in the same
+  // SSE format the client already renders, so the Playground looks fully live.
+  if (DEMO_MODE) {
+    const lastUser = [...messages].reverse().find((m) => (m as { role?: string })?.role === "user");
+    const q = String((lastUser as { content?: string })?.content ?? "").slice(0, 240);
+    const reply =
+      "Halo! Ini **mode demo** LLMOps — respons contoh tanpa backend inferensi live.\n\n" +
+      (q ? `Pertanyaanmu: _${q}_\n\n` : "") +
+      "Di lingkungan nyata, pesan ini dilayani model **SEA-LION** via vLLM (base + adapter " +
+      "ask/learn/practice), dan tiap panggilan tercatat di tab **Traces** (token, tok/s, latency). " +
+      "Silakan jelajahi menu di kiri — Fine-tune, Evals, Prompts, Workflows, Deployments — semuanya terisi data contoh.";
+    return new Response(synthesizeSseStream(reply, "demo-sealion"), { headers: SSE_HEADERS });
   }
 
   // Pick the engine (default Ollama) and its model. A named-but-unconfigured

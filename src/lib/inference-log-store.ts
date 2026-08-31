@@ -12,6 +12,9 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+import { DEMO_MODE } from "@/lib/demo";
+import { demoInferenceEvents, demoInferenceStats } from "@/lib/demo/traces";
+
 const DATA_DIR = process.env.RANTAI_DATA_DIR ?? path.join(process.cwd(), ".rantai-data");
 const FILE = path.join(DATA_DIR, "inference-log.jsonl");
 const MAX_READ = 5000;
@@ -34,6 +37,7 @@ export type InferenceEvent = {
 
 /** Append one inference event (fire-and-forget — never blocks/faults the chat). */
 export async function logInference(ev: InferenceEvent): Promise<void> {
+  if (DEMO_MODE) return; // no filesystem on Vercel; the demo log is static fixtures
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.appendFile(FILE, `${JSON.stringify(ev)}\n`, "utf8");
@@ -67,6 +71,7 @@ async function readEvents(): Promise<InferenceEvent[]> {
  * Reads the same log; capped by the store's MAX_READ window.
  */
 export async function readRecentEvents(limit = 200): Promise<InferenceEvent[]> {
+  if (DEMO_MODE) return demoInferenceEvents().slice(0, Math.max(1, limit));
   const events = await readEvents();
   return events.slice(-Math.max(1, limit)).reverse();
 }
@@ -88,6 +93,7 @@ function avg(nums: number[]): number {
 }
 
 export async function getInferenceStats(): Promise<InferenceStats> {
+  if (DEMO_MODE) return demoInferenceStats();
   const events = await readEvents();
   const ok = events.filter((e) => e.status === "ok");
   const errors = events.length - ok.length;

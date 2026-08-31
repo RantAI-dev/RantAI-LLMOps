@@ -40,6 +40,7 @@ function normalize(raw: unknown): GatewayStore {
 }
 
 export async function readGatewayStore(): Promise<GatewayStore> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoGateway();
   try {
     return normalize(JSON.parse(await fs.readFile(FILE, "utf8")));
   } catch (err) {

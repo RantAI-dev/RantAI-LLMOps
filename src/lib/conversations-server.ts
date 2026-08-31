@@ -17,6 +17,7 @@ const convUrl = (id?: string) =>
   `${TL_ROOT}/experiment/${CHAT_EXPERIMENT}/conversations${id ? `/${encodeURIComponent(id)}` : ""}`;
 
 export async function listConversations(): Promise<unknown[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoConversations();
   try {
     const res = await fetch(convUrl(), { headers: inferenceHeaders() });
     if (!res.ok) return [];

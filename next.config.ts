@@ -44,7 +44,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // `standalone` is for the self-hosted Docker image. On Vercel (the demo target)
+  // we want the platform's native output, so only emit standalone in Docker builds.
+  ...(process.env.DOCKER_BUILD === "1" && { output: "standalone" as const }),
   // Turbopack disabled in Docker builds (DOCKER_BUILD=1) — standalone output not generated with turbopack+NFT warning
   ...(process.env.DOCKER_BUILD !== "1" && {
     turbopack: {

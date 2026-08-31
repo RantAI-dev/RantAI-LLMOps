@@ -117,6 +117,7 @@ async function vllmInfo(): Promise<EngineInfo> {
 
 /** Every engine, with live availability. Order = display order (default first). */
 export async function listEngines(): Promise<EngineInfo[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoEngines();
   return Promise.all([ollamaInfo(), vllmInfo()]);
 }
 

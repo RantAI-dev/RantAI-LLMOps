@@ -50,6 +50,7 @@ async function fetchGpuCsv(): Promise<string> {
 }
 
 export async function getGpuMetrics(): Promise<GpuMetric[]> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return (await import("@/lib/demo/stores")).demoGpus();
   try {
     const stdout = await fetchGpuCsv();
     const gpus: GpuMetric[] = [];
