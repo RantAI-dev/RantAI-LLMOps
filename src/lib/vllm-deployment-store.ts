@@ -13,8 +13,13 @@ const FILE = path.join(DATA_DIR, "vllm-deployment.json");
 export type VllmAdapter = { name: string; path: string };
 
 export type VllmDeployment = {
-  /** TL job id of the running serve task. */
+  /** How it was launched: "provider" (TL venv, portable) or "container"
+   *  (a Docker container — the GB10 path). Older records omit it → "provider". */
+  launcher?: "provider" | "container";
+  /** provider launcher: the TL job id. container launcher: unused. */
   jobId: string;
+  /** container launcher: the managed container name. */
+  containerName?: string;
   baseModel: string;
   servedName: string;
   port: number;

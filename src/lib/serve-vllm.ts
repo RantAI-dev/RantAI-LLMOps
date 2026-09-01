@@ -17,6 +17,18 @@ import {
   type VllmAdapter,
   type VllmDeployment,
 } from "@/lib/vllm-deployment-store";
+import {
+  containerLauncherAvailable,
+  deployVllmContainer,
+  statusVllmContainer,
+  stopVllmContainer,
+} from "@/lib/serve-vllm-container";
+
+/** Use the container launcher (GB10 path) when asked for AND the Docker socket
+ *  is mounted; otherwise fall through to the portable TL-provider launcher. */
+function useContainerLauncher(): boolean {
+  return process.env.SERVE_LAUNCHER === "container" && containerLauncherAvailable();
+}
 
 const SERVE_GITHUB_URL = "https://github.com/RantAI-dev/RantAI-LLMOps";
 const SERVE_GITHUB_DIR = "plugins/vllm-serve";
@@ -53,6 +65,7 @@ export type DeployVllmParams = {
 /** Launch a vLLM serving task (base + optional LoRA adapters) via the provider. */
 export async function deployVllm(p: DeployVllmParams): Promise<VllmDeployment> {
   if (!p.baseModel) throw new Error("baseModel is required");
+  if (useContainerLauncher()) return deployVllmContainer(p);
   const experiment = await createTlExperiment(FINETUNE_EXPERIMENT);
   const servedName = p.servedName || "base";
   const port = p.port ?? 8001;
@@ -127,6 +140,7 @@ function servedUrlFor(dep: VllmDeployment): string {
 export async function getVllmDeploymentStatus(): Promise<VllmDeploymentStatus> {
   const dep = await readVllmDeployment();
   if (!dep) return { deployment: null, status: "NONE", servedUrl: null };
+  if (dep.launcher === "container") return statusVllmContainer(dep);
   let status = "UNKNOWN";
   try {
     const exp = await resolveJobExperiment(dep.jobId);
@@ -147,6 +161,7 @@ export async function getVllmDeploymentStatus(): Promise<VllmDeploymentStatus> {
 export async function stopVllmDeployment(): Promise<boolean> {
   const dep = await readVllmDeployment();
   if (!dep) return true;
+  if (dep.launcher === "container") return stopVllmContainer();
   let ok = false;
   try {
     const exp = await resolveJobExperiment(dep.jobId);
