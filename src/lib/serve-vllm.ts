@@ -23,6 +23,15 @@ const SERVE_GITHUB_DIR = "plugins/vllm-serve";
 const SERVE_RUN = "python vllm-serve/run.py";
 // Isolate vLLM in its own venv (its deps are heavy and conflict with the
 // trainer's) — mirrors the stock interactive-vllm plugin; run.py prefers it.
+//
+// HOST CAVEAT (validated 2026-09-01): the pip release below works on standard
+// x86 + CUDA hosts. On GB10 (Blackwell / sm_121, aarch64) pip vLLM does NOT run:
+// the release installs but its engine has no sm_121 kernels, and the nightly
+// (`--pre --extra-index-url https://wheels.vllm.ai/nightly`) pulls a dep
+// (instanttensor) with no aarch64 wheel that fails to build from source. GB10
+// needs the pre-built `vllm/vllm-openai:cu130-nightly` CONTAINER (which is how
+// this box's production 4B already runs) — a container-based launcher is the
+// GB10 path, not this venv/pip one.
 const SERVE_SETUP = [
   `if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi`,
   `export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"`,
