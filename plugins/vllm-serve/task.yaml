@@ -1,0 +1,60 @@
+name: vllm-serve
+github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
+github_repo_dir: plugins/vllm-serve
+resources:
+  cpus: 2
+  memory: 8
+setup: |
+  if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+  uv venv ~/vllm-venv --seed --python 3.11
+  . ~/vllm-venv/bin/activate
+  uv pip install "vllm>=0.13.0" "transformers>=4.57.3"
+run: |
+  python vllm-serve/run.py
+envs:
+  PYTHONUNBUFFERED: "1"
+parameters:
+  model_name:
+    field_name: "Base model"
+    env_var: "MODEL_NAME"
+    field_type: "str"
+    required: true
+    help_text: "HuggingFace id or local path of the base model"
+  served_name:
+    field_name: "Served name"
+    env_var: "VLLM_SERVED_NAME"
+    field_type: "str"
+    required: false
+  lora_modules:
+    field_name: "LoRA adapters"
+    env_var: "VLLM_LORA_MODULES"
+    field_type: "str"
+    required: false
+    help_text: "space-separated name=path pairs, e.g. ask=/root/... learn=/root/..."
+  gpu_util:
+    field_name: "GPU memory utilization"
+    env_var: "VLLM_GPU_UTIL"
+    field_type: "str"
+    required: false
+  max_model_len:
+    field_name: "Max model length"
+    env_var: "VLLM_MAX_MODEL_LEN"
+    field_type: "str"
+    required: false
+  quant:
+    field_name: "Quantization"
+    env_var: "VLLM_QUANT"
+    field_type: "str"
+    required: false
+  port:
+    field_name: "Port"
+    env_var: "VLLM_PORT"
+    field_type: "str"
+    required: false
+  hf_token:
+    field_name: "HuggingFace token"
+    env_var: "HF_TOKEN"
+    field_type: "str"
+    required: false
+    password: true

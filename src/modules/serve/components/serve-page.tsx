@@ -4,6 +4,7 @@ import { InfoTip } from "@/components/ui/tooltip";
 import { AdapterManager } from "@/modules/serve/components/adapter-manager";
 import { EngineStatus } from "@/modules/serve/components/engine-status";
 import { GatewayAccess } from "@/modules/serve/components/gateway-access";
+import { VllmDeploy } from "@/modules/serve/components/vllm-deploy";
 
 /**
  * Deployments page. Ollama serves every pulled model automatically, so there is no
@@ -25,6 +26,7 @@ export function ServePage() {
       </div>
 
       <EngineStatus />
+      <VllmDeploy />
       <AdapterManager />
       <GatewayAccess />
     </div>
