@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Layers, Loader2, Plus, Puzzle, Unplug } from "lucide-react";
+import { Layers, Loader2, Plus, Puzzle, RefreshCw, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -16,13 +16,23 @@ import { useAdapters, type AvailableAdapter } from "@/modules/serve/hooks/use-ad
  * are live (no redeploy). Hidden entirely unless vLLM is the configured engine.
  */
 export function AdapterManager() {
-  const { configured, reachable, base, served, available, loading, busy, error, clearError, attach, detach } =
+  const { configured, reachable, base, served, available, loading, busy, error, clearError, reload, attach, detach } =
     useAdapters();
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
 
   // Ollama-only deployments never see this — nothing to manage.
   if (!loading && !configured) return null;
+
+  const doRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await reload();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const canAttach = name.trim().length > 0 && path.trim().length > 0 && busy !== "__form__";
 
@@ -50,6 +60,17 @@ export function AdapterManager() {
           <span className="font-mono"> model </span>
           field (e.g. base / asklearn / practice). Attach and detach are live — no redeploy.
         </InfoTip>
+        {reachable && (
+          <button
+            type="button"
+            onClick={doRefresh}
+            disabled={refreshing}
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded p-1 text-ink-soft hover:bg-surface-soft disabled:opacity-50"
+            title="Re-scan served + on-disk adapters"
+          >
+            <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} />
+          </button>
+        )}
       </div>
 
       {loading ? (
