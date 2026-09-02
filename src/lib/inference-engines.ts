@@ -20,8 +20,10 @@ import { OLLAMA_V1, listOllamaModels, loadedOllamaModel, ollamaUp } from "@/lib/
 
 export type EngineId = "ollama" | "vllm";
 
-/** A model an engine is currently serving. */
-export type ServedModel = { id: string; name: string; isGguf: boolean };
+/** A model an engine is currently serving. `root` is what vLLM's /v1/models
+ *  exposes behind a served-name alias: for the base it's the real model
+ *  (e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL), for a LoRA adapter its on-disk dir. */
+export type ServedModel = { id: string; name: string; isGguf: boolean; root?: string };
 
 /** What an engine can report about itself for the Serve UI. */
 export type EngineInfo = {
@@ -35,6 +37,10 @@ export type EngineInfo = {
   available: boolean;
   /** The hot / served model, if the engine reports one. */
   loaded: string | null;
+  /** The REAL base model behind the served-name alias (vLLM `root` of models[0]),
+   *  e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL — so the UI can show which model is
+   *  actually loaded, not just the alias. Null when unknown/not applicable. */
+  baseModel: string | null;
   /** Models this engine can serve. */
   models: ServedModel[];
 };
@@ -63,10 +69,10 @@ export async function listOpenAIModels(
   try {
     const res = await fetch(`${v1BaseUrl}/models`, { headers, signal: AbortSignal.timeout(4000) });
     if (!res.ok) return [];
-    const data = (await res.json()) as { data?: Array<{ id?: string }> };
+    const data = (await res.json()) as { data?: Array<{ id?: string; root?: string }> };
     return (data.data ?? [])
       .filter((m) => m.id)
-      .map((m) => ({ id: m.id as string, name: m.id as string, isGguf: false }));
+      .map((m) => ({ id: m.id as string, name: m.id as string, isGguf: false, root: m.root }));
   } catch {
     return [];
   }
@@ -85,6 +91,7 @@ async function ollamaInfo(): Promise<EngineInfo> {
     configured: true, // Ollama is the always-present default engine.
     available,
     loaded,
+    baseModel: loaded, // Ollama's served id is already the real model name.
     models: models.map((m) => ({ id: m.id, name: m.name, isGguf: true })),
   };
 }
@@ -98,6 +105,7 @@ async function vllmInfo(): Promise<EngineInfo> {
       configured: false,
       available: false,
       loaded: null,
+      baseModel: null,
       models: [],
     };
   }
@@ -111,6 +119,8 @@ async function vllmInfo(): Promise<EngineInfo> {
     // at least the base being listed; `loaded` reports the base (models[0]).
     available: models.length > 0,
     loaded: models[0]?.id ?? null,
+    // The base's `root` is the REAL model behind the served-name alias.
+    baseModel: models[0]?.root ?? null,
     models,
   };
 }

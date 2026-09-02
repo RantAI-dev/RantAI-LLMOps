@@ -9,8 +9,10 @@ export type AdapterState = {
   configured: boolean;
   /** vLLM answered — its models (base + adapters) are live. */
   reachable: boolean;
-  /** The served base model id (adapters attach on top of it). */
+  /** The served base model id / alias (adapters attach on top of it). */
   base: string | null;
+  /** The REAL base model behind the alias (e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL). */
+  baseModel: string | null;
   /** Adapter names currently served — what a client can route to by `model`. */
   served: string[];
   /** Trained adapters found on disk that can be attached (best effort). */
@@ -25,6 +27,7 @@ const EMPTY: AdapterState = {
   configured: false,
   reachable: false,
   base: null,
+  baseModel: null,
   served: [],
   available: [],
   remembered: [],
@@ -52,6 +55,7 @@ export function useAdapters() {
         configured: Boolean(d.configured),
         reachable: Boolean(d.reachable),
         base: d.base ?? null,
+        baseModel: d.baseModel ?? null,
         served: Array.isArray(d.served) ? d.served : [],
         available: Array.isArray(d.available) ? d.available : [],
         remembered: Array.isArray(d.remembered) ? d.remembered : [],

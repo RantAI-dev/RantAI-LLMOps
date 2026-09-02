@@ -53,10 +53,10 @@ function EngineCard({ engine }: { engine: EngineInfo }) {
             {engine.v1BaseUrl}
           </dd>
           <dt className="text-ink-soft">Model</dt>
-          <dd className="text-ink tabular-nums">
-            {engine.models.length}
-            {engine.loaded ? (
-              <span className="text-ink-soft"> · active: {engine.loaded.split("/").pop()}</span>
+          <dd className="text-ink" title={engine.baseModel ?? engine.loaded ?? undefined}>
+            <span className="tabular-nums">{engine.models.length}</span>
+            {engine.baseModel ?? engine.loaded ? (
+              <span className="text-ink-soft"> · {(engine.baseModel ?? engine.loaded)!.split("/").pop()}</span>
             ) : null}
           </dd>
         </dl>
@@ -76,7 +76,7 @@ function EngineCard({ engine }: { engine: EngineInfo }) {
               {engine.models.map((m, i) => (
                 <span
                   key={m.id}
-                  title={i === 0 ? "base model" : "LoRA adapter"}
+                  title={i === 0 ? `base model — ${engine.baseModel ?? m.root ?? m.name}` : `LoRA adapter — ${m.root ?? m.id}`}
                   className={cn(
                     "rounded-full px-2 py-0.5 font-mono text-[11px]",
                     i === 0 ? "bg-surface-2 text-ink-soft" : "bg-success-soft text-success"

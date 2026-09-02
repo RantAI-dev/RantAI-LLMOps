@@ -88,6 +88,9 @@ export async function GET() {
     configured: true,
     reachable: vllm.available,
     base: ids[0] ?? null, // vLLM lists the base first, then each LoRA adapter
+    // The REAL model behind the served-name alias (e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL),
+    // so the UI can show what's actually loaded + flag base-incompatible adapters.
+    baseModel: vllm.baseModel ?? null,
     served: ids.slice(1),
     available: vllm.available ? await listAvailable() : [],
     remembered: manifest.map((a) => a.name),

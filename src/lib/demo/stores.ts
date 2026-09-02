@@ -187,6 +187,7 @@ export function demoEngines(): EngineInfo[] {
       configured: true,
       available: true,
       loaded: "base",
+      baseModel: "aisingapore/Gemma-SEA-LION-v4-4B-VL",
       models: served,
     },
     {
@@ -196,6 +197,7 @@ export function demoEngines(): EngineInfo[] {
       configured: true,
       available: true,
       loaded: "rantai-sealion-v3-ask:latest",
+      baseModel: "rantai-sealion-v3-ask:latest",
       models: [
         { id: "rantai-sealion-v3-ask:latest", name: "rantai-sealion-v3-ask:latest", isGguf: true },
         { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", isGguf: true },

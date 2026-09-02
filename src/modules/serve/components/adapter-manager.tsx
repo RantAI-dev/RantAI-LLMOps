@@ -16,7 +16,7 @@ import { useAdapters, type AvailableAdapter } from "@/modules/serve/hooks/use-ad
  * are live (no redeploy). Hidden entirely unless vLLM is the configured engine.
  */
 export function AdapterManager() {
-  const { configured, reachable, base, served, available, drift, loading, busy, error, clearError, reload, attach, detach, reconcile } =
+  const { configured, reachable, base, baseModel, served, available, drift, loading, busy, error, clearError, reload, attach, detach, reconcile } =
     useAdapters();
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
@@ -43,6 +43,10 @@ export function AdapterManager() {
   };
 
   const canAttach = name.trim().length > 0 && path.trim().length > 0 && busy !== "__form__";
+  // For flagging base-incompatible adapters: an adapter is tied to the base it was
+  // trained on, so one trained on a DIFFERENT base than vLLM currently serves will
+  // misbehave if attached. Compare by base-model basename.
+  const servedBaseName = baseModel?.split("/").pop()?.toLowerCase() ?? null;
 
   const doAttach = async () => {
     const nm = name.trim();
@@ -108,6 +112,11 @@ export function AdapterManager() {
 
           <div className="text-[12px] text-ink-soft">
             Base model: <span className="font-mono text-ink">{base ?? "—"}</span>
+            {baseModel ? (
+              <span className="text-ink-faint" title={baseModel}>
+                {" "}· serving <span className="font-mono text-ink-soft">{baseModel.split("/").pop()}</span>
+              </span>
+            ) : null}
           </div>
 
           {/* Attached adapters */}
@@ -178,17 +187,30 @@ export function AdapterManager() {
               <div className="mt-2.5">
                 <div className="mb-1 text-[11px] text-ink-faint">Trained adapters on disk — click to fill the path:</div>
                 <div className="flex flex-wrap gap-1.5">
-                  {available.map((a) => (
-                    <button
-                      key={a.path}
-                      type="button"
-                      onClick={() => pickAvailable(a)}
-                      title={`${a.path}\nbase: ${a.base}`}
-                      className="rounded-full border px-2 py-0.5 font-mono text-[11px] text-ink-soft hover:bg-surface-soft"
-                    >
-                      {a.jobId.slice(0, 8)} · {a.base.split("/").pop() || "?"}
-                    </button>
-                  ))}
+                  {available.map((a) => {
+                    const aBase = a.base?.split("/").pop()?.toLowerCase();
+                    const mismatch = Boolean(servedBaseName && aBase && servedBaseName !== aBase);
+                    return (
+                      <button
+                        key={a.path}
+                        type="button"
+                        onClick={() => pickAvailable(a)}
+                        title={
+                          mismatch
+                            ? `⚠ Base beda — adapter ini dilatih di ${a.base}, tapi vLLM serve ${baseModel}. Kemungkinan tidak kompatibel.`
+                            : `${a.path}\nbase: ${a.base}`
+                        }
+                        className={`rounded-full border px-2 py-0.5 font-mono text-[11px] ${
+                          mismatch
+                            ? "border-warning/50 text-warning hover:bg-warning-soft"
+                            : "text-ink-soft hover:bg-surface-soft"
+                        }`}
+                      >
+                        {mismatch ? "⚠ " : ""}
+                        {a.jobId.slice(0, 8)} · {a.base.split("/").pop() || "?"}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
