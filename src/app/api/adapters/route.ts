@@ -1,5 +1,12 @@
 import { runHostScript } from "@/lib/host-runner";
 import { listEngines, resolveEngine } from "@/lib/inference-engines";
+import {
+  ADAPTER_NAME_RE,
+  isSafeAdapterPath,
+  loadLoraAdapter,
+  unloadLoraAdapter,
+} from "@/lib/vllm-lora";
+import { addToManifest, readManifest, removeFromManifest } from "@/lib/adapter-manifest-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,27 +17,20 @@ export const dynamic = "force-dynamic";
  * vLLM serves one base model and can hot-load LoRA adapters that the client then
  * routes to per request via the `model` field (base / asklearn / practice …).
  * This route is the UI's control plane for that:
- *   GET  — the base, the adapters currently served, and the trained (unmerged)
- *          adapters on disk that could be attached.
+ *   GET  — the base, the adapters currently served, the trained (unmerged)
+ *          adapters on disk that could be attached, and the desired-state
+ *          manifest (Phase 2): which adapters are `remembered`, and which of
+ *          those `drift` (remembered but not currently live — e.g. after a vLLM
+ *          restart) so the UI can offer to reconcile.
  *   POST — attach ({action:"load",name,path}) or detach ({action:"unload",name})
- *          an adapter at runtime, proxied to vLLM's dynamic-LoRA API.
+ *          an adapter at runtime, proxied to vLLM's dynamic-LoRA API. A
+ *          successful attach/detach also updates the manifest so the reconciler
+ *          can restore runtime adapters after a restart.
  *
  * Requires the vLLM service to be launched with --enable-lora and
  * VLLM_ALLOW_RUNTIME_LORA_UPDATING=True (see docker-compose.portainer.yml). If it
  * wasn't, vLLM answers the load/unload endpoints with 404 — surfaced as an error.
  */
-
-// vLLM's dynamic-LoRA endpoints live under the same /v1 base as chat/models.
-const LOAD_PATH = "/load_lora_adapter";
-const UNLOAD_PATH = "/unload_lora_adapter";
-
-// Adapter name = the `model` a client routes by. Keep it id/URL-safe.
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-
-/** The adapter dir must be one vLLM can read: under the mounted TL data, no traversal. */
-function isSafeAdapterPath(p: string): boolean {
-  return p.startsWith("/root/.transformerlab/") && !p.includes("..") && !/[\s;&|`$()<>]/.test(p);
-}
 
 type Available = { jobId: string; path: string; base: string };
 
@@ -68,15 +68,30 @@ async function listAvailable(): Promise<Available[]> {
 export async function GET() {
   const vllm = (await listEngines()).find((e) => e.id === "vllm");
   if (!vllm?.configured) {
-    return Response.json({ configured: false, reachable: false, base: null, served: [], available: [] });
+    return Response.json({
+      configured: false,
+      reachable: false,
+      base: null,
+      served: [],
+      available: [],
+      remembered: [],
+      drift: [],
+    });
   }
   const ids = vllm.models.map((m) => m.id);
+  // Desired-state (Phase 2): which remembered adapters are missing from the live
+  // engine. Computed from the models we already fetched — no extra vLLM call.
+  const manifest = await readManifest();
+  const live = new Set(ids);
+  const drift = manifest.filter((a) => !live.has(a.name)).map((a) => a.name);
   return Response.json({
     configured: true,
     reachable: vllm.available,
     base: ids[0] ?? null, // vLLM lists the base first, then each LoRA adapter
     served: ids.slice(1),
     available: vllm.available ? await listAvailable() : [],
+    remembered: manifest.map((a) => a.name),
+    drift,
   });
 }
 
@@ -94,15 +109,13 @@ export async function POST(req: Request) {
   }
 
   const name = (body.name ?? "").trim();
-  if (!NAME_RE.test(name)) {
+  if (!ADAPTER_NAME_RE.test(name)) {
     return Response.json(
       { error: "Adapter name must be 1–64 characters: letters, digits, dot, underscore, or hyphen." },
       { status: 400 }
     );
   }
 
-  let url: string;
-  let payload: Record<string, string>;
   if (body.action === "load") {
     const path = (body.path ?? "").trim();
     if (!isSafeAdapterPath(path)) {
@@ -111,34 +124,19 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    url = `${engine.v1BaseUrl}${LOAD_PATH}`;
-    payload = { lora_name: name, lora_path: path };
-  } else if (body.action === "unload") {
-    url = `${engine.v1BaseUrl}${UNLOAD_PATH}`;
-    payload = { lora_name: name };
-  } else {
-    return Response.json({ error: 'action must be "load" or "unload".' }, { status: 400 });
+    const res = await loadLoraAdapter(engine, name, path);
+    if (!res.ok) return Response.json({ error: res.message }, { status: 502 });
+    // Remember it so the reconciler can restore it after a vLLM restart.
+    await addToManifest({ name, path });
+    return Response.json({ ok: true, message: res.message });
   }
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: engine.headers,
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(30_000),
-    });
-    // vLLM answers these with a plain-text message, not JSON.
-    const text = (await res.text()).trim();
-    if (!res.ok) {
-      const hint =
-        res.status === 404
-          ? " (vLLM must run with VLLM_ALLOW_RUNTIME_LORA_UPDATING=True to allow runtime changes)"
-          : "";
-      return Response.json({ error: `${text || `vLLM returned ${res.status}`}${hint}` }, { status: 502 });
-    }
-    return Response.json({ ok: true, message: text || `${body.action} ok` });
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : "Request to vLLM failed.";
-    return Response.json({ error: `Could not reach vLLM: ${detail}` }, { status: 502 });
+  if (body.action === "unload") {
+    const res = await unloadLoraAdapter(engine, name);
+    if (!res.ok) return Response.json({ error: res.message }, { status: 502 });
+    await removeFromManifest(name);
+    return Response.json({ ok: true, message: res.message });
   }
+
+  return Response.json({ error: 'action must be "load" or "unload".' }, { status: 400 });
 }

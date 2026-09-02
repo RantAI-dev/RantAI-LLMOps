@@ -15,9 +15,21 @@ export type AdapterState = {
   served: string[];
   /** Trained adapters found on disk that can be attached (best effort). */
   available: AvailableAdapter[];
+  /** Adapter names the desired-state manifest remembers (Phase 2). */
+  remembered: string[];
+  /** Remembered adapters missing from the live engine — reconcile restores them. */
+  drift: string[];
 };
 
-const EMPTY: AdapterState = { configured: false, reachable: false, base: null, served: [], available: [] };
+const EMPTY: AdapterState = {
+  configured: false,
+  reachable: false,
+  base: null,
+  served: [],
+  available: [],
+  remembered: [],
+  drift: [],
+};
 
 /**
  * The vLLM base + its LoRA adapters, with attach/detach actions.
@@ -42,6 +54,8 @@ export function useAdapters() {
         base: d.base ?? null,
         served: Array.isArray(d.served) ? d.served : [],
         available: Array.isArray(d.available) ? d.available : [],
+        remembered: Array.isArray(d.remembered) ? d.remembered : [],
+        drift: Array.isArray(d.drift) ? d.drift : [],
       });
     } catch {
       setState(EMPTY);
@@ -86,5 +100,26 @@ export function useAdapters() {
   const detach = useCallback((name: string) => act("unload", name, undefined, name), [act]);
   const clearError = useCallback(() => setError(null), []);
 
-  return { ...state, loading, busy, error, clearError, reload, attach, detach };
+  /** Re-load remembered adapters that drifted (e.g. after a vLLM restart). */
+  const reconcile = useCallback(async (): Promise<{ loaded: string[]; failed: number } | null> => {
+    setBusy("__reconcile__");
+    setError(null);
+    try {
+      const res = await fetch("/api/adapters/reconcile", { method: "POST" });
+      const d = (await res.json()) as { loaded?: string[]; failed?: unknown[]; error?: string };
+      if (!res.ok) {
+        setError(d.error ?? "Could not reconcile adapters.");
+        return null;
+      }
+      await reload();
+      return { loaded: d.loaded ?? [], failed: Array.isArray(d.failed) ? d.failed.length : 0 };
+    } catch {
+      setError("Could not reconcile adapters.");
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  }, [reload]);
+
+  return { ...state, loading, busy, error, clearError, reload, attach, detach, reconcile };
 }

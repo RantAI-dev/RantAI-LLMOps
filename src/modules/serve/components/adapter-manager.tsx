@@ -16,7 +16,7 @@ import { useAdapters, type AvailableAdapter } from "@/modules/serve/hooks/use-ad
  * are live (no redeploy). Hidden entirely unless vLLM is the configured engine.
  */
 export function AdapterManager() {
-  const { configured, reachable, base, served, available, loading, busy, error, clearError, reload, attach, detach } =
+  const { configured, reachable, base, served, available, drift, loading, busy, error, clearError, reload, attach, detach, reconcile } =
     useAdapters();
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
@@ -32,6 +32,14 @@ export function AdapterManager() {
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const doReconcile = async () => {
+    const r = await reconcile();
+    if (!r) return;
+    if (r.loaded.length) toast.success(`Reloaded ${r.loaded.length} adapter${r.loaded.length > 1 ? "s" : ""}`);
+    else toast.success("Adapters already in sync");
+    if (r.failed) toast.error(`${r.failed} adapter${r.failed > 1 ? "s" : ""} failed to reload`);
   };
 
   const canAttach = name.trim().length > 0 && path.trim().length > 0 && busy !== "__form__";
@@ -85,6 +93,19 @@ export function AdapterManager() {
         </p>
       ) : (
         <div className="space-y-5">
+          {drift.length > 0 && (
+            <div className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-[12px] text-ink sm:flex-row sm:items-center">
+              <span className="flex-1">
+                {drift.length} remembered adapter{drift.length > 1 ? "s" : ""} not loaded
+                <span className="text-ink-soft"> ({drift.join(", ")})</span> — likely a vLLM restart.
+              </span>
+              <Button onClick={doReconcile} disabled={busy === "__reconcile__"} size="sm" variant="outline">
+                {busy === "__reconcile__" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                Sync now
+              </Button>
+            </div>
+          )}
+
           <div className="text-[12px] text-ink-soft">
             Base model: <span className="font-mono text-ink">{base ?? "—"}</span>
           </div>
