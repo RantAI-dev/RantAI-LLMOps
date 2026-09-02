@@ -14,6 +14,11 @@ import { VllmDeploy } from "@/modules/serve/components/vllm-deploy";
  * to avoid two competing notions of "deploy".
  */
 export function ServePage() {
+  // "Deploy vLLM" is gated off by default: on GB10 the provider path (pip vLLM)
+  // has no working build and the container path needs the Docker socket, so the
+  // card is non-functional there. Set NEXT_PUBLIC_ENABLE_DEPLOY_VLLM=true to show
+  // it where a working launcher exists.
+  const showDeployVllm = process.env.NEXT_PUBLIC_ENABLE_DEPLOY_VLLM === "true";
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
       <div className="flex items-center gap-1.5">
@@ -26,7 +31,7 @@ export function ServePage() {
       </div>
 
       <EngineStatus />
-      <VllmDeploy />
+      {showDeployVllm && <VllmDeploy />}
       <AdapterManager />
       <GatewayAccess />
     </div>
