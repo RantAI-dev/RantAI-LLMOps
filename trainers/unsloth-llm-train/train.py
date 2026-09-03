@@ -272,6 +272,11 @@ def train_with_unsloth():
         lora_dropout = config.get("lora_dropout", 0.0)
         logging_steps = config.get("logging_steps", 1)
         save_steps = config.get("save_steps", 50)
+        # Read from the launch parameters like every other knob. Without this the
+        # eval_steps below fell through to its default on every run, so a launch
+        # that asked for eval_steps=50 still evaluated every 5 steps — that is what
+        # made the ask-v3 run take 3h18m, most of it re-running eval.
+        eval_steps = config.get("eval_steps", 5)
         weight_decay = config.get("weight_decay", 0.01)
         dataloader_num_workers = config.get("dataloader_num_workers", 0)
         # Quantization is opt-IN here. On GB10 (128 GB unified) 4-bit saves memory we
@@ -303,6 +308,7 @@ def train_with_unsloth():
                 "lora_dropout": lora_dropout,
                 "logging_steps": logging_steps,
                 "save_steps": save_steps,
+                "eval_steps": eval_steps,
                 "weight_decay": weight_decay,
                 "dataloader_num_workers": dataloader_num_workers,
                 "load_in_4bit": load_in_4bit,
