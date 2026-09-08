@@ -487,6 +487,7 @@ def train_with_unsloth():
             # "prompt: ...\ncompletion: ..." strings instead of the model's chat
             # format. These are the same pairs buildFormattingTemplate() documents.
             turn_pairs = (("instruction", "output"), ("prompt", "completion"), ("question", "answer"))
+            import json as _json
             cols = dataset["train"].column_names
             detected = next((p for p in turn_pairs if p[0] in cols and p[1] in cols), None)
             lab.log(
@@ -498,16 +499,30 @@ def train_with_unsloth():
             # Apply chat template to format the dataset
             def format_dataset(example):
                 # Handle different dataset formats - process one example at a time
+                # A `messages` column wins: it is the only shape that can carry a
+                # multi-turn conversation, and it is exactly what the app sends to
+                # /chat/completions. A `system` column gives single-turn rows a real
+                # system turn instead of stuffing the instruction block into the user
+                # turn, which made the trained sequence differ from the served one.
+                convo = example.get("messages") if "messages" in example else None
+                if isinstance(convo, str):
+                    convo = _json.loads(convo)
                 pair = next((p for p in turn_pairs if p[0] in example and p[1] in example), None)
-                if pair:
-                    user_turn = example[pair[0]]
-                    assistant_turn = example[pair[1]]
-                    # Use the model's chat template if available
-                    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
-                        messages = [
+                if convo or pair:
+                    if convo:
+                        messages = list(convo)
+                        user_turn = next((m["content"] for m in messages if m["role"] == "user"), "")
+                        assistant_turn = next((m["content"] for m in messages if m["role"] == "assistant"), "")
+                    else:
+                        user_turn = example[pair[0]]
+                        assistant_turn = example[pair[1]]
+                        sys_turn = example.get("system")
+                        messages = ([{"role": "system", "content": sys_turn}] if sys_turn else []) + [
                             {"role": "user", "content": user_turn},
                             {"role": "assistant", "content": assistant_turn},
                         ]
+                    # Use the model's chat template if available
+                    if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
                         text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
                     else:
                         # Fallback format
@@ -667,14 +682,36 @@ def train_with_unsloth():
                     # Derive the turn markers from THIS model's own chat template
                     # so it works for Apertus / Qwen / Llama without hardcoding.
                     _U, _A = "%%RANTAI_USER%%", "%%RANTAI_ASSISTANT%%"
-                    _probe = tokenizer.apply_chat_template(
+                    _S = "%%RANTAI_SYSTEM%%"
+                    _sample = dataset["train"][0]["text"]
+
+                    # Prefix form: everything before the user content. Correct only when
+                    # the user turn is FIRST. Once a system turn precedes it this string
+                    # starts with BOS and never matches, so the mask would be derived
+                    # from a marker that does not occur -> silently wrong.
+                    _p1 = tokenizer.apply_chat_template(
                         [{"role": "user", "content": _U}, {"role": "assistant", "content": _A}],
-                        tokenize=False,
-                        add_generation_prompt=False,
+                        tokenize=False, add_generation_prompt=False,
                     )
-                    _iu, _ia = _probe.index(_U), _probe.index(_A)
-                    instruction_part = _probe[:_iu]
-                    response_part = _probe[_iu + len(_U):_ia]
+                    _cand = [(_p1[:_p1.index(_U)], _p1[_p1.index(_U) + len(_U):_p1.index(_A)])]
+
+                    # Delimiter form: the text BETWEEN turns. Works with a system turn and
+                    # for every later turn of a multi-turn conversation.
+                    _p2 = tokenizer.apply_chat_template(
+                        [{"role": "system", "content": _S}, {"role": "user", "content": _U},
+                         {"role": "assistant", "content": _A}],
+                        tokenize=False, add_generation_prompt=False,
+                    )
+                    _cand.append((_p2[_p2.index(_S) + len(_S):_p2.index(_U)],
+                                  _p2[_p2.index(_U) + len(_U):_p2.index(_A)]))
+
+                    # Use whichever pair the formatted data actually contains.
+                    instruction_part, response_part = next(
+                        ((i, r) for i, r in _cand if i and r and i in _sample and r in _sample),
+                        _cand[0])
+                    lab.log(f"Turn markers: instruction={instruction_part!r} "
+                            f"(occurs {_sample.count(instruction_part)}x), "
+                            f"response={response_part!r} ({_sample.count(response_part)}x)")
                 else:
                     # Mirror the plain-text fallback used in format_dataset above.
                     instruction_part, response_part = "### Instruction:\n", "### Response:\n"
