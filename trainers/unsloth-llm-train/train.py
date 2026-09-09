@@ -705,10 +705,34 @@ def train_with_unsloth():
                     _cand.append((_p2[_p2.index(_S) + len(_S):_p2.index(_U)],
                                   _p2[_p2.index(_U) + len(_U):_p2.index(_A)]))
 
+                    # Turn-start form. The delimiter form still carries the PREVIOUS
+                    # turn's terminator (on Gemma: end_of_turn, newline, then the
+                    # start_of_turn marker). train_on_responses_only trains from the end
+                    # of response_part up to the START of the next instruction_part, so
+                    # that terminator sits OUTSIDE the trainable span: the model is never
+                    # taught to END an assistant turn and learns to run every turn of the
+                    # conversation together into a single reply. Measured on learn v10 --
+                    # first turns 12x longer than the training target (1438 vs 120 chars),
+                    # WORSE than the untuned base model (207). Single-turn datasets escape
+                    # it because the last turn's span reaches end-of-sequence and does
+                    # include the terminator, which is why the ask adapters were fine.
+                    # The longest common suffix of the two forms is the bare turn-start
+                    # marker, model-agnostically, and keeps the terminator trainable.
+                    def _suffix(a, b):
+                        n = 0
+                        while n < min(len(a), len(b)) and a[-1 - n] == b[-1 - n]:
+                            n += 1
+                        return a[len(a) - n:] if n else ""
+                    _start_i = _suffix(_cand[0][0], _cand[1][0])
+                    # what the template puts between an answer and the next turn
+                    _term = _cand[1][0][:len(_cand[1][0]) - len(_start_i)]
+                    _cand.insert(0, (_start_i, _suffix(_cand[0][1], _cand[1][1])))
+
                     # Use whichever pair the formatted data actually contains.
                     instruction_part, response_part = next(
                         ((i, r) for i, r in _cand if i and r and i in _sample and r in _sample),
                         _cand[0])
+
                     lab.log(f"Turn markers: instruction={instruction_part!r} "
                             f"(occurs {_sample.count(instruction_part)}x), "
                             f"response={response_part!r} ({_sample.count(response_part)}x)")
@@ -744,6 +768,25 @@ def train_with_unsloth():
                             raise RuntimeError(
                                 f"degenerate completion-only mask ({_keep}/{_tot} trainable); wrong turn markers"
                             )
+
+                        # A mask can be non-degenerate and still leave every assistant
+                        # turn UNTERMINATED, which is how learn v10 shipped: 13% trainable
+                        # looked healthy while the end-of-turn token sat outside the span
+                        # on every turn but the last. Require the terminator to be
+                        # trainable once per assistant turn.
+                        _ids = trainer.train_dataset[0].get("input_ids")
+                        _t = (_term or "").strip()
+                        if _ids and _t:
+                            _dec = tokenizer.decode([i for i, l in zip(_ids, _labels) if l != -100])
+                            _need = _sample.count(response_part)
+                            _have = _dec.count(_t)
+                            lab.log(f"  end-of-turn trainable: {_have}/{_need} turns")
+                            if _have < _need:
+                                raise RuntimeError(
+                                    f"{_need - _have} of {_need} assistant turns end OUTSIDE "
+                                    f"the trainable span ({_t!r} masked out); the model would "
+                                    "never learn to stop and would merge all turns into one reply"
+                                )
                 except RuntimeError:
                     raise
                 except Exception as _e:
