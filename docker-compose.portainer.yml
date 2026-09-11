@@ -181,6 +181,70 @@ services:
     networks:
       - llmops
 
+  # ─── vLLM 4B multi-LoRA (RantAI Agents “Elise”) ──────────────────────
+  # WRITTEN DOWN, NOT APPLIED. The live `rantai-vllm-4b` was hand-built through the
+  # Docker API and is NOT managed by this stack (no compose labels). This block is
+  # the faithful record of it so the configuration is not one `docker rm` away from
+  # being lost — it is behind a profile, so a normal stack redeploy does NOT touch
+  # the running container. To rebuild from scratch:
+  #     docker compose --profile vllm4b up -d vllm4b
+  #
+  # Differs from the `vllm` service above in every way that matters: a 4B VL base,
+  # LoRA enabled with four PINNED adapters, eager mode, and its own network alias
+  # `vllm4b` (which is what rantai-gateway-vllm and the Agents mockup dial).
+  #
+  # The adapters are pinned by ABSOLUTE JOB PATH under the read-only tl_data mount.
+  # Pinning here is what makes them survive a vLLM restart; adapters added at
+  # runtime via POST /v1/load_lora_adapter do NOT survive one. Re-point an adapter
+  # by editing its job id below — that requires recreating the container (~3 min).
+  vllm4b:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: rantai-vllm-4b
+    profiles: ["vllm4b"]
+    ipc: host
+    entrypoint: ["/bin/sh", "-c"]
+    # `$$` escapes compose interpolation so the shell, not compose, expands these.
+    command:
+      - |
+        set -eu
+        set -- "$$VLLM_MODEL" --served-model-name "$$VLLM_SERVED_NAME" --gpu-memory-utilization "$$VLLM_GPU_UTIL" --max-model-len "$$VLLM_MAX_MODEL_LEN" --enforce-eager --max-num-seqs 16 --trust-remote-code
+        if [ -n "$${VLLM_QUANT:-}" ]; then set -- "$$@" --quantization "$$VLLM_QUANT"; fi
+        if [ -n "$${VLLM_LORA_MODULES:-}" ]; then set -- "$$@" --enable-lora --max-loras "$$VLLM_MAX_LORAS" --max-lora-rank "$$VLLM_MAX_LORA_RANK" --lora-modules $$VLLM_LORA_MODULES; fi
+        echo "[vllm-fp8] serve $$*" >&2
+        exec vllm serve "$$@"
+    environment:
+      - VLLM_MODEL=${VLLM4B_MODEL:-aisingapore/Gemma-SEA-LION-v4-4B-VL}
+      - VLLM_SERVED_NAME=${VLLM4B_SERVED_NAME:-base}
+      - VLLM_GPU_UTIL=${VLLM4B_GPU_UTIL:-0.30}
+      - VLLM_MAX_MODEL_LEN=${VLLM4B_MAX_MODEL_LEN:-8192}
+      # Empty = bf16. The entrypoint only passes --quantization when this is set.
+      - VLLM_QUANT=${VLLM4B_QUANT:-}
+      - VLLM_MAX_LORAS=${VLLM4B_MAX_LORAS:-8}
+      - VLLM_MAX_LORA_RANK=${VLLM4B_MAX_LORA_RANK:-32}
+      - VLLM_ALLOW_RUNTIME_LORA_UPDATING=${VLLM4B_RUNTIME_LORA:-True}
+      - HF_HUB_ENABLE_HF_TRANSFER=0
+      # The pinned adapters, space separated. Served names on the left are what a
+      # client puts in the request's `model` field:
+      #   ask      — Tanya  (askv6 is the one the Agents mockup uses; `ask` is v1,
+      #              still dialled by rag-vllm-proxy, so both stay pinned)
+      #   learn    — Belajar
+      #   practice — Latihan
+      - VLLM_LORA_MODULES=${VLLM4B_LORA_MODULES:-ask=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/b95ccad0-e933-44b5-9e1f-269a1d9e945b/models/b95ccad0-e933-44b5-9e1f-269a1d9e945b_unsloth_trained_model askv6=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/72543cc8-41b0-43cd-ba9a-6e6707c2cb01/models/72543cc8-41b0-43cd-ba9a-6e6707c2cb01_unsloth_trained_model learn=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/e621651b-2ed4-400d-a0a3-169a88010632/models/e621651b-2ed4-400d-a0a3-169a88010632_unsloth_trained_model practice=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/a90a78be-551c-4858-87f8-9c369353d908/models/a90a78be-551c-4858-87f8-9c369353d908_unsloth_trained_model}
+    volumes:
+      - vllm_hf_cache:/root/.cache/huggingface
+      - tl_data:/root/.transformerlab:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      llmops:
+        aliases: [vllm4b]
+
   # ─── Gateway (auth + model allowlist in front of Ollama) ─────────────────────
   # The ONLY LLM endpoint exposed to the network. Reuses the backend image purely
   # to run docker/backend/gateway.py (no volume, no install) — every request needs
@@ -231,20 +295,23 @@ services:
     container_name: rantai-gateway-vllm
     entrypoint: ["python3", "/opt/rantai/gateway.py"]
     environment:
-      - GATEWAY_UPSTREAM=http://vllm:8000
+      # The 4B multi-LoRA server's network alias — NOT the `vllm` service above.
+      - GATEWAY_UPSTREAM=${GATEWAY_VLLM_UPSTREAM:-http://vllm4b:8000}
       - GATEWAY_PORT=8080
       # Separate config file from the Ollama gateway (different allowlist); falls
       # back to the env vars below until a UI writes it.
       - GATEWAY_CONFIG_FILE=/uidata/gateway-vllm-config.json
       - GATEWAY_API_KEYS=${GATEWAY_VLLM_API_KEYS:-}
-      # The vLLM served names: the base + each attached LoRA adapter.
-      - GATEWAY_ALLOWED_MODELS=${GATEWAY_VLLM_ALLOWED_MODELS:-base,asklearn,practice}
+      # The vLLM served names: the base + each attached LoRA adapter. Must match the
+      # pinned names in VLLM_LORA_MODULES on vllm4b — anything not listed here is
+      # refused by the gateway even though vLLM is serving it.
+      - GATEWAY_ALLOWED_MODELS=${GATEWAY_VLLM_ALLOWED_MODELS:-base,ask,askv6,learn,practice}
     volumes:
       - ui_data:/uidata:ro
     ports:
       - "${GATEWAY_VLLM_HOST_PORT:-11436}:8080"
     depends_on:
-      - vllm
+      - vllm4b
     restart: unless-stopped
     networks:
       - llmops
