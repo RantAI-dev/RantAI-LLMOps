@@ -229,7 +229,11 @@ services:
       #              still dialled by rag-vllm-proxy, so both stay pinned)
       #   learn    — Belajar
       #   practice — Latihan
-      - VLLM_LORA_MODULES=${VLLM4B_LORA_MODULES:-ask=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/b95ccad0-e933-44b5-9e1f-269a1d9e945b/models/b95ccad0-e933-44b5-9e1f-269a1d9e945b_unsloth_trained_model askv6=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/72543cc8-41b0-43cd-ba9a-6e6707c2cb01/models/72543cc8-41b0-43cd-ba9a-6e6707c2cb01_unsloth_trained_model learn=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/e621651b-2ed4-400d-a0a3-169a88010632/models/e621651b-2ed4-400d-a0a3-169a88010632_unsloth_trained_model practice=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/a90a78be-551c-4858-87f8-9c369353d908/models/a90a78be-551c-4858-87f8-9c369353d908_unsloth_trained_model}
+      #   grading  — penilai jawaban isian/uraian, dipakai /api/grading di RantAI
+      #              Agents. Nama yang dilayani adalah PERAN, bukan versi: ini
+      #              menunjuk job v2 (91% pada 99 kasus held-out; v1 66%). Versi
+      #              berikutnya cukup dipindahkan di sini, kode tidak berubah.
+      - VLLM_LORA_MODULES=${VLLM4B_LORA_MODULES:-ask=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/b95ccad0-e933-44b5-9e1f-269a1d9e945b/models/b95ccad0-e933-44b5-9e1f-269a1d9e945b_unsloth_trained_model askv6=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/72543cc8-41b0-43cd-ba9a-6e6707c2cb01/models/72543cc8-41b0-43cd-ba9a-6e6707c2cb01_unsloth_trained_model learn=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/e621651b-2ed4-400d-a0a3-169a88010632/models/e621651b-2ed4-400d-a0a3-169a88010632_unsloth_trained_model practice=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/a90a78be-551c-4858-87f8-9c369353d908/models/a90a78be-551c-4858-87f8-9c369353d908_unsloth_trained_model grading=/root/.transformerlab/orgs/160bd633-85cb-479f-b0d2-1eafe58c15fd/workspace/experiments/rantai-ft/jobs/2d184ae3-3b89-4019-900d-b10ce49b52f9/models/2d184ae3-3b89-4019-900d-b10ce49b52f9_unsloth_trained_model}
     volumes:
       - vllm_hf_cache:/root/.cache/huggingface
       - tl_data:/root/.transformerlab:ro
