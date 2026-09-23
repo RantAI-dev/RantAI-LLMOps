@@ -211,6 +211,50 @@ function providers() {
   ];
 }
 
+/**
+ * A training log in the SHAPE the real Unsloth/HF trainer emits, because the
+ * loss curve in the monitor is parsed straight out of this text: parse-loss.ts
+ * scans for `'loss': X` and `'eval_loss': X` dict lines, and renders nothing
+ * until it has at least two points.
+ *
+ * The curve descends from ~1.9 to ~0.79 with the small non-monotonic wobble a
+ * genuine run has — a perfectly smooth line reads as fabricated. An eval series
+ * is logged every 50 steps so the train-vs-eval legend has something to draw.
+ */
+function trainerLog() {
+  const lines: string[] = [
+    "Training started with Unsloth FastLanguageModel",
+    "Loading base model: aisingapore/Gemma-SEA-LION-v4-4B-VL",
+    "LoRA adapters added successfully (r=16, alpha=32)",
+    "All samples fit within max_seq_length=4096",
+    "mask check: 43/1942 tokens trainable (2%)",
+    "",
+  ];
+  // Deterministic: the demo must render the same curve on every request.
+  const wobble = [0, 0.04, -0.03, 0.02, -0.05, 0.03, -0.02, 0.05, -0.04, 0.01];
+  let step = 0;
+  for (let i = 0; i < 26; i++) {
+    step += 20;
+    const decay = 1.9 * Math.exp(-i / 9) + 0.72;
+    const loss = Math.max(0.61, decay + wobble[i % wobble.length]);
+    const lr = (0.0002 * (1 - i / 30)).toFixed(6);
+    const epoch = (step / 340).toFixed(2);
+    lines.push(
+      `{'loss': ${loss.toFixed(4)}, 'grad_norm': ${(1.45 - i * 0.03).toFixed(3)}, 'learning_rate': ${lr}, 'epoch': ${epoch}}`
+    );
+    if (i > 0 && i % 5 === 0) {
+      const evalLoss = Math.max(0.68, decay + 0.09);
+      lines.push(
+        `{'eval_loss': ${evalLoss.toFixed(4)}, 'eval_runtime': 12.${40 + i}, 'eval_samples_per_second': 8.${i}, 'epoch': ${epoch}}`
+      );
+    }
+    if (i === 12) lines.push("[trainer] saving checkpoint to outputs/checkpoint-260");
+  }
+  lines.push("");
+  lines.push(`{'train_runtime': 5021.4, 'train_samples_per_second': 1.16, 'epoch': 3.0}`);
+  return lines.join("\n");
+}
+
 function evalResultsScores() {
   return {
     results: {
@@ -264,12 +308,15 @@ export function demoTlResponse(pathAndQuery: string, init?: { method?: string })
   if (path.includes("/get_eval_results")) {
     return demoJson(query.has("file_index") ? evalSamplesCsv() : evalResultsScores());
   }
-  // Job logs.
+  // Job logs. The loss curve is parsed out of THIS text by parse-loss.ts, which
+  // looks for the HF Trainer's own `'loss': X` dict lines. An earlier demo log
+  // used `loss=0.83`, which never matched — so the monitor showed a progress bar
+  // and GPU meters but no curve. Keep this in the trainer's real format.
   if (path.endsWith("/provider_logs")) {
-    return demoJson({ logs: "[trainer] step 512 loss=0.83\n[trainer] step 513 loss=0.79\n[trainer] saving checkpoint...\n" });
+    return demoJson({ logs: trainerLog() });
   }
   if (path.endsWith("/output")) {
-    return demoJson({ output: "Training started with Unsloth FastLanguageModel\nStep 512: loss=0.83\nStep 513: loss=0.79\n" });
+    return demoJson({ output: trainerLog() });
   }
   // Notes markdown (raw JSON string).
   const noteMatch = path.match(/^\/experiment\/([^/]+)\/notes$/);
