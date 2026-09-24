@@ -63,12 +63,21 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             out = subprocess.run(QUERY, capture_output=True, text=True, timeout=5)
+            ok = out.returncode == 0
             payload = {
-                "available": out.returncode == 0,
-                "csv": _patch_unified_memory(out.stdout) if out.returncode == 0 else "",
+                "available": ok,
+                "csv": _patch_unified_memory(out.stdout) if ok else "",
             }
-        except Exception:
-            payload = {"available": False, "csv": ""}
+            if not ok:
+                # Pass nvidia-smi's own words through. "Failed to initialize
+                # NVML" (the container lost device access) and "command not
+                # found" (no GPU here at all) need very different responses,
+                # and the caller cannot tell them apart from a bare false.
+                payload["error"] = (out.stderr or out.stdout or "").strip()[:300] or (
+                    f"nvidia-smi exited {out.returncode}"
+                )
+        except Exception as exc:
+            payload = {"available": False, "csv": "", "error": str(exc)[:300]}
         body = json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

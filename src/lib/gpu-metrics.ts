@@ -57,7 +57,12 @@ async function fetchGpuCsv(): Promise<string> {
     // Throw rather than return "": an empty CSV reads as "no GPUs", which is
     // exactly the confusion this module exists to remove.
     if (!res.ok) throw new Error(`gpu sidecar ${res.status}`);
-    const data = (await res.json()) as { csv?: string; error?: string };
+    const data = (await res.json()) as { csv?: string; error?: string; available?: boolean };
+    // `available: false` is the sidecar telling us nvidia-smi itself failed —
+    // more reliable than inferring it from the text, and it carries the reason.
+    if (data.available === false) {
+      throw new Error(data.error || "nvidia-smi failed on the GPU host");
+    }
     if (data.error) throw new Error(data.error);
     return data.csv ?? "";
   }

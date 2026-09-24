@@ -52,6 +52,30 @@ describe("getGpuStatus", () => {
     expect((await getGpuStatus()).health).toBe("none");
   });
 
+  // The sidecar answers 200 even when nvidia-smi failed, saying so via
+  // `available: false`. Trusting the HTTP status alone would read that as
+  // healthy-but-empty, which is the confusion this whole module removes.
+  it("treats the sidecar's own available:false as blocked", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          available: false,
+          csv: "",
+          error: "Failed to initialize NVML: Unknown Error",
+        }),
+      })),
+    );
+    vi.stubEnv("GPU_STATS_URL", "http://backend:8341");
+    // The module reads GPU_STATS_URL at import time, so re-import it fresh.
+    vi.resetModules();
+    const { getGpuStatus: fresh } = await import("@/lib/gpu-metrics");
+    const status = await fresh();
+    expect(status.health).toBe("blocked");
+    expect(status.detail).toMatch(/cannot reach the driver/i);
+  });
+
   it("defaults an unrecognised failure to blocked rather than silently empty", async () => {
     vi.mocked(runHostScript).mockRejectedValueOnce(new Error("something entirely new"));
     const status = await getGpuStatus();
