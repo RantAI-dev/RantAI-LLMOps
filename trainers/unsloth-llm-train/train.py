@@ -30,6 +30,7 @@ silently trained on the wrong thing:
 """
 
 from unsloth import FastLanguageModel
+import glob
 import os
 from datetime import datetime
 
@@ -235,6 +236,24 @@ def _load_training_dataset(spec: str):
     if os.path.exists(spec):
         lab.log(f"Dataset source: local file {spec}")
         return _from_files(spec)
+
+    # A bare name can be a dataset uploaded through the LLMOps UI, which lands in
+    # the workspace `datasets/<name>` directory. Look there before assuming the
+    # Hub — otherwise an uploaded dataset fails with a confusing "couldn't find
+    # cache" error even though the files are on disk (seen 24 Sep 2026).
+    if "/" not in spec:
+        workspace = os.getenv("_TFL_WORKSPACE_DIR") or ""
+        roots = [os.path.join(workspace, "datasets")] if workspace else []
+        roots += sorted(
+            glob.glob(
+                os.path.expanduser("~/.transformerlab/orgs/*/workspace/datasets")
+            )
+        )
+        for root in roots:
+            candidate = os.path.join(root, spec)
+            if os.path.isdir(candidate):
+                lab.log(f"Dataset source: local upload {candidate}")
+                return _load_training_dataset(candidate)
 
     lab.log("Dataset source: Hugging Face Hub")
     return load_dataset(spec)
