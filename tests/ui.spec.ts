@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 /**
  * Browser end-to-end pass over the deployed LLMOps UI.
@@ -10,38 +10,23 @@ import { expect, test, type Page } from "@playwright/test";
  *   BASE_URL=http://10.17.254.27:3000 APP_PASSWORD=… npx playwright test
  */
 const BASE = process.env.BASE_URL ?? "http://10.17.254.27:3000";
-const PASSWORD = process.env.APP_PASSWORD ?? "";
-
-async function login(page: Page) {
-  await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
-  await page.locator('input[type="password"]').fill(PASSWORD);
-  await page.getByRole("button", { name: /sign in|masuk|log ?in/i }).click();
-  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 });
-}
-
-// The login route rate-limits to 10 attempts per 5 minutes per IP, and this
-// suite signs in more often than that. Sign in once, then replay the cookie.
-type Cookie = Awaited<ReturnType<ReturnType<Page["context"]>["cookies"]>>[number];
-let sessionCookies: Cookie[] | null = null;
-
-async function ensureSession(page: Page) {
-  if (sessionCookies) {
-    await page.context().addCookies(sessionCookies);
-    return;
-  }
-  await login(page);
-  sessionCookies = await page.context().cookies();
-}
 
 test.describe("LLMOps UI", () => {
-  test("rejects a wrong password and accepts the right one", async ({ page }) => {
+  // Signed out on purpose: globalSetup hands every other test a live session.
+  test("rejects a wrong password", async ({ browser }) => {
+    const context = await browser.newContext({ storageState: undefined });
+    const page = await context.newPage();
     await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded" });
     await page.locator('input[type="password"]').fill("definitely-not-the-password");
     await page.getByRole("button", { name: /sign in|masuk|log ?in/i }).click();
-    // Stays on the login page — no session is granted.
+    // Stays put — a wrong password grants no session.
     await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+    await expect(page.locator("body")).not.toContainText(/dashboard/i);
+    await context.close();
+  });
 
-    await login(page);
+  test("the suite is signed in", async ({ page }) => {
+    await page.goto(`${BASE}/dashboard`, { waitUntil: "domcontentloaded" });
     await expect(page).not.toHaveURL(/\/login/);
   });
 
@@ -52,7 +37,6 @@ test.describe("LLMOps UI", () => {
       if (m.type() === "error") errors.push(m.text());
     });
 
-    await ensureSession(page);
 
     const paths = [
       "/dashboard", "/traces", "/tasks", "/interact", "/finetune", "/evals",
@@ -73,20 +57,17 @@ test.describe("LLMOps UI", () => {
   });
 
   test("Tasks shows real jobs", async ({ page }) => {
-    await ensureSession(page);
     await page.goto(`${BASE}/tasks`, { waitUntil: "domcontentloaded" });
     // A real job name from the box, not an empty state.
     await expect(page.locator("body")).toContainText(/COMPLETE|FAILED|RUNNING/i, { timeout: 20_000 });
   });
 
   test("Datasets lists uploaded datasets", async ({ page }) => {
-    await ensureSession(page);
     await page.goto(`${BASE}/datasets`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("body")).toContainText(/amal-train|grounded-smoke/i, { timeout: 20_000 });
   });
 
   test("Deployments shows both engines as active", async ({ page }) => {
-    await ensureSession(page);
     await page.goto(`${BASE}/serve`, { waitUntil: "domcontentloaded" });
     await expect(page.locator("body")).toContainText(/Ollama/i, { timeout: 20_000 });
     await expect(page.locator("body")).toContainText(/vLLM/i);
@@ -95,7 +76,6 @@ test.describe("LLMOps UI", () => {
   });
 
   test("Interact answers without picking a model", async ({ page }) => {
-    await ensureSession(page);
     await page.goto(`${BASE}/interact`, { waitUntil: "domcontentloaded" });
     const box = page.locator("textarea, input[type='text']").last();
     await box.fill("Sebut satu kata.");
@@ -105,7 +85,6 @@ test.describe("LLMOps UI", () => {
   });
 
   test("no 'Transformer Lab' branding leaks into the UI", async ({ page }) => {
-    await ensureSession(page);
     for (const p of ["/dashboard", "/datasets", "/finetune", "/evals", "/compute", "/serve"]) {
       await page.goto(BASE + p, { waitUntil: "domcontentloaded" });
       await expect(page.locator("body"), `on ${p}`).not.toContainText(/Transformer ?Lab/i);

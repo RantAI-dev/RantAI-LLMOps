@@ -19,6 +19,7 @@ if (fs.existsSync(envFile)) {
 /** Browser pass over a DEPLOYED instance — see tests/ui.spec.ts for usage. */
 export default defineConfig({
   testDir: "./tests",
+  globalSetup: "./tests/global-setup.ts",
   timeout: 120_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
@@ -28,6 +29,7 @@ export default defineConfig({
   reporter: [["list"], ["json", { outputFile: "test-results/report.json" }]],
   use: {
     headless: true,
+    storageState: "test-results/.auth.json",
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
     actionTimeout: 20_000,
