@@ -39,6 +39,8 @@ export function GpuMeters({
   compact?: boolean;
 }) {
   const [gpus, setGpus] = useState<GpuMetric[] | null>(null);
+  const [health, setHealth] = useState<"ok" | "none" | "blocked">("ok");
+  const [detail, setDetail] = useState("");
   // In-flight guard: a request slower than intervalMs would otherwise stack up
   // every tick. Skip a tick while one is still pending.
   const inFlight = useRef(false);
@@ -50,8 +52,16 @@ export function GpuMeters({
       inFlight.current = true;
       try {
         const res = await fetch("/api/compute/gpu-metrics", { cache: "no-store" });
-        const d = (await res.json()) as { gpus?: GpuMetric[] };
-        if (!cancelled) setGpus(Array.isArray(d.gpus) ? d.gpus : []);
+        const d = (await res.json()) as {
+          gpus?: GpuMetric[];
+          health?: "ok" | "none" | "blocked";
+          detail?: string;
+        };
+        if (!cancelled) {
+          setGpus(Array.isArray(d.gpus) ? d.gpus : []);
+          setHealth(d.health ?? "ok");
+          setDetail(d.detail ?? "");
+        }
       } catch {
         /* keep last reading on a transient error */
       } finally {
@@ -70,6 +80,20 @@ export function GpuMeters({
     return <p className="text-[12px] text-ink-soft">Membaca GPU…</p>;
   }
   if (gpus.length === 0) {
+    // "blocked" is an outage, not a configuration: the GPU is there, this
+    // container just cannot reach it, and every new job will fail until it is
+    // recreated. It gets a warning treatment; a machine with no GPU does not.
+    if (health === "blocked") {
+      return (
+        <div className="rounded-md border border-warning-border bg-warning-soft px-3 py-2 text-[12px] text-warning">
+          <p className="font-medium">GPU tidak terjangkau dari container ini</p>
+          <p className="mt-0.5 text-ink-soft">
+            {detail || "nvidia-smi tidak bisa menghubungi driver."} Pekerjaan yang butuh
+            GPU akan gagal sampai container dibuat ulang.
+          </p>
+        </div>
+      );
+    }
     return (
       <p className="text-[12px] text-ink-soft">
         Tak ada GPU NVIDIA terdeteksi (atau <code>nvidia-smi</code> tak tersedia di host).

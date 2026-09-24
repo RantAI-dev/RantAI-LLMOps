@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { getGpuStatus } from "@/lib/gpu-metrics";
 import { submitEval, type SubmitEvalParams } from "@/lib/evals";
 import { logServerError } from "@/lib/log";
 
@@ -27,6 +28,20 @@ export async function POST(req: NextRequest) {
   }
   if (!body.model || !body.benchmark) {
     return Response.json({ error: "`model` and `benchmark` are required" }, { status: 400 });
+  }
+
+  // An eval on an unreachable GPU dies after a multi-minute venv build with a
+  // bare "Exit code 1" — that is exactly what happened on 24 Sep. Refuse now.
+  const gpu = await getGpuStatus();
+  if (gpu.health === "blocked") {
+    return Response.json(
+      {
+        error:
+          `${gpu.detail ?? "The GPU is unreachable."} Recreate the backend container, ` +
+          `then submit again.`,
+      },
+      { status: 503 }
+    );
   }
 
   const params = body as SubmitEvalParams;

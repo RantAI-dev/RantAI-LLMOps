@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
+import { getGpuStatus } from "@/lib/gpu-metrics";
 import { getHfToken } from "@/lib/settings-store";
 
 export const runtime = "nodejs";
@@ -50,6 +51,22 @@ export async function POST(req: NextRequest) {
       );
     }
     (body as Record<string, unknown>)[key] = n;
+  }
+
+  // Refuse early when the GPU is unreachable. Launching anyway costs several
+  // minutes of venv build before the job dies with "No CUDA GPUs are available"
+  // — and leaves ~6 GB behind. Only "blocked" is refused: a host with no GPU at
+  // all may still be a deliberate CPU run.
+  const gpu = await getGpuStatus();
+  if (gpu.health === "blocked") {
+    return Response.json(
+      {
+        error:
+          `${gpu.detail ?? "The GPU is unreachable."} Recreate the backend container, ` +
+          `then submit again.`,
+      },
+      { status: 503 }
+    );
   }
 
   // Gated base models (Llama, etc.) need an HF token at download time. Inject the
