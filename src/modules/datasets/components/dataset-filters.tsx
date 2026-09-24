@@ -65,7 +65,6 @@ export function DatasetFiltersBar({ filters, onChange }: DatasetFiltersBarProps)
           { value: "newest", label: "Newest", hint: "NEW" },
           { value: "oldest", label: "Oldest", hint: "OLD" },
           { value: "name", label: "Name (A–Z)", hint: "A–Z" },
-          { value: "usage", label: "Usage count", hint: "USE" },
         ]}
         searchPlaceholder="Type sort…"
       />

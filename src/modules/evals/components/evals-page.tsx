@@ -29,7 +29,7 @@ export function EvalsPage() {
         <h1 className="text-lg font-semibold text-primary">Evals</h1>
         <InfoTip label="About evals">
           Measure model quality with standard benchmarks (EleutherAI LM-Eval-Harness), directly in
-          Transformer Lab. Compare the base against your <strong>fine-tune</strong> to see the effect.
+          the workspace. Compare the base against your <strong>fine-tune</strong> to see the effect.
           The <strong>Grounding</strong> tab measures something different: whether the model answers
           only from the material provided, refuses when the answer is not there, and cites its source.
         </InfoTip>

@@ -473,7 +473,7 @@ export function FinetuneForm({
           {submitting ? "Starting…" : "Start fine-tune"}
         </Button>
         <InfoTip label="About the run">
-          Runs in Transformer Lab (GPU). A small model with a small dataset finishes fastest.
+          Runs on the GPU. A small model with a small dataset finishes fastest.
         </InfoTip>
       </div>
     </div>

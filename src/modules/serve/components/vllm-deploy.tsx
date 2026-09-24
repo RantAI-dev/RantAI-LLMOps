@@ -90,7 +90,7 @@ export function VllmDeploy() {
         <Server className="size-4 text-primary" />
         <h2 className="text-sm font-semibold text-ink">Deploy vLLM</h2>
         <InfoTip label="About Deploy vLLM">
-          Serve a base model + LoRA adapters over vLLM, launched through Transformer Lab&apos;s compute
+          Serve a base model + LoRA adapters over vLLM, launched through the platform&apos;s compute
           provider — portable (no Docker socket), the same way training runs. One serving at a time.
         </InfoTip>
       </div>

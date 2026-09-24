@@ -41,7 +41,7 @@ export function EvalForm({
         <FlaskConical className="size-4 text-primary" aria-hidden />
         <h2 className="text-sm font-semibold text-primary">New evaluation</h2>
         <InfoTip label="About running an evaluation">
-          Runs in Transformer Lab (GPU). The eval pauses inference while it runs.
+          Runs on the GPU. The eval pauses inference while it runs.
         </InfoTip>
       </div>
 

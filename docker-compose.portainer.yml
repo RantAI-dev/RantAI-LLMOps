@@ -309,7 +309,7 @@ services:
       # The vLLM served names: the base + each attached LoRA adapter. Must match the
       # pinned names in VLLM_LORA_MODULES on vllm4b — anything not listed here is
       # refused by the gateway even though vLLM is serving it.
-      - GATEWAY_ALLOWED_MODELS=${GATEWAY_VLLM_ALLOWED_MODELS:-base,ask,askv6,learn,practice}
+      - GATEWAY_ALLOWED_MODELS=${GATEWAY_VLLM_ALLOWED_MODELS:-base,askv6,learn,practice}
     volumes:
       - ui_data:/uidata:ro
     ports:

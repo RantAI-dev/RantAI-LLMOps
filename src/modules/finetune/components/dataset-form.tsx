@@ -186,7 +186,7 @@ export function DatasetForm({
         </div>
       ) : s3 ? (
         <p className="mt-3 rounded-md bg-warning-soft px-3 py-2 text-[11px] text-warning">
-          S3/MinIO is not configured, so this saves as a local Transformer Lab dataset. Set
+          S3/MinIO is not configured, so this saves as a local workspace dataset. Set
           <code className="mx-1">S3_ENDPOINT_URL</code> + credentials to save trainable datasets to
           object storage.
         </p>

@@ -59,7 +59,7 @@ export function ComputePage() {
         <div>
           <h1 className={cn("text-primary", taskUi.title)}>Compute</h1>
           <p className={cn("mt-1 max-w-2xl", taskUi.subheading)}>
-            Where Transformer Lab runs training & inference jobs. On this self-host that&apos;s your
+            Where training & inference jobs run. On this self-host that&apos;s your
             local machine + its GPU.
           </p>
         </div>
@@ -100,7 +100,7 @@ export function ComputePage() {
         <EmptyState
           icon={Server}
           title="No compute providers"
-          description="Transformer Lab reports no providers. On a self-host you'd normally see a built-in 'Local' provider — check that the backend is running."
+          description="The backend reports no providers. On a self-host you'd normally see a built-in 'Local' provider — check that the backend is running."
         />
       ) : (
         <div className="space-y-3">

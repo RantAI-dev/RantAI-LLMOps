@@ -237,10 +237,6 @@ function CompatibilityTab({ model }: { model: RegistryModel }) {
           <Meta label="Tokenizer Available" value={checklist.tokenizerAvailable ? "Yes" : "No"} />
           <Meta label="Config Available" value={checklist.configAvailable ? "Yes" : "No"} />
           <Meta label="Recommended Serving Engine" value={model.deployment.servingEngine} />
-          <Meta label="Min VRAM Required" value={model.minVramRequired} />
-          <Meta label="Recommended GPU" value={model.recommendedGpu} />
-          <Meta label="GPU Count Required" value={String(model.gpuCountRequired)} />
-          <Meta label="Deployment Readiness" value={model.deploymentReadiness} />
         </dl>
       </div>
       <div className={cn(panelClassName, "p-4")}>

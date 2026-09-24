@@ -77,8 +77,6 @@ export function DatasetsPage() {
           return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         case "name":
           return a.name.localeCompare(b.name);
-        case "usage":
-          return b.usageCount - a.usageCount;
         case "updated":
         default:
           return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
@@ -101,7 +99,7 @@ export function DatasetsPage() {
         <div>
           <h1 className={cn("text-primary", datasetUi.title)}>Dataset Library</h1>
           <p className={cn("mt-1 max-w-2xl", datasetUi.subheading)}>
-            Datasets on disk in Transformer Lab. Browse Hugging Face in the Hub, or just use a
+            Datasets on disk in your workspace. Browse Hugging Face in the Hub, or just use a
             dataset id directly in Fine-tune — the trainer downloads it at runtime.
           </p>
         </div>
@@ -169,7 +167,7 @@ function EmptyState({ onBrowseHub }: { onBrowseHub: () => void }) {
       </div>
       <h2 className="text-lg font-semibold text-primary">No datasets yet</h2>
       <p className="mt-2 max-w-md text-sm text-ink-soft">
-        Datasets appear here once they’re on the Transformer Lab disk — e.g. after a fine-tune pulls
+        Datasets appear here once they’re on the workspace disk — e.g. after a fine-tune pulls
         one from Hugging Face. Browse the Hub to find one, or use a dataset id directly in Fine-tune.
       </p>
       <div className="mt-6">

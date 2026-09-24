@@ -50,6 +50,9 @@ function buildMatrix(jobs: EvalJob[], models: EvalModel[]): { rows: Row[]; bench
       row = {
         id: job.model,
         name: label(job.model, models),
+        // Prefix milik backend pada nama model hasil fine-tune. Ini pencocokan
+        // data, BUKAN teks yang tampil — jangan diganti demi penamaan UI, karena
+        // deteksi model fine-tuned ikut rusak.
         fineTuned: m?.fineTuned ?? job.model.startsWith("TransformerLab/"),
         cells: {},
       };

@@ -53,8 +53,6 @@ export function DatasetCard({
           <span>
             Status: <strong className="font-medium text-ink">{dataset.validationStatus}</strong>
           </span>
-          <span>·</span>
-          <span>Used by: {dataset.usageCount} workflows</span>
         </div>
 
         <div className="flex items-center gap-1.5 text-[11px] text-ink-faint">

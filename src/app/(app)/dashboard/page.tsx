@@ -190,14 +190,14 @@ export default function Page() {
       <div className="border-b border-border pb-3">
         <h1 className={cn("text-primary", ui.title)}>Dashboard</h1>
         <p className={cn("mt-1", ui.subheading)}>
-          Live overview of your Transformer Lab models, datasets, and jobs.
+          Live overview of your models, datasets, and jobs.
         </p>
       </div>
 
       {!data ? (
         <div className="flex items-center gap-2 px-1 py-10 text-sm text-ink-soft">
           {error ? (
-            "Failed to load the overview. Check your connection to Transformer Lab."
+            "Failed to load the overview. Check your connection to the backend."
           ) : (
             <>
               <Loader2 className="size-4 animate-spin" /> Loading overview…
@@ -229,7 +229,7 @@ export default function Page() {
               iconBg="bg-info-soft"
               iconColor="text-info-bright"
               value={data.datasets}
-              sub="On the Transformer Lab disk"
+              sub="On the workspace disk"
             />
             <MetricCard
               title="Jobs"

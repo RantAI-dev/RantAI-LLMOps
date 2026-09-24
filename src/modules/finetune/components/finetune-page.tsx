@@ -36,7 +36,7 @@ export function FinetunePage() {
       <div className="flex items-center gap-1.5">
         <h1 className="text-lg font-semibold text-primary">Fine-tune</h1>
         <InfoTip label="About fine-tuning">
-          Train a LoRA adapter from a base model and your dataset, directly in Transformer Lab.
+          Train a LoRA adapter from a base model and your dataset, directly in your workspace.
           The resulting adapter is available in the{" "}
           <span className="font-medium">Fine-tuned</span> tab of the model picker.
         </InfoTip>

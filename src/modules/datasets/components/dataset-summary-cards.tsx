@@ -18,7 +18,7 @@ export function DatasetSummaryCards({ datasets }: DatasetSummaryCardsProps) {
     {
       label: "Total Datasets",
       value: String(datasets.length),
-      sub: "Registered on the Transformer Lab disk",
+      sub: "Registered on the workspace disk",
       icon: Database,
       iconWrapClassName: "bg-warning-soft",
       iconClassName: "text-warning-gold",
