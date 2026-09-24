@@ -21,7 +21,12 @@ export default defineConfig({
   testDir: "./tests",
   // resilience.spec.ts STOPS CONTAINERS. It is opt-in: run it by naming the
   // file, so a plain `npx playwright test` can never take the box down.
-  testIgnore: process.env.RESILIENCE === "1" ? [] : ["**/resilience.spec.ts"],
+  // Both of these are opt-in: resilience STOPS CONTAINERS, and load fires
+  // concurrent batches. A plain `npx playwright test` runs neither.
+  testIgnore: [
+    ...(process.env.RESILIENCE === "1" ? [] : ["**/resilience.spec.ts"]),
+    ...(process.env.RUN_LOAD === "1" ? [] : ["**/load.spec.ts"]),
+  ],
   globalSetup: "./tests/global-setup.ts",
   timeout: 120_000,
   expect: { timeout: 20_000 },

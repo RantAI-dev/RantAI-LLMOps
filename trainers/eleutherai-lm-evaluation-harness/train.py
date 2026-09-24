@@ -151,8 +151,13 @@ def run_evaluation():
         if not use_cuda:
             lab.log("CUDA is not available. Running CPU-based evaluation.")
 
-            # Build model args for CPU-based evaluation
-            model_args = f"model={model_name},trust_remote_code=True"
+            # Build model args for CPU-based evaluation.
+            # lm-eval's HFLM takes `pretrained`, not `model` — the CUDA branch
+            # below already had it right. With `model=` the run dies at import
+            # with "HFLM.__init__() missing 1 required positional argument",
+            # which only ever showed up when the GPU was unreachable and the
+            # run fell through to here.
+            model_args = f"pretrained={model_name},trust_remote_code=True"
             if dtype:
                 model_args += f",dtype={dtype}"
 
