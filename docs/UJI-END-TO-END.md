@@ -164,8 +164,26 @@ Tiga berkas, dijalankan dengan Playwright terhadap deployment nyata:
 | `tests/ui.spec.ts` | 8 tes — halaman merender, galat konsol diperiksa kosong |
 | `tests/ui-interactions.spec.ts` | 12 tes — kontrol utama tiap menu diklik |
 | `tests/ui-coverage.spec.ts` | 20 tes — halaman sisa, filter, sortir, hapus, kerangka aplikasi, dan penjaga regresi |
+| `tests/api-surface.spec.ts` | 47 tes — seluruh 55 rute API: gerbang autentikasi, rute baca, validasi masukan, rute destruktif |
 
-**40 dari 40 lolos** terhadap image v0.40.68.
+**87 dari 87 lolos** terhadap image v0.40.68.
+
+### Sapuan seluruh permukaan API
+
+| Yang diperiksa | Isinya |
+|---|---|
+| Gerbang autentikasi | 31 rute dipanggil tanpa sesi — semuanya wajib 401 |
+| Rute baca | 26 rute wajib 200 **dan** berbentuk JSON |
+| Rute tulis | 9 rute wajib menolak badan kosong, dengan pesan yang menyebut kolomnya |
+| Rute destruktif | hapus dataset/model dan ekspor dengan id palsu — tak boleh ada yang 500 |
+| Alur penuh | Catatan: buat, baca, simpan, hapus. Prompt: buat, tambah versi, baca, hapus |
+| Sesi | keluar benar-benar mematikan sesi |
+
+> **Jangan percaya satu sudut saja.** Uji gerbang sempat melaporkan 28 rute
+> terbuka tanpa login. Diperiksa ulang dengan `curl` langsung: semuanya 401.
+> Penyebabnya `use.storageState` pada konfigurasi ikut terbawa ke konteks yang
+> dibuat di dalam uji, sehingga pemanggil "anonim" diam-diam membawa kuki sesi.
+> Sebuah temuan keamanan harus diverifikasi dari sudut kedua sebelum dipercaya.
 
 ### Penjaga regresi
 
