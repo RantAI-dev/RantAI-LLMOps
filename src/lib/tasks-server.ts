@@ -136,14 +136,12 @@ function normalize(j: TlJob, experimentId: string): TlJobRow {
 /** Jobs for one experiment, tagged with its id. No `slim` — it strips `job_data`
  * (including `task_name`) which we need for the distinctive task label. */
 async function listJobsForExperiment(experimentId: string): Promise<TlJobRow[]> {
-  try {
-    const res = await tlFetch(`/experiment/${encodeURIComponent(experimentId)}/jobs/list`);
-    if (!res.ok) return [];
-    const rows = unwrapList<TlJob>(await res.json().catch(() => []));
-    return rows.map((j) => normalize(j, experimentId));
-  } catch {
-    return [];
-  }
+  // Deliberately NOT caught: an unreachable backend has to reach the route, or
+  // the Tasks page renders "no jobs" during an outage. See listAllJobs.
+  const res = await tlFetch(`/experiment/${encodeURIComponent(experimentId)}/jobs/list`);
+  if (!res.ok) throw new Error(`jobs/list ${res.status} for experiment ${experimentId}`);
+  const rows = unwrapList<TlJob>(await res.json().catch(() => []));
+  return rows.map((j) => normalize(j, experimentId));
 }
 
 /**
@@ -152,7 +150,9 @@ async function listJobsForExperiment(experimentId: string): Promise<TlJobRow[]> 
  * instead of throwing. The single source for all cross-experiment fan-outs.
  */
 export async function allExperimentIds(): Promise<string[]> {
-  const experiments = await listTlExperiments().catch(() => []);
+  // A failed experiment list used to degrade to just the default experiment,
+  // which quietly narrowed the fan-out instead of reporting the outage.
+  const experiments = await listTlExperiments();
   // Note experiments (`note-*`) hold Notes markdown, never jobs — skip them so
   // the per-experiment job fan-out doesn't waste a request on each note.
   const ids = experiments.map((e) => e.id).filter((id) => !id.startsWith(NOTE_PREFIX));
@@ -166,6 +166,9 @@ export async function allExperimentIds(): Promise<string[]> {
  * (empty startTime) sort to the top as the newest.
  */
 export async function listAllJobs(): Promise<TlJobRow[]> {
+  // Any failure here propagates to /api/tasks/list, which answers 502. Returning
+  // an empty list instead is indistinguishable from "you have no jobs" — the
+  // exact confusion that made the 21 July outage look like data loss.
   const ids = await allExperimentIds();
   const perExperiment = await Promise.all(ids.map(listJobsForExperiment));
   return perExperiment

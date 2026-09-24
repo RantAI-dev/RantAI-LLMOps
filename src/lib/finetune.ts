@@ -184,15 +184,13 @@ type TlDataset = {
 
 /** Datasets present on disk (TL `/data/list`) — includes user-created ones. */
 async function fetchLocalDatasets(): Promise<TlDataset[]> {
-  try {
-    const res = await tlFetch(`/data/list`);
-    if (!res.ok) return [];
-    const rows = (await res.json()) as TlDataset[];
-    return Array.isArray(rows) ? rows.filter((r) => r.dataset_id) : [];
-  } catch (err) {
-    logServerError("fetchLocalDatasets", err);
-    return [];
-  }
+  // Deliberately NOT caught. An empty list here reaches the page as "you have
+  // no datasets", which during an outage is a lie the reader cannot detect.
+  // /api/datasets/list turns the rejection into a 502 the UI can show.
+  const res = await tlFetch(`/data/list`);
+  if (!res.ok) throw new Error(`data/list ${res.status}`);
+  const rows = (await res.json()) as TlDataset[];
+  return Array.isArray(rows) ? rows.filter((r) => r.dataset_id) : [];
 }
 
 /** Lean dataset row shape for the Dataset Registry page. */
