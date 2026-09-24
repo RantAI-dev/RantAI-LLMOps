@@ -175,8 +175,6 @@ def _load_training_dataset(spec: str):
     """
     from datasets import load_dataset
 
-    print(f"[dataset] _load_training_dataset called with {spec!r}", flush=True)
-
     def _from_files(train_file, eval_file=None):
         data_files = {"train": train_file}
         if eval_file:
@@ -262,17 +260,14 @@ def _load_training_dataset(spec: str):
             roots += sorted(glob.glob(os.path.join(base, "orgs/*/workspace/datasets")))
         seen = set()
         roots = [r for r in roots if not (r in seen or seen.add(r))]
-        # Diagnostic on stdout, not lab.log: lab.log does not reach the job's
-        # stdout.log, so a silent miss here was invisible while debugging.
-        print(f"[dataset] spec={spec!r} roots={roots}", flush=True)
+        # NOTE: print, not lab.log — lab.log output does not reach the job's
+        # stdout.log, which is what made this lookup's failure invisible.
         for root in roots:
             candidate = os.path.join(root, spec)
-            print(f"[dataset]   try {candidate!r} isdir={os.path.isdir(candidate)}", flush=True)
             if os.path.isdir(candidate):
-                print(f"[dataset] using local upload {candidate}", flush=True)
-                lab.log(f"Dataset source: local upload {candidate}")
+                print(f"Dataset source: local upload {candidate}", flush=True)
                 return _load_training_dataset(candidate)
-        print(f"[dataset] no uploaded directory matched {spec!r}", flush=True)
+        print(f"No uploaded dataset matched {spec!r}; searched {roots}", flush=True)
 
     lab.log("Dataset source: Hugging Face Hub")
     return load_dataset(spec)
