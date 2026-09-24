@@ -1,10 +1,11 @@
 # Checks that run on every push and pull request.
 #
 # Only the parts that need nothing but the repository live here: typecheck,
-# lint, unit tests and a production build. The Playwright suites are NOT in
-# this workflow — they drive a deployed instance on a private network, which a
-# GitHub-hosted runner cannot reach. They run from `e2e.yml` instead, on a
-# self-hosted runner or manually.
+# lint, unit tests and a production build. The Playwright suites are not in CI
+# at all — they drive a deployed instance on a private network that a
+# GitHub-hosted runner cannot reach. Run them by hand against the box:
+#
+#   APP_PASSWORD=... BASE_URL=http://10.17.254.27:3000 npx playwright test
 name: CI
 
 on:
