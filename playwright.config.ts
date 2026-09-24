@@ -19,6 +19,9 @@ if (fs.existsSync(envFile)) {
 /** Browser pass over a DEPLOYED instance — see tests/ui.spec.ts for usage. */
 export default defineConfig({
   testDir: "./tests",
+  // resilience.spec.ts STOPS CONTAINERS. It is opt-in: run it by naming the
+  // file, so a plain `npx playwright test` can never take the box down.
+  testIgnore: process.env.RESILIENCE === "1" ? [] : ["**/resilience.spec.ts"],
   globalSetup: "./tests/global-setup.ts",
   timeout: 120_000,
   expect: { timeout: 20_000 },

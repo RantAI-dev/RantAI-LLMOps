@@ -55,8 +55,9 @@ export async function fetchTasks(): Promise<Task[]> {
     // Return the REAL list even when empty — "the backend has no jobs" is honest
     // data, not a reason to show demo tasks.
     return (data.jobs ?? []).map((j) => tlJobToTask(j, now));
-  } catch {
-    // BFF unreachable (or non-browser context): honest empty list, not fake data.
-    return [];
+  } catch (err) {
+    // Let it reject rather than return []. An empty list reads as "no jobs",
+    // which is exactly how the 21 July outage looked like permanent data loss.
+    throw err instanceof Error ? err : new Error("tasks fetch failed");
   }
 }

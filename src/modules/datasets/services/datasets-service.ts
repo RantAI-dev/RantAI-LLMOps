@@ -28,8 +28,11 @@ export async function fetchDatasets(): Promise<Dataset[]> {
     const data = (await res.json()) as DatasetsResponse;
     const now = new Date().toISOString();
     return (data.datasets ?? []).map((d) => tlToDataset(d, now));
-  } catch {
-    // BFF unreachable (or non-browser context): degrade to the cached list, not mock.
-    return loadDatasetsFromStorage([]);
+  } catch (err) {
+    // Let it reject. Returning a cached (or empty) list here renders as "you
+    // have no datasets", which is indistinguishable from the truth and is how
+    // an outage reads as data loss. useResourceFetch turns this into the page's
+    // error state, which offers a retry.
+    throw err instanceof Error ? err : new Error("datasets fetch failed");
   }
 }
