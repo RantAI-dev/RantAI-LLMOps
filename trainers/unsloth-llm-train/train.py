@@ -175,6 +175,8 @@ def _load_training_dataset(spec: str):
     """
     from datasets import load_dataset
 
+    print(f"[dataset] _load_training_dataset called with {spec!r}", flush=True)
+
     def _from_files(train_file, eval_file=None):
         data_files = {"train": train_file}
         if eval_file:
@@ -249,15 +251,17 @@ def _load_training_dataset(spec: str):
                 os.path.expanduser("~/.transformerlab/orgs/*/workspace/datasets")
             )
         )
-        # Diagnostic: a silent miss here sends the job to the Hub and fails with a
-        # confusing cache error, so say exactly what was searched.
-        lab.log(f"Looking for an uploaded dataset {spec!r} in: {roots}")
+        # Diagnostic on stdout, not lab.log: lab.log does not reach the job's
+        # stdout.log, so a silent miss here was invisible while debugging.
+        print(f"[dataset] spec={spec!r} roots={roots}", flush=True)
         for root in roots:
             candidate = os.path.join(root, spec)
+            print(f"[dataset]   try {candidate!r} isdir={os.path.isdir(candidate)}", flush=True)
             if os.path.isdir(candidate):
+                print(f"[dataset] using local upload {candidate}", flush=True)
                 lab.log(f"Dataset source: local upload {candidate}")
                 return _load_training_dataset(candidate)
-        lab.log(f"No uploaded dataset directory matched {spec!r}")
+        print(f"[dataset] no uploaded directory matched {spec!r}", flush=True)
 
     lab.log("Dataset source: Hugging Face Hub")
     return load_dataset(spec)
