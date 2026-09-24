@@ -13,14 +13,27 @@ import { chromium, type FullConfig } from "@playwright/test";
  */
 export const STORAGE_STATE = path.join(process.cwd(), "test-results", ".auth.json");
 
-async function waitForLoginWindow(base: string, password: string) {
+/**
+ * Log in over HTTP and return the session cookie.
+ *
+ * This is the ONLY login the suite performs. An earlier version probed with one
+ * request and then logged in again through the browser, which burned two of the
+ * ten attempts per window and could re-trip the limit it had just waited out.
+ */
+async function loginForCookie(base: string, password: string): Promise<string> {
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const res = await fetch(`${base}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password }),
+      redirect: "manual",
     });
-    if (res.status === 200) return;
+    if (res.status === 200) {
+      const setCookie = res.headers.get("set-cookie") ?? "";
+      const cookie = setCookie.split(";")[0];
+      if (!cookie) throw new Error("Login succeeded but returned no session cookie.");
+      return cookie;
+    }
     if (res.status !== 429) {
       throw new Error(
         `Login rejected with ${res.status}. Check APP_PASSWORD matches the deployment ` +
@@ -41,16 +54,33 @@ export default async function globalSetup(_config: FullConfig) {
   const password = process.env.APP_PASSWORD ?? "";
   if (!password) throw new Error("APP_PASSWORD is required (pass it on the command line).");
 
-  await waitForLoginWindow(base, password);
+  const cookie = await loginForCookie(base, password);
+  const [name, ...rest] = cookie.split("=");
+  const url = new URL(base);
 
+  // Plant the cookie directly rather than driving the login form again — that
+  // second login is what kept re-tripping the rate limit.
   const browser = await chromium.launch();
-  const page = await browser.newPage();
-  await page.goto(`${base}/login`, { waitUntil: "domcontentloaded" });
-  await page.locator('input[type="password"]').fill(password);
-  await page.getByRole("button", { name: /sign in|masuk|log ?in/i }).click();
-  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 30_000 });
+  const context = await browser.newContext();
+  await context.addCookies([
+    {
+      name,
+      value: rest.join("="),
+      domain: url.hostname,
+      path: "/",
+      httpOnly: true,
+      secure: url.protocol === "https:",
+      sameSite: "Lax",
+    },
+  ]);
+
+  const page = await context.newPage();
+  await page.goto(`${base}/dashboard`, { waitUntil: "domcontentloaded" });
+  if (new URL(page.url()).pathname.startsWith("/login")) {
+    throw new Error("Session cookie was rejected — the app did not accept it.");
+  }
 
   fs.mkdirSync(path.dirname(STORAGE_STATE), { recursive: true });
-  await page.context().storageState({ path: STORAGE_STATE });
+  await context.storageState({ path: STORAGE_STATE });
   await browser.close();
 }
