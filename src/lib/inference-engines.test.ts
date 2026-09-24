@@ -48,4 +48,29 @@ describe("resolveChatModel", () => {
     const model = await resolveChatModel(resolveEngine("ollama"), undefined);
     expect(model).toBe("qwen2.5:0.5b");
   });
+
+  // Regression: INFERENCE_MODEL named a model that was never pulled, so opening
+  // Interact without picking one returned a bare 404 from Ollama (found by the
+  // end-to-end run on 24 Sep 2026 against the UGM box).
+  it("ignores an INFERENCE_MODEL that Ollama does not actually have", async () => {
+    const ollama = await import("@/lib/ollama");
+    vi.mocked(ollama.loadedOllamaModel).mockResolvedValueOnce(null);
+    vi.mocked(ollama.listOllamaModels).mockResolvedValueOnce([
+      { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", sizeMb: 1900 },
+    ]);
+    const model = await resolveChatModel(resolveEngine("ollama"), undefined);
+    // Not the unpulled env value — an installed model instead.
+    expect(model).toBe("qwen2.5:3b-instruct");
+  });
+
+  it("still prefers INFERENCE_MODEL when Ollama really has it", async () => {
+    const ollama = await import("@/lib/ollama");
+    vi.mocked(ollama.loadedOllamaModel).mockResolvedValueOnce(null);
+    vi.mocked(ollama.listOllamaModels).mockResolvedValueOnce([
+      { id: "qwen2.5:0.5b", name: "qwen2.5:0.5b", sizeMb: 400 },
+      { id: "other:1b", name: "other:1b", sizeMb: 900 },
+    ]);
+    const model = await resolveChatModel(resolveEngine("ollama"), undefined);
+    expect(model).toBe("qwen2.5:0.5b");
+  });
 });

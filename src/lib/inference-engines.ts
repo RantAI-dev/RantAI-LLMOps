@@ -171,7 +171,15 @@ export function resolveEngine(id?: string): ResolvedEngine {
 export async function resolveChatModel(engine: ResolvedEngine, bodyModel?: string): Promise<string> {
   if (bodyModel) return bodyModel;
   if (engine.id === "ollama") {
-    return (await loadedOllamaModel()) || INFERENCE_MODEL || "default";
+    const loaded = await loadedOllamaModel();
+    if (loaded) return loaded;
+    // INFERENCE_MODEL is a deployment-time guess and can name a model that was
+    // never pulled — that used to surface as a bare 404 the moment anyone opened
+    // Interact without picking a model. Only trust it when Ollama really has it;
+    // otherwise fall back to whatever IS installed.
+    const installed = await listOllamaModels();
+    if (INFERENCE_MODEL && installed.some((m) => m.id === INFERENCE_MODEL)) return INFERENCE_MODEL;
+    return installed[0]?.id || INFERENCE_MODEL || "default";
   }
   const served = await listOpenAIModels(engine.v1BaseUrl, engine.headers);
   return served[0]?.id || INFERENCE_MODEL || "default";
