@@ -342,7 +342,9 @@ services:
       # no GPU). Points at the backend service on the sidecar port (see
       # docker/backend/gpu-server.py).
       - GPU_STATS_URL=http://rantai-backend:8341
-      - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:0.5b}
+      # Must name a model Ollama actually has, or chat falls back to guessing
+      # and can land on an embedding model. Keep this in step with step 3.
+      - INFERENCE_MODEL=${INFERENCE_MODEL:-qwen2.5:3b-instruct}
       # Max output tokens per chat reply. Bump to e.g. 8192 for long/reasoning
       # answers that would otherwise get cut off ("terpotong"). Default 4096.
       - CHAT_MAX_TOKENS=${CHAT_MAX_TOKENS:-4096}
