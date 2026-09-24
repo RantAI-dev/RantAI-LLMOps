@@ -163,9 +163,23 @@ Tiga berkas, dijalankan dengan Playwright terhadap deployment nyata:
 |---|---|
 | `tests/ui.spec.ts` | 8 tes — halaman merender, galat konsol diperiksa kosong |
 | `tests/ui-interactions.spec.ts` | 12 tes — kontrol utama tiap menu diklik |
-| `tests/ui-coverage.spec.ts` | 17 tes — halaman sisa, filter, sortir, hapus, kerangka aplikasi |
+| `tests/ui-coverage.spec.ts` | 20 tes — halaman sisa, filter, sortir, hapus, kerangka aplikasi, dan penjaga regresi |
 
-**37 dari 37 lolos** dalam 2,1 menit.
+**40 dari 40 lolos** terhadap image v0.40.68.
+
+### Penjaga regresi
+
+Dua bug pernah lolos dari rangkaian uji ini, jadi keduanya sekarang dikunci:
+
+| Penjaga | Alasan |
+|---|---|
+| Chat tanpa memilih model harus 200 | `INFERENCE_MODEL` pernah menyebut model yang tak pernah diunduh; pengguna yang mengirim pesan tanpa memilih apa pun menerima 404 |
+| `learningRate: "abc"` harus 400 | nilai bukan angka dulu lolos sampai ke trainer dan mati di dalam `SFTConfig`, setelah GPU membangun venv |
+| Pesan galat menyebut kolom yang salah | supaya galatnya tidak sama membingungkannya dengan yang digantikan |
+
+> **Kenapa ini penting.** Bug pertama lolos dari 37 uji karena setiap uji selalu
+> memilih model lebih dulu — justru jalur yang tidak rusak. Uji yang hanya
+> melewati jalan bahagia tidak menemukan apa pun.
 
 ```bash
 APP_PASSWORD=<password-server> BASE_URL=http://10.17.254.27:3000 npx playwright test

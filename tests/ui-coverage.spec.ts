@@ -200,6 +200,40 @@ test.describe("Tasks — filters", () => {
   });
 });
 
+test.describe("Regressions", () => {
+  // Shipped broken once: INFERENCE_MODEL named a model Ollama never had, so
+  // sending a message without picking one answered 404 (seen in production
+  // 24 Sep 2026). The API is asserted directly because the UI preselects a model.
+  test("chat works with no model chosen", async ({ page }) => {
+    const res = await page.request.post(`${BASE}/api/chat`, {
+      data: { messages: [{ role: "user", content: "hai" }] },
+    });
+    expect(res.status(), await res.text()).toBe(200);
+  });
+
+  // A string learning rate used to reach the trainer and die inside SFTConfig
+  // minutes later, after the GPU had already built a venv.
+  test("a non-numeric learning rate is rejected up front", async ({ page }) => {
+    const res = await page.request.post(`${BASE}/api/finetune/submit`, {
+      data: { baseModel: "x", dataset: "y", adaptorName: "z", learningRate: "abc" },
+    });
+    expect(res.status()).toBe(400);
+    expect(await res.text()).toMatch(/learningRate.*must be a number/i);
+  });
+
+  test("the guard names the offending field, and only that field", async ({ page }) => {
+    // Every numeric knob is checked, not just learningRate — and the message has
+    // to say which one, or the error is as opaque as the SFTConfig crash it
+    // replaced. `epochs` is checked here; the required-field guard runs first,
+    // so these requests carry the three mandatory fields but never reach the GPU.
+    const res = await page.request.post(`${BASE}/api/finetune/submit`, {
+      data: { baseModel: "x", dataset: "y", adaptorName: "z", epochs: "banyak" },
+    });
+    expect(res.status()).toBe(400);
+    expect(await res.text()).toMatch(/epochs.*must be a number/i);
+  });
+});
+
 test.describe("Shell", () => {
   test("the theme toggle switches and the page survives", async ({ page }) => {
     await page.goto(`${BASE}/dashboard`, { waitUntil: "networkidle" });
