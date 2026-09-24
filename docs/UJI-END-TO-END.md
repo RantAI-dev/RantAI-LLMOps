@@ -157,9 +157,15 @@ Skripnya `scripts/e2e-write.js`.
 
 ## 6. Uji peramban
 
-Dua berkas, dijalankan dengan Playwright terhadap deployment nyata:
-`tests/ui.spec.ts` (8 tes, halaman merender) dan `tests/ui-interactions.spec.ts`
-(12 tes, kontrolnya benar-benar diklik). **20 dari 20 lolos** dalam 1,3 menit.
+Tiga berkas, dijalankan dengan Playwright terhadap deployment nyata:
+
+| Berkas | Isi |
+|---|---|
+| `tests/ui.spec.ts` | 8 tes — halaman merender, galat konsol diperiksa kosong |
+| `tests/ui-interactions.spec.ts` | 12 tes — kontrol utama tiap menu diklik |
+| `tests/ui-coverage.spec.ts` | 17 tes — halaman sisa, filter, sortir, hapus, kerangka aplikasi |
+
+**37 dari 37 lolos** dalam 2,1 menit.
 
 ```bash
 APP_PASSWORD=<password-server> BASE_URL=http://10.17.254.27:3000 npx playwright test
@@ -185,8 +191,15 @@ APP_PASSWORD=<password-server> BASE_URL=http://10.17.254.27:3000 npx playwright 
 | Catatan | buat, ketik isi, klik Save, muat ulang, hapus |
 | Navigasi Datasets ke Hub | |
 
-Ditambah penjagaan yang diperiksa tetap terkunci sampai formulirnya sah: Start
-fine-tune, Run evaluation, dan Run pipeline. Serta dari berkas pertama: 16
+Ditambah, dari berkas ketiga: katalog dan pencarian Model Registry, daftar
+penyedia dan meteran GPU Compute, tombol Refresh serta tiga penyaring dan
+pemilih jumlah baris di Traces, penyaring dan pengurutan Datasets, unggah lalu
+hapus sebuah dataset, penyaring dan pembuka detail pekerjaan di Tasks, serta
+kerangka aplikasi: pengalih tema, pelipat bilah sisi, pencarian global, dan
+halaman Settings.
+
+Penjagaan yang diperiksa tetap terkunci sampai formulirnya sah: Start
+fine-tune, Run evaluation, Run pipeline, dan Compare pada Generations. Serta dari berkas pertama: 16
 halaman sidebar dengan galat konsol diperiksa kosong, job dan dataset nyata
 tampil, kedua engine aktif, Interact menjawab tanpa memilih model, dan tidak ada
 sisa kata "Transformer Lab".
@@ -202,8 +215,6 @@ Yang **tidak** tercakup:
 - **Mengunduh model dari Hub dan menjalankan benchmark sampai selesai** sengaja
   dilewati: yang pertama menarik beberapa gigabyte, yang kedua menahan GPU
   berjam-jam. Keduanya tetap diuji sampai titik pengiriman.
-- **Tombol di Model Registry, Compute, Traces, dan Generations belum diklik.**
-  Halamannya merender dan API-nya sehat, tetapi kontrolnya belum disentuh.
 - **Tidak menguji multi-tenant.** Hanya satu sesi, satu pengguna.
 - **Tidak menguji beban.** Satu permintaan pada satu waktu.
 - **Tidak menguji eval sampai tuntas.** Hanya penolakan masukan yang salah;
