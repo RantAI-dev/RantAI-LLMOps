@@ -31,6 +31,7 @@ This script demonstrates:
 import os
 import json
 import subprocess
+from collections import deque
 import re
 from datetime import datetime
 
@@ -212,6 +213,13 @@ def run_evaluation():
         lab.update_progress(20)
 
         # Run subprocess
+        # Keep the tail of the harness output. lab.log() does NOT reach the job's
+        # stdout.log, so "Exit code 1" on its own left no way to tell why a run
+        # failed — a GPU that had become unreachable read exactly like a bad
+        # model id. Echoing the last lines into the error makes the cause
+        # visible in the UI instead of only under a manual re-run.
+        tail: "collections.deque[str]" = deque(maxlen=40)
+
         with subprocess.Popen(
             command,
             stdout=subprocess.PIPE,
@@ -222,6 +230,9 @@ def run_evaluation():
             for line in process.stdout:
                 line_stripped = line.strip()
                 lab.log(line_stripped)
+                if line_stripped:
+                    tail.append(line_stripped)
+                    print(line_stripped, flush=True)
 
                 # Parse progress from output
                 pattern = r"^Running.*?(\d+)%\|"
@@ -233,9 +244,23 @@ def run_evaluation():
 
             process.wait()
             if process.returncode != 0:
+                # Prefer the exception line the harness ended on; fall back to
+                # the last few lines of whatever it did print.
+                blame = next(
+                    (
+                        ln
+                        for ln in reversed(tail)
+                        if "Error" in ln or "error:" in ln or "Exception" in ln
+                    ),
+                    "",
+                )
+                detail = blame or " / ".join(list(tail)[-3:]) or "no output captured"
                 lab.log(f"⚠️  Evaluation returned non-zero exit code: {process.returncode}")
-                lab.error(f"Evaluation failed with exit code: {process.returncode}")
-                return {"status": "error", "error": f"Exit code {process.returncode}"}
+                lab.error(f"Evaluation failed with exit code {process.returncode}: {detail}")
+                return {
+                    "status": "error",
+                    "error": f"Exit code {process.returncode}: {detail}",
+                }
 
         lab.update_progress(80)
 
