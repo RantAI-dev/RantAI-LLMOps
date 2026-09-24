@@ -157,8 +157,9 @@ Skripnya `scripts/e2e-write.js`.
 
 ## 6. Uji peramban
 
-`tests/ui.spec.ts`, dijalankan dengan Playwright terhadap deployment nyata.
-**8 dari 8 lolos** dalam 17 detik.
+Dua berkas, dijalankan dengan Playwright terhadap deployment nyata:
+`tests/ui.spec.ts` (8 tes, halaman merender) dan `tests/ui-interactions.spec.ts`
+(12 tes, kontrolnya benar-benar diklik). **20 dari 20 lolos** dalam 1,3 menit.
 
 ```bash
 APP_PASSWORD=<password-server> BASE_URL=http://10.17.254.27:3000 npx playwright test
@@ -172,14 +173,37 @@ APP_PASSWORD=<password-server> BASE_URL=http://10.17.254.27:3000 npx playwright 
 > login sekali untuk seluruh suite dan menyimpan sesinya. Bila jendelanya sedang
 > tertutup, ia menunggu sesuai `Retry-After` lalu mencoba lagi.
 
-Cakupannya: penolakan password salah, 16 halaman sidebar dengan galat konsol
-diperiksa kosong, job dan dataset nyata tampil, kedua engine aktif, Interact
-menjawab tanpa memilih model, dan tidak ada sisa kata "Transformer Lab".
+### Yang benar-benar diklik
+
+| Fungsi | Cara diuji |
+|---|---|
+| Unggah dataset JSONL | dialog dibuka, berkas dipilih, Upload diklik, muncul di daftar |
+| Tolak ekstensi salah | `.txt` ditolak beserta pesannya |
+| Cari model Hugging Face | diketik di Hub; **Download tidak diklik** |
+| Buat prompt | empat kolom diisi lalu Create |
+| Buat kunci gateway | nama diisi lalu Create key |
+| Catatan | buat, ketik isi, klik Save, muat ulang, hapus |
+| Navigasi Datasets ke Hub | |
+
+Ditambah penjagaan yang diperiksa tetap terkunci sampai formulirnya sah: Start
+fine-tune, Run evaluation, dan Run pipeline. Serta dari berkas pertama: 16
+halaman sidebar dengan galat konsol diperiksa kosong, job dan dataset nyata
+tampil, kedua engine aktif, Interact menjawab tanpa memilih model, dan tidak ada
+sisa kata "Transformer Lab".
+
+> **Catatan menyimpan secara manual.** Tidak ada penyimpanan otomatis — tombolnya
+> berbunyi "Save" selama ada perubahan dan baru berubah menjadi "Saved" setelah
+> tersimpan, jadi tombol itu harus diklik.
 
 ## 7. Batasan pengujian ini
 
 Yang **tidak** tercakup:
 
+- **Mengunduh model dari Hub dan menjalankan benchmark sampai selesai** sengaja
+  dilewati: yang pertama menarik beberapa gigabyte, yang kedua menahan GPU
+  berjam-jam. Keduanya tetap diuji sampai titik pengiriman.
+- **Tombol di Model Registry, Compute, Traces, dan Generations belum diklik.**
+  Halamannya merender dan API-nya sehat, tetapi kontrolnya belum disentuh.
 - **Tidak menguji multi-tenant.** Hanya satu sesi, satu pengguna.
 - **Tidak menguji beban.** Satu permintaan pada satu waktu.
 - **Tidak menguji eval sampai tuntas.** Hanya penolakan masukan yang salah;

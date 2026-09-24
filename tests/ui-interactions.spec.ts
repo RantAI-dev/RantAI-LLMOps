@@ -36,6 +36,11 @@ test.describe("Notes", () => {
     const body = page.getByPlaceholder(/Write your note here/).first();
     await expect(body).toBeVisible({ timeout: 15_000 });
     await body.fill("# Uji\n\nIsi catatan dari uji otomatis.");
+    // There is no autosave: the button reads "Save" while dirty and only flips
+    // to "Saved" once the write lands, so it has to be clicked.
+    const save = page.getByRole("button", { name: /^save$/i });
+    await expect(save).toBeEnabled({ timeout: 15_000 });
+    await save.click();
     await expect(page.getByRole("button", { name: /^saved$/i })).toBeVisible({ timeout: 20_000 });
 
     await page.reload({ waitUntil: "networkidle" });
