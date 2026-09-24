@@ -57,3 +57,7 @@ AI_KNOWLEDGE_LOG.md
 # Python build caches
 __pycache__/
 *.pyc
+
+# Playwright browser-test output
+/test-results/
+/playwright-report/

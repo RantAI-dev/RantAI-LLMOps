@@ -26,6 +26,32 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  // Coerce the numeric knobs. A client that sends `"2e-4"` for learningRate used
+  // to sail through here and only blow up minutes later, deep inside SFTConfig,
+  // with a message that never mentioned the real cause — a whole GPU run wasted.
+  const NUMERIC = [
+    "learningRate",
+    "epochs",
+    "batchSize",
+    "maxSeqLength",
+    "maxSteps",
+    "loraR",
+    "loraAlpha",
+    "loraDropout",
+  ] as const;
+  for (const key of NUMERIC) {
+    const raw = (body as Record<string, unknown>)[key];
+    if (raw === undefined || raw === null) continue;
+    const n = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(n)) {
+      return Response.json(
+        { error: `\`${key}\` must be a number, got ${JSON.stringify(raw)}` },
+        { status: 400 }
+      );
+    }
+    (body as Record<string, unknown>)[key] = n;
+  }
+
   // Gated base models (Llama, etc.) need an HF token at download time. Inject the
   // saved one server-side so the secret never has to ride in the request body.
   if (!body.hfToken) {
