@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // test are pure given those, so stub the network-touching Ollama module.
 vi.mock("@/lib/ollama", () => ({
   OLLAMA_V1: "http://localhost:11434/v1",
-  listOllamaModels: vi.fn(async () => [{ id: "qwen2.5:0.5b", name: "qwen2.5:0.5b", sizeMb: 400 }]),
+  listOllamaModels: vi.fn(async () => [
+    { id: "qwen2.5:0.5b", name: "qwen2.5:0.5b", sizeMb: 400, capabilities: ["completion"] },
+  ]),
   loadedOllamaModel: vi.fn(async () => "qwen2.5:0.5b"),
   ollamaUp: vi.fn(async () => true),
 }));
@@ -56,10 +58,23 @@ describe("resolveChatModel", () => {
     const ollama = await import("@/lib/ollama");
     vi.mocked(ollama.loadedOllamaModel).mockResolvedValueOnce(null);
     vi.mocked(ollama.listOllamaModels).mockResolvedValueOnce([
-      { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", sizeMb: 1900 },
+      { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", sizeMb: 1900, capabilities: ["completion"] },
     ]);
     const model = await resolveChatModel(resolveEngine("ollama"), undefined);
     // Not the unpulled env value — an installed model instead.
+    expect(model).toBe("qwen2.5:3b-instruct");
+  });
+
+  // Regression: the fallback picked bge-m3, an embedding model, which answers
+  // `/api/tags` like any other but rejects chat with "does not support chat".
+  it("skips embedding-only models when falling back", async () => {
+    const ollama = await import("@/lib/ollama");
+    vi.mocked(ollama.loadedOllamaModel).mockResolvedValueOnce(null);
+    vi.mocked(ollama.listOllamaModels).mockResolvedValueOnce([
+      { id: "bge-m3:latest", name: "bge-m3:latest", sizeMb: 1200, capabilities: ["embedding"] },
+      { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", sizeMb: 1900, capabilities: ["completion"] },
+    ]);
+    const model = await resolveChatModel(resolveEngine("ollama"), undefined);
     expect(model).toBe("qwen2.5:3b-instruct");
   });
 
@@ -67,8 +82,8 @@ describe("resolveChatModel", () => {
     const ollama = await import("@/lib/ollama");
     vi.mocked(ollama.loadedOllamaModel).mockResolvedValueOnce(null);
     vi.mocked(ollama.listOllamaModels).mockResolvedValueOnce([
-      { id: "qwen2.5:0.5b", name: "qwen2.5:0.5b", sizeMb: 400 },
-      { id: "other:1b", name: "other:1b", sizeMb: 900 },
+      { id: "qwen2.5:0.5b", name: "qwen2.5:0.5b", sizeMb: 400, capabilities: ["completion"] },
+      { id: "other:1b", name: "other:1b", sizeMb: 900, capabilities: ["completion"] },
     ]);
     const model = await resolveChatModel(resolveEngine("ollama"), undefined);
     expect(model).toBe("qwen2.5:0.5b");

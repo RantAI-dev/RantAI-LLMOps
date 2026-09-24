@@ -21,6 +21,13 @@ export type OllamaModel = {
   id: string; // ollama tag, e.g. "qwen2.5:0.5b"
   name: string;
   sizeMb: number | null;
+  /**
+   * What the model can actually do, as Ollama reports it — e.g. ["completion"]
+   * or ["embedding"]. An embedding model answers `/api/tags` like any other but
+   * rejects a chat request, so anything picking a model automatically has to
+   * look here first.
+   */
+  capabilities: string[];
 };
 
 /** Whether the Ollama server is reachable. */
@@ -43,12 +50,15 @@ export async function listOllamaModels(): Promise<OllamaModel[]> {
       signal: AbortSignal.timeout(4000),
     });
     if (!res.ok) return [];
-    const data = (await res.json()) as { models?: Array<{ name?: string; size?: number }> };
+    const data = (await res.json()) as {
+      models?: Array<{ name?: string; size?: number; capabilities?: string[] }>;
+    };
     return (data.models ?? [])
       .filter((m) => m.name)
       .map((m) => ({
         id: m.name as string,
         name: m.name as string,
+        capabilities: m.capabilities ?? [],
         sizeMb: typeof m.size === "number" ? Math.round(m.size / (1024 * 1024)) : null,
       }));
   } catch {

@@ -232,6 +232,108 @@ test.describe("Prompt versions", () => {
   });
 });
 
+test.describe("Per-id routes", () => {
+  // These take an id from live data, so they can only be reached by looking one
+  // up first — which is why they had no coverage until now.
+  test("a real fine-tune job reads back its detail", async ({ request }) => {
+    const list = await (await request.get(`${BASE}/api/finetune/jobs`)).json();
+    const jobs = list?.jobs ?? list?.data ?? (Array.isArray(list) ? list : []);
+    test.skip(jobs.length === 0, "no fine-tune jobs on this deployment");
+
+    const id = jobs[0].id;
+    const res = await request.get(`${BASE}/api/finetune/jobs/${encodeURIComponent(id)}`);
+    expect(res.status(), await res.text()).toBe(200);
+    expect(await res.text()).toContain(String(id));
+  });
+
+  test("a real task reads back its detail and its log", async ({ request }) => {
+    const list = await (await request.get(`${BASE}/api/tasks/list`)).json();
+    const jobs = list?.jobs ?? [];
+    test.skip(jobs.length === 0, "no tasks on this deployment");
+
+    // /api/tasks/[id] is DELETE-only; the readable part is its output.
+    const id = jobs[0].id;
+    expect(
+      (await request.get(`${BASE}/api/tasks/${encodeURIComponent(id)}/output`)).status(),
+    ).toBe(200);
+    expect((await request.get(`${BASE}/api/tasks/${encodeURIComponent(id)}`)).status()).toBe(405);
+  });
+
+  test("eval samples come back for a finished run", async ({ request }) => {
+    const list = await (await request.get(`${BASE}/api/evals/jobs`)).json();
+    const jobs = (list?.jobs ?? list?.data ?? []) as Array<{ id: string; status: string }>;
+    const done = jobs.find((j) => j.status === "COMPLETE");
+    test.skip(!done, "no completed eval on this deployment");
+
+    const res = await request.get(
+      `${BASE}/api/evals/jobs/${encodeURIComponent(done!.id)}/samples`,
+    );
+    // Samples may legitimately be absent for an old run; it must not 500.
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  test("a malformed eval job id is refused", async ({ request }) => {
+    const res = await request.get(`${BASE}/api/evals/jobs/..%2F..%2Fetc/samples`);
+    expect(res.status()).toBeGreaterThanOrEqual(400);
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  test("classification eval detail handles an unknown id", async ({ request }) => {
+    const res = await request.get(`${BASE}/api/evals/classification/no-such-run-xyz`);
+    expect(res.status()).toBeLessThan(500);
+  });
+
+  test("deleting a provider that does not exist is refused with a message", async ({
+    request,
+  }) => {
+    // The handler answers 502 when the backend refuses the delete — an upstream
+    // failure, deliberately distinct from a bad request. What matters is that it
+    // says so in JSON rather than throwing.
+    const res = await request.delete(`${BASE}/api/compute/providers/no-such-provider-xyz`);
+    expect([400, 404, 502]).toContain(res.status());
+    expect(await res.text()).toMatch(/^\{/);
+  });
+});
+
+test.describe("Dataset create", () => {
+  test("rejects a body with no rows", async ({ request }) => {
+    const res = await request.post(`${BASE}/api/datasets/create`, {
+      data: { name: "api-empty-rows" },
+    });
+    expect(res.status()).toBe(400);
+    expect(await res.text()).toMatch(/row|name/i);
+  });
+
+  test("builds a dataset from rows, then removes it", async ({ request }) => {
+    const name = `api-${Date.now().toString(36)}-built`;
+    const created = await request.post(`${BASE}/api/datasets/create`, {
+      data: {
+        name,
+        rows: [
+          { prompt: "Apa ibu kota Indonesia?", completion: "Jakarta." },
+          { prompt: "Berapa 2+2?", completion: "4." },
+        ],
+      },
+    });
+    expect(created.status(), await created.text()).toBeLessThan(300);
+
+    const listed = await (await request.get(`${BASE}/api/datasets/list`)).text();
+    expect(listed).toContain(name);
+
+    // The rows must be readable back, not just the name registered.
+    const preview = await request.get(
+      `${BASE}/api/datasets/preview?id=${encodeURIComponent(name)}&limit=10`,
+    );
+    expect(preview.status()).toBe(200);
+    expect(await preview.text()).toMatch(/Jakarta/);
+
+    const removed = await request.post(`${BASE}/api/datasets/delete`, {
+      data: { datasetId: name },
+    });
+    expect(removed.status()).toBeLessThan(300);
+  });
+});
+
 test.describe("Session", () => {
   test("logout invalidates the session", async ({ playwright }) => {
     const password = process.env.APP_PASSWORD ?? "";

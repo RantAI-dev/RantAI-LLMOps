@@ -207,9 +207,19 @@ export function demoEngines(): EngineInfo[] {
 }
 export function demoOllamaModels(): OllamaModel[] {
   return [
-    { id: "rantai-sealion-v3-ask:latest", name: "rantai-sealion-v3-ask:latest", sizeMb: 8700 },
-    { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", sizeMb: 6144 },
-    { id: "rantai-amal-classifier-v4:latest", name: "rantai-amal-classifier-v4:latest", sizeMb: 6100 },
+    {
+      id: "rantai-sealion-v3-ask:latest",
+      name: "rantai-sealion-v3-ask:latest",
+      sizeMb: 8700,
+      capabilities: ["completion"],
+    },
+    { id: "qwen2.5:3b-instruct", name: "qwen2.5:3b-instruct", sizeMb: 6144, capabilities: ["completion"] },
+    {
+      id: "rantai-amal-classifier-v4:latest",
+      name: "rantai-amal-classifier-v4:latest",
+      sizeMb: 6100,
+      capabilities: ["completion"],
+    },
   ];
 }
 

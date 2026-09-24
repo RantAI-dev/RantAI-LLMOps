@@ -177,7 +177,14 @@ export async function resolveChatModel(engine: ResolvedEngine, bodyModel?: strin
     // never pulled — that used to surface as a bare 404 the moment anyone opened
     // Interact without picking a model. Only trust it when Ollama really has it;
     // otherwise fall back to whatever IS installed.
-    const installed = await listOllamaModels();
+    // Only models that can hold a conversation are candidates. Ollama serves
+    // embedding models (bge-m3, all-minilm) from the same list, and picking one
+    // answers "does not support chat" — the same dead end as naming a model that
+    // was never pulled. Treat an empty capability list as chat-capable, since
+    // older Ollama builds do not report it at all.
+    const canChat = (m: { capabilities: string[] }) =>
+      m.capabilities.length === 0 || m.capabilities.some((c) => c !== "embedding");
+    const installed = (await listOllamaModels()).filter(canChat);
     if (INFERENCE_MODEL && installed.some((m) => m.id === INFERENCE_MODEL)) return INFERENCE_MODEL;
     return installed[0]?.id || INFERENCE_MODEL || "default";
   }
