@@ -249,11 +249,15 @@ def _load_training_dataset(spec: str):
                 os.path.expanduser("~/.transformerlab/orgs/*/workspace/datasets")
             )
         )
+        # Diagnostic: a silent miss here sends the job to the Hub and fails with a
+        # confusing cache error, so say exactly what was searched.
+        lab.log(f"Looking for an uploaded dataset {spec!r} in: {roots}")
         for root in roots:
             candidate = os.path.join(root, spec)
             if os.path.isdir(candidate):
                 lab.log(f"Dataset source: local upload {candidate}")
                 return _load_training_dataset(candidate)
+        lab.log(f"No uploaded dataset directory matched {spec!r}")
 
     lab.log("Dataset source: Hugging Face Hub")
     return load_dataset(spec)
