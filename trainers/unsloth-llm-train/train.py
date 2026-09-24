@@ -244,13 +244,24 @@ def _load_training_dataset(spec: str):
     # Hub — otherwise an uploaded dataset fails with a confusing "couldn't find
     # cache" error even though the files are on disk (seen 24 Sep 2026).
     if "/" not in spec:
+        # A job runs with HOME pointed at its own sandbox
+        # (<run>/workspace/.transformerlab), which holds no datasets — so
+        # `~/.transformerlab/...` finds nothing. Search the real workspace roots
+        # instead: the env var if the provider set one, then the run directory's
+        # own ancestor, then the conventional /root location.
+        roots = []
         workspace = os.getenv("_TFL_WORKSPACE_DIR") or ""
-        roots = [os.path.join(workspace, "datasets")] if workspace else []
-        roots += sorted(
-            glob.glob(
-                os.path.expanduser("~/.transformerlab/orgs/*/workspace/datasets")
-            )
-        )
+        if workspace:
+            roots.append(os.path.join(workspace, "datasets"))
+        here = os.path.abspath(__file__)
+        marker = "/local_provider/local_provider_runs/"
+        if marker in here:
+            tl_root = here.split(marker, 1)[0]
+            roots += sorted(glob.glob(os.path.join(tl_root, "orgs/*/workspace/datasets")))
+        for base in ("/root/.transformerlab", os.path.expanduser("~/.transformerlab")):
+            roots += sorted(glob.glob(os.path.join(base, "orgs/*/workspace/datasets")))
+        seen = set()
+        roots = [r for r in roots if not (r in seen or seen.add(r))]
         # Diagnostic on stdout, not lab.log: lab.log does not reach the job's
         # stdout.log, so a silent miss here was invisible while debugging.
         print(f"[dataset] spec={spec!r} roots={roots}", flush=True)
