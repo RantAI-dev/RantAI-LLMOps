@@ -2,7 +2,7 @@
 
 **Tanggal:** 24 September 2026
 **Sasaran:** `rantai-frontend` di server UGM (10.17.254.27:3000), image release v0.40.67
-**Hasil:** **45 dari 46 lolos** — 1 bug ditemukan
+**Hasil:** API **45/46**, alur tulis **22/24**, peramban **8/8** — 3 bug ditemukan dan diperbaiki
 
 ---
 
@@ -147,17 +147,42 @@ Tanpa itu, permintaan jatuh ke engine bawaan (Ollama).
 
 ---
 
-## 5. Batasan pengujian ini
+## 5. Uji alur tulis
 
-Yang **tidak** tercakup, dan sebaiknya jujur disebut:
+Dijalankan dengan izin eksplisit untuk mengubah keadaan produksi. **22 dari 24
+lolos.** Yang benar-benar dibuat lalu dibersihkan: prompt (CRUD penuh), dataset
+JSONL, API key gateway, dan job fine-tune sungguhan di GPU.
 
-- **Tidak menguji alur tulis.** Tidak ada job fine-tune yang benar-benar
-  dijalankan, tidak ada dataset yang diunggah, tidak ada eval yang disubmit.
-  Semua itu memakan GPU dan mengubah keadaan produksi.
-- **Tidak menguji UI di peramban.** Yang diuji adalah halaman membalas 200 dan
-  API-nya benar — bukan tombol, formulir, atau tampilan visual.
+Skripnya `scripts/e2e-write.js`.
+
+## 6. Uji peramban
+
+`tests/ui.spec.ts`, dijalankan dengan Playwright terhadap deployment nyata.
+**8 dari 8 lolos** dalam 17 detik.
+
+```bash
+APP_PASSWORD=<password-server> BASE_URL=http://10.17.254.27:3000 npx playwright test
+```
+
+> **`APP_PASSWORD` di `.env.local` berbeda dari server.** Nilai dev sengaja
+> tidak sama, jadi berikan password server di baris perintah. Salah password
+> akan terbaca sebagai kegagalan login yang membingungkan.
+
+> **Login dibatasi 10 percobaan per 5 menit per IP.** Karena itu `globalSetup`
+> login sekali untuk seluruh suite dan menyimpan sesinya. Bila jendelanya sedang
+> tertutup, ia menunggu sesuai `Retry-After` lalu mencoba lagi.
+
+Cakupannya: penolakan password salah, 16 halaman sidebar dengan galat konsol
+diperiksa kosong, job dan dataset nyata tampil, kedua engine aktif, Interact
+menjawab tanpa memilih model, dan tidak ada sisa kata "Transformer Lab".
+
+## 7. Batasan pengujian ini
+
+Yang **tidak** tercakup:
+
 - **Tidak menguji multi-tenant.** Hanya satu sesi, satu pengguna.
 - **Tidak menguji beban.** Satu permintaan pada satu waktu.
+- **Tidak menguji eval sampai tuntas.** Hanya penolakan masukan yang salah;
+  menjalankan benchmark penuh memakan GPU berjam-jam.
 
-Tiga hal pertama layak dikerjakan berikutnya; yang keempat belum relevan pada
-skala sekarang.
+Ketiganya belum mendesak pada skala sekarang.
