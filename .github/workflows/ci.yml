@@ -1,0 +1,69 @@
+# Checks that run on every push and pull request.
+#
+# Only the parts that need nothing but the repository live here: typecheck,
+# lint, unit tests and a production build. The Playwright suites are NOT in
+# this workflow — they drive a deployed instance on a private network, which a
+# GitHub-hosted runner cannot reach. They run from `e2e.yml` instead, on a
+# self-hosted runner or manually.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Reported, not enforced. Two rules-of-hooks errors predate this workflow
+      # (serve-vllm.ts, use-vllm-deploy.ts) and both are false positives on code
+      # that works. Making CI red on day one would teach everyone to ignore it;
+      # flip this to a hard failure once those two are resolved.
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Unit tests
+        run: npm test
+
+      # Catches what typecheck alone does not: a route that fails to compile,
+      # a server/client boundary violation, a missing env at build time.
+      - name: Build
+        run: npm run build
+        env:
+          # The build must not need a reachable backend. These are placeholders
+          # so any accidental build-time fetch fails loudly rather than hanging.
+          INFERENCE_BASE_URL: http://127.0.0.1:1/v1
+          OLLAMA_BASE_URL: http://127.0.0.1:1
+
+      - name: Trainer scripts parse
+        # They run on the GPU box from a fresh clone, so a syntax error here
+        # only ever surfaces as a failed job minutes into a run.
+        run: |
+          python3 -m py_compile \
+            trainers/unsloth-llm-train/train.py \
+            trainers/eleutherai-lm-evaluation-harness/train.py

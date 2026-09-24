@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { chromium, type FullConfig } from "@playwright/test";
+import { chromium } from "@playwright/test";
 
 /**
  * Sign in ONCE for the whole suite and save the session.
@@ -49,7 +49,7 @@ async function loginForCookie(base: string, password: string): Promise<string> {
   throw new Error("Login stayed rate-limited after 12 attempts.");
 }
 
-export default async function globalSetup(_config: FullConfig) {
+export default async function globalSetup() {
   const base = process.env.BASE_URL ?? "http://10.17.254.27:3000";
   const password = process.env.APP_PASSWORD ?? "";
   if (!password) throw new Error("APP_PASSWORD is required (pass it on the command line).");
