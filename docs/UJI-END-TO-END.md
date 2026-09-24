@@ -164,9 +164,11 @@ Tiga berkas, dijalankan dengan Playwright terhadap deployment nyata:
 | `tests/ui.spec.ts` | 8 tes — halaman merender, galat konsol diperiksa kosong |
 | `tests/ui-interactions.spec.ts` | 12 tes — kontrol utama tiap menu diklik |
 | `tests/ui-coverage.spec.ts` | 20 tes — halaman sisa, filter, sortir, hapus, kerangka aplikasi, dan penjaga regresi |
-| `tests/api-surface.spec.ts` | 47 tes — seluruh 55 rute API: gerbang autentikasi, rute baca, validasi masukan, rute destruktif |
+| `tests/api-surface.spec.ts` | 55 tes — seluruh 55 rute API: gerbang autentikasi, rute baca, validasi masukan, rute destruktif |
+| `tests/data-integrity.spec.ts` | 8 tes — memeriksa ISI: baris dataset utuh, teks prompt persis, dua endpoint sepakat |
+| `tests/resilience.spec.ts` | 4 tes — **mematikan container sungguhan**; opt-in, tidak ikut jalan secara default |
 
-**87 dari 87 lolos** terhadap image v0.40.68.
+**103 dari 103 lolos** terhadap image v0.40.70, ditambah 4 uji ketahanan.
 
 ### Sapuan seluruh permukaan API
 
@@ -240,7 +242,40 @@ sisa kata "Transformer Lab".
 > berbunyi "Save" selama ada perubahan dan baru berubah menjadi "Saved" setelah
 > tersimpan, jadi tombol itu harus diklik.
 
-## 7. Batasan pengujian ini
+## 7. Uji ketahanan
+
+Dijalankan terpisah karena **mematikan layanan sungguhan**:
+
+```bash
+RESILIENCE=1 APP_PASSWORD=... PORTAINER_USER=... PORTAINER_PASSWORD=...   npx playwright test tests/resilience.spec.ts
+```
+
+Hanya `ollama` dan `rantai-backend` yang boleh disentuh — nama lain ditolak
+oleh asersi. Tiap uji menyalakan kembali apa yang dimatikannya di `finally`,
+dan `afterAll` memulihkan semuanya apa pun yang terjadi. vLLM tidak pernah
+disentuh karena melayani RantAI Agents.
+
+| Skenario | Yang dipastikan |
+|---|---|
+| Ollama mati | `serve/info` melaporkan tidak tersedia, obrolan gagal dengan pesan, halaman tetap terbaca |
+| Ollama kembali | pulih sendiri, tanpa memuat ulang aplikasi |
+| Backend mati | daftar **tidak** balas kosong; kerangka aplikasi tetap hidup |
+| Backend kembali | riwayat pekerjaan kembali utuh |
+
+> **Kenapa daftar kosong berbahaya.** "Tidak ada pekerjaan" dan "tidak bisa
+> bertanya" terlihat sama persis di layar, dan hanya satu yang benar. Pada 21
+> Juli autentikasi putus, semua daftar balik nol, dan itu terbaca sebagai
+> kehilangan data permanen selama berjam-jam — padahal berkasnya tidak pernah
+> berpindah.
+>
+> Perbaikannya sempat gagal sekali: rute sudah menjawab 502, tetapi **tiga
+> lapisan di bawahnya** menelan kegagalan lebih dulu, sehingga tidak ada yang
+> sampai ke rute. Ketahuan hanya karena ujinya dijalankan ulang **setelah**
+> dipasang ke server.
+
+---
+
+## 8. Batasan pengujian ini
 
 Yang **tidak** tercakup:
 
