@@ -57,14 +57,25 @@ export type HostRunResult = { stdout: string; stderr: string };
  * cause is usually an explicit `Error:`/`Traceback` line, not the last line. Fall
  * back to the last few non-noise lines so we never surface a stray `{%- endif %}`.
  */
-function extractError(output: string): string {
+export function extractError(output: string): string {
   const lines = output
     .split(/[\r\n]+/)
     .map((l) => l.trim())
     .filter(Boolean);
+
+  // A Python traceback puts its cause on the LAST line, under the frames. Prefer
+  // that: matching "Traceback (most recent call last):" and stopping there threw
+  // away the answer and reported the header, which is how a merge that died of
+  // "CUDA error: out of memory" surfaced as a bare "Traceback (most recent call
+  // last):" — a message that names no cause at all.
+  const typed = [...lines]
+    .reverse()
+    .find((l) => /^[A-Za-z_][\w.]*(?:Error|Exception|Interrupt):/.test(l));
+  if (typed) return typed;
+
   const errLine = [...lines]
     .reverse()
-    .find((l) => /^(error\b|error:|traceback|fatal|exception\b)/i.test(l));
+    .find((l) => /^(error\b|error:|fatal|exception\b)/i.test(l));
   if (errLine) return errLine;
   // Drop Jinja/template fragments the GGUF converter echoes to stdout.
   const meaningful = lines.filter((l) => !/^\{[%{]/.test(l) && !/^\{\{-|^\{%-/.test(l));

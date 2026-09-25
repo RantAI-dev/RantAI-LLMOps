@@ -16,13 +16,20 @@ OUT="$HOME/.transformerlab/rantai_merged/$NAME"
 if [ ! -f "$OUT/config.json" ]; then
   # Merge on CPU: no GPU needed, and loading a large base onto the GB10 can OOM
   # under sm_121. CPU-only is reliable for any model size/architecture.
+  # CPU-only, enforced two ways. CUDA_VISIBLE_DEVICES alone is NOT enough: the
+  # base loads on CPU, but peft then picks its own device for the adapter
+  # weights and loads them onto the GPU — which on the GB10, with vLLM already
+  # holding most of the card, dies with "CUDA error: out of memory" seconds in.
+  # It reads like the merge is too big for the box; it is not, it just never
+  # belonged on the GPU. `device_map={"": "cpu"}` pins the adapter too.
   CUDA_VISIBLE_DEVICES="" "$PY" - "$ADIR" "$BASE" "$OUT" >&2 <<'PYEOF'
 import sys, torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 adapter, base_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
-base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16)
-PeftModel.from_pretrained(base, adapter).merge_and_unload().save_pretrained(out, safe_serialization=True)
+base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
+merged = PeftModel.from_pretrained(base, adapter, device_map={"": "cpu"}).merge_and_unload()
+merged.save_pretrained(out, safe_serialization=True)
 AutoTokenizer.from_pretrained(adapter).save_pretrained(out)
 print("merged ->", out)
 PYEOF
