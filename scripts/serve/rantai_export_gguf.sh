@@ -25,8 +25,16 @@ import sys, torch
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 adapter, base_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
-base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16)
-PeftModel.from_pretrained(base, adapter).merge_and_unload().save_pretrained(out, safe_serialization=True)
+# device_map={"": "cpu"} on BOTH loads, not just the base. CUDA_VISIBLE_DEVICES
+# above is not enough: the base honours it, but peft then picks its own device for
+# the adapter weights and puts them on the GPU — which on the GB10, with vLLM
+# already holding the card, dies with "CUDA error: out of memory" seconds in. It
+# reads like the model is too big for the box; it is not, it just never belonged
+# on the GPU. Small models happened to fit, which is why this went unnoticed until
+# a 4B adapter was exported. Same fix as rantai_merge.sh.
+base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
+merged = PeftModel.from_pretrained(base, adapter, device_map={"": "cpu"}).merge_and_unload()
+merged.save_pretrained(out, safe_serialization=True)
 tok = AutoTokenizer.from_pretrained(adapter)
 # The adapter's tokenizer sometimes lacks the chat template. Without it the GGUF
 # carries no `tokenizer.chat_template`, so Ollama can't format chat prompts and
