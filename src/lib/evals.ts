@@ -17,7 +17,7 @@ import { launchProviderTask } from "@/lib/tl-provider";
 import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
-import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
+import { allExperimentIds, createTlExperiment, jobOutput, resolveJobExperiment } from "@/lib/tasks-server";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { logServerError } from "@/lib/log";
 
@@ -99,6 +99,15 @@ export type EvalJob = {
   /** TL timestamps (UTC, zone-less) — when the run started / finished. */
   startedAt?: string;
   finishedAt?: string;
+  /**
+   * Why a FAILED run failed, in one line, pulled from the job's log.
+   *
+   * Without this the list showed a red FAILED chip and nothing else: the cause
+   * only existed inside the job log, so every failure meant opening the drawer
+   * and scrolling a few thousand lines of pip output to find the one line that
+   * mattered. Populated only for FAILED jobs — a finished run has nothing to say.
+   */
+  error?: string;
 };
 
 /** Evaluable models = our fine-tunes + downloaded safetensors + recommended HF bases. */
@@ -438,16 +447,78 @@ export async function fetchEvalJobs(): Promise<EvalJob[]> {
   // Scores live in a per-job artifact, not the list payload — fetch them for
   // finished jobs (from the job's own experiment). A failed score fetch returns
   // [] for that one job only, never blanking the whole list.
+  //
+  // FAILED jobs get the same treatment for their cause: the list payload carries
+  // no error at all, so the reason is read out of the job log here. Both are
+  // per-job side fetches and independent, so they run in the same pass.
   await Promise.all(
     tagged.map(async ({ job, experimentId }) => {
       if (job.status === "COMPLETE" && job.scores.length === 0) {
         const { scores, samples } = await fetchEvalScores(job.id, experimentId);
         job.scores = scores;
         job.samples = samples;
+        return;
+      }
+      if (job.status === "FAILED") {
+        job.error = await fetchEvalError(job.id, experimentId);
       }
     })
   );
   return tagged.map((t) => t.job);
+}
+
+/**
+ * The one line that explains a FAILED eval, read out of its log.
+ *
+ * An eval log is mostly `uv pip install` output — a few thousand lines of
+ * package names — and the cause sits in the last Python traceback. Reading
+ * backwards for the exception type is what a person does by hand; doing it here
+ * means the list can say "TypeError: HFLM.__init__() missing 1 required
+ * positional argument: 'pretrained'" instead of a bare red chip.
+ *
+ * Never throws: a job whose log has been purged still lists, just without a
+ * reason. An empty string is the honest answer there — inventing a generic
+ * "evaluation failed" would add words without adding information.
+ */
+async function fetchEvalError(id: string, experimentId: string): Promise<string> {
+  try {
+    return evalErrorFromLog(await jobOutput(id, experimentId));
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The parsing half of the above, separated so it can be tested without a
+ * backend. Given a whole eval log, returns the one line worth showing.
+ */
+export function evalErrorFromLog(log: string): string {
+  const lines = log
+    .split(/[\r\n]+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  // A Python traceback ends with the exception; take the LAST one, since the
+  // harness can catch and re-raise and only the final line is the real cause.
+  // `Traceback` itself is matched but never returned alone — a bare
+  // "Traceback (most recent call last):" names no cause.
+  const exception = [...lines]
+    .reverse()
+    .find((l) => /^(?:[A-Z]\w*(?:Error|Exception|Interrupt)|Traceback)/.test(l));
+  if (exception && !/^Traceback/.test(exception)) return truncate(exception);
+
+  // No traceback: the harness prints its own marker on a non-zero exit, and an
+  // OOM often kills the process before any Python frame unwinds.
+  const marker = [...lines].reverse().find((l) => /non-zero exit code|CUDA|out of memory/i.test(l));
+  if (marker) return truncate(marker);
+
+  return "";
+}
+
+/** Keep a reason readable in a table cell; the drawer still has the full log. */
+function truncate(s: string, max = 240): string {
+  const clean = s.replace(/^\W*/, "").trim();
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
 }
 
 function slug(s: string): string {

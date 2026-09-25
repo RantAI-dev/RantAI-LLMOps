@@ -149,6 +149,15 @@ export function EvalJobList({ jobs }: { jobs: EvalJob[] }) {
               </p>
             ) : null}
 
+            {/* A failed run used to show a red chip and nothing else, leaving the
+                cause buried a few thousand lines into the log. The one line that
+                explains it belongs next to the failure. */}
+            {failed && job.error ? (
+              <p className="mt-2 break-words rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-danger">
+                {job.error}
+              </p>
+            ) : null}
+
             {!active && !failed && job.scores.length > 0 ? (
               <EvalSamples jobId={job.id} />
             ) : null}
