@@ -81,8 +81,15 @@ const GRPO_RUN = "python unsloth-grpo-train/train.py";
  * selectable + correct; running it to completion needs a bigger GPU.
  */
 const TTS_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-text-to-speech-train";
+// Versions pinned to match GRPO's, and for one specific reason: an UNPINNED
+// `unsloth` resolves to v2025.5.9 here, which depends on xformers v0.0.35 — and
+// xformers has no aarch64 wheel, so uv builds it from source against the image's
+// CUDA 12.8 while torch is cu130. Measured: the job dies in setup with
+// "The detected CUDA version (12.8) mismatches the version that was used to
+// compile PyTorch (13.0)", long before any audio is touched. The pinned unsloth
+// does not pull xformers at all.
 const TTS_SETUP =
-  "uv pip install unsloth snac librosa soundfile transformers==4.52.3 datasets==3.6.0 torch==2.10.0";
+  "uv pip install unsloth==2026.3.3 unsloth-zoo==2026.3.1 snac librosa soundfile transformers==4.52.3 datasets==3.6.0 torch==2.10.0";
 const TTS_RUN = "python unsloth-text-to-speech-train/train.py";
 /** Orpheus TTS base model — the trainer's default; shown as a base option in TTS mode. */
 export const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
@@ -533,6 +540,13 @@ export type SubmitFinetuneParams = {
   datasetInputField?: string;
   datasetOutputField?: string;
   beta?: number;
+  /**
+   * GRPO only: the HF dataset CONFIG name, i.e. the second argument to
+   * `load_dataset(name, config)`. Most datasets have exactly one, called
+   * "default" — which is what we send unless a caller names another (gsm8k's
+   * is "main", MMLU has one per subject).
+   */
+  datasetConfig?: string;
   /** TTS only: the dataset's audio + text column names + audio sampling rate. */
   audioColumn?: string;
   textColumn?: string;
@@ -595,6 +609,14 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       parameters: {
         model_name: p.baseModel,
         dataset: p.dataset,
+        // HF datasets are loaded as load_dataset(name, CONFIG). The trainer
+        // defaults that config to "main", which exists on gsm8k (its default
+        // base) and almost nowhere else — every other dataset dies before the
+        // first step with "BuilderConfig 'main' not found. Available: ['default']".
+        // Measured on Trelis/touch-rugby-rules. "default" is the config name the
+        // datasets library gives a single-config dataset, so it is the right
+        // fallback; pass datasetConfig explicitly for a multi-config one.
+        dataset_config: p.datasetConfig ?? "default",
         dataset_input_field: p.datasetInputField ?? "question",
         dataset_output_field: p.datasetOutputField ?? "answer",
         learning_rate: p.learningRate ?? 0.00005,
