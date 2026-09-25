@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { EvalJob, EvalOptions } from "@/lib/evals";
+import type { EvalJob, EvalOptions, MergeJob } from "@/lib/evals";
 
 const EMPTY: EvalOptions = { models: [], benchmarks: [] };
 // LAUNCHING/STOPPING are transitional TL phases — treat as active so they render
@@ -28,6 +28,8 @@ export function useEvals() {
   // fine-tune the merge runs first, so there is a gap with no visible job. This
   // keeps the poll alive across that gap and lets the UI show a "menyiapkan" note.
   const [preparing, setPreparing] = useState(false);
+  // The merge behind `preparing`, when one is tracked.
+  const [merge, setMerge] = useState<MergeJob | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Stops the compare poll loop from running / setState-ing after unmount.
@@ -111,12 +113,45 @@ export function useEvals() {
     }
   }, [preparing, jobs]);
 
-  // Hard cap: if a background merge fails and no job ever appears, stop
-  // "preparing" (and its polling) after 9 min. Keyed on `preparing` ONLY so the
-  // 3s job poll doesn't re-arm this timer every tick (which would defeat it).
+  // What the merge behind a preparing eval is doing. A 4B adapter merge writes
+  // 8.1 GB and runs for tens of minutes before any eval job exists, so without
+  // this the screen showed "preparing…" over nothing — and a merge that had
+  // already failed looked exactly like one still working.
   useEffect(() => {
     if (!preparing) return;
-    const cap = setTimeout(() => setPreparing(false), 9 * 60 * 1000);
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch("/api/evals/merges", { cache: "no-store" });
+        const data = (await res.json()) as { merges?: MergeJob[] };
+        if (cancelled) return;
+        const running = (data.merges ?? []).find((m) => m.status === "RUNNING");
+        const failed = (data.merges ?? []).find((m) => m.status === "FAILED");
+        setMerge(running ?? failed ?? null);
+        // A failed merge ends the wait immediately instead of leaving the user
+        // watching a spinner until some arbitrary cap expires.
+        if (!running && failed) {
+          setError(failed.error ?? "Adapter merge failed");
+          setPreparing(false);
+        }
+      } catch {
+        /* keep last */
+      }
+    };
+    void tick();
+    const t = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [preparing]);
+
+  // Hard cap. The merge now gets 90 min server-side, so the old 9-min cap cut
+  // off work that was still running correctly; this only catches the case where
+  // no merge is tracked at all (e.g. the server restarted mid-merge).
+  useEffect(() => {
+    if (!preparing) return;
+    const cap = setTimeout(() => setPreparing(false), 95 * 60 * 1000);
     return () => clearTimeout(cap);
   }, [preparing]);
 
@@ -274,6 +309,8 @@ export function useEvals() {
     loading,
     submitting,
     preparing,
+    /** The adapter merge a preparing eval is waiting on, when one is tracked. */
+    merge,
     error,
     submit,
     comparing,

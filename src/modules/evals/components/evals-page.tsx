@@ -18,7 +18,7 @@ type Tab = "single" | "compare" | "retention" | "grounding" | "classification";
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
   const {
-    options, jobs, loading, submitting, preparing, error, submit,
+    options, jobs, loading, submitting, preparing, merge, error, submit,
     comparing, compareProgress, submitCompare,
   } = useEvals();
   const [tab, setTab] = useState<Tab>("single");
@@ -72,9 +72,19 @@ export function EvalsPage() {
               <EvalForm options={options} submitting={submitting} error={error} onSubmit={submit} />
               {preparing ? (
                 <div className="rounded-lg border border-primary/30 bg-primary-soft/50 px-3 py-2 text-[12px] text-primary">
-                  Preparing the model and queuing the eval… For a fine-tune, the adapter is merged
-                  into the base model first (this can take a few minutes for large models) — the job
-                  will appear in the history below.
+                  {merge?.status === "RUNNING" ? (
+                    <>
+                      Merging the adapter into its base model
+                      {merge.label ? ` for ${merge.label}` : ""} — {mergeElapsed(merge.startedAt)} so
+                      far. A 4B model writes about 8&nbsp;GB here, so twenty minutes or more is
+                      normal. The eval is queued and will appear below once the merge finishes.
+                    </>
+                  ) : (
+                    <>
+                      Preparing the model and queuing the eval… For a fine-tune, the adapter is
+                      merged into the base model first — the job will appear in the history below.
+                    </>
+                  )}
                 </div>
               ) : null}
               <div>
@@ -112,4 +122,11 @@ export function EvalsPage() {
       )}
     </div>
   );
+}
+
+/** "3 min" / "just started" — a merge's age, so the note shows progress. */
+function mergeElapsed(startedAt: number): string {
+  const mins = Math.floor((Date.now() - startedAt) / 60_000);
+  if (mins < 1) return "just started";
+  return `${mins} min`;
 }

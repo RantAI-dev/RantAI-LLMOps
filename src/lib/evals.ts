@@ -18,6 +18,7 @@ import { RECOMMENDED_MODELS, fetchFineTuned } from "@/lib/finetune";
 import { assertJobId, assertModelId, assertTag } from "@/lib/validate";
 import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 import { allExperimentIds, createTlExperiment, jobOutput, resolveJobExperiment } from "@/lib/tasks-server";
+import { awaitMerge, mergeTimeoutMs, startMerge } from "@/lib/merge-jobs";
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { logServerError } from "@/lib/log";
 
@@ -176,12 +177,23 @@ export type SubmitEvalParams = {
 };
 
 /**
+ * Merge progress for a fine-tune, for the UI to show while an eval is preparing.
+ * Re-exported here so the evals module stays the single entry point.
+ */
+export { getMerge, listMerges } from "@/lib/merge-jobs";
+export type { MergeJob, MergeStatus } from "@/lib/merge-jobs";
+
+/**
  * Run a benchmark on a model by launching the lm-eval harness on the local
  * compute provider. Returns the REMOTE job id; poll `/api/evals/jobs`.
  *
  * Base models: the harness pulls them from HF by id. Fine-tunes: we first merge
  * the adapter into the base locally (the harness can't load a LoRA adapter from
  * HF) and evaluate the merged model via its `model_path`.
+ *
+ * The merge is tracked as a job (see lib/merge-jobs) rather than performed
+ * inline: it can take far longer than any request should live, and two evals on
+ * the same fine-tune must share one merge instead of racing on its output dir.
  */
 export async function submitEval(p: SubmitEvalParams): Promise<string> {
   let modelName = p.model;
@@ -189,7 +201,15 @@ export async function submitEval(p: SubmitEvalParams): Promise<string> {
   let label = p.model;
 
   if (p.fineTuned) {
-    const merged = await mergeFineTuneForEval(p.model); // p.model = train job id
+    // p.model = train job id. Start (or join) the merge, then wait for it here —
+    // this function still owes its caller a launched job. The difference from
+    // before is that the wait is no longer bounded by a request deadline, and a
+    // second submit joins this merge instead of starting a competing one.
+    startMerge(p.model, p.model, mergeFineTuneForEval);
+    const merged = await awaitMerge(p.model);
+    if (!merged || merged.status !== "COMPLETE" || !merged.modelPath) {
+      throw new Error(merged?.error ?? "Adapter merge did not produce a model");
+    }
     modelPath = merged.modelPath;
     modelName = merged.label;
     label = merged.label;
@@ -255,7 +275,13 @@ async function mergeFineTuneForEval(jobId: string): Promise<{ modelPath: string;
   let stdout: string;
   try {
     // Fixed template; values bind to $1/$2/$3 via "$@" — never interpolated.
-    ({ stdout } = await runHostScript('bash ~/rantai_merge.sh "$@"', [jobId, base, tag]));
+    // 90 min, not host-runner's 9. A 4B merge writes 8.1 GB on CPU and runs well
+    // past twenty minutes; the default deadline aborted it every time, which is
+    // why a fresh adapter's FIRST eval always failed while the merge itself kept
+    // running to completion in the background.
+    ({ stdout } = await runHostScript('bash ~/rantai_merge.sh "$@"', [jobId, base, tag], {
+      timeoutMs: mergeTimeoutMs,
+    }));
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);
     // A COMPLETE train job can still have no adapter (training failed but the
