@@ -81,15 +81,19 @@ const GRPO_RUN = "python unsloth-grpo-train/train.py";
  * selectable + correct; running it to completion needs a bigger GPU.
  */
 const TTS_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-text-to-speech-train";
-// Versions pinned to match GRPO's, and for one specific reason: an UNPINNED
-// `unsloth` resolves to v2025.5.9 here, which depends on xformers v0.0.35 — and
-// xformers has no aarch64 wheel, so uv builds it from source against the image's
-// CUDA 12.8 while torch is cu130. Measured: the job dies in setup with
-// "The detected CUDA version (12.8) mismatches the version that was used to
-// compile PyTorch (13.0)", long before any audio is touched. The pinned unsloth
-// does not pull xformers at all.
+// Diverges from upstream's task.yaml on purpose — upstream's combination cannot
+// install here at all. It asks for an UNPINNED `unsloth` plus
+// `transformers==4.52.3`, and on aarch64 that resolves to unsloth v2025.5.9,
+// which depends on xformers v0.0.35. xformers ships no aarch64 wheel, so uv
+// builds it from source against the image's CUDA 12.8 while torch is cu130:
+// "The detected CUDA version (12.8) mismatches ... compile PyTorch (13.0)".
+//
+// Pinning unsloth to GRPO's version fixes that, but then the transformers pin
+// becomes unsatisfiable (unsloth 2026.3.3 wants >4.57). So the pin goes: it was
+// what forced the old unsloth in the first place. Same stack as GRPO, which is
+// the one combination proven to install on this box.
 const TTS_SETUP =
-  "uv pip install unsloth==2026.3.3 unsloth-zoo==2026.3.1 snac librosa soundfile transformers==4.52.3 datasets==3.6.0 torch==2.10.0";
+  "uv pip install unsloth==2026.3.3 unsloth-zoo==2026.3.1 snac librosa soundfile datasets==4.3.0 torch==2.10.0";
 const TTS_RUN = "python unsloth-text-to-speech-train/train.py";
 /** Orpheus TTS base model — the trainer's default; shown as a base option in TTS mode. */
 export const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
