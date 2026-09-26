@@ -92,13 +92,15 @@ const TTS_GITHUB_DIR = "api/transformerlab/galleries/examples/unsloth-text-to-sp
 // becomes unsatisfiable (unsloth 2026.3.3 wants >4.57). So the pin goes: it was
 // what forced the old unsloth in the first place. Same stack as GRPO, which is
 // the one combination proven to install on this box.
-// torchcodec comes with datasets 4.x, not before it: 4.x decodes an Audio
-// column through torchcodec instead of soundfile/librosa, and without it the
-// run dies the moment it touches the first audio sample — "To support decoding
-// audio data, please install 'torchcodec'" — after the dataset has already
-// loaded, which makes it look like a data problem rather than a missing wheel.
+// datasets stays on 3.x HERE, unlike GRPO. 4.x decodes an Audio column through
+// torchcodec, and torchcodec's prebuilt wheel is compiled against a different
+// torch than the 2.10.0 we install: the job dies with
+// "libtorchcodec_image.so: undefined symbol: torch_from_blob". Chasing a
+// torchcodec build that matches torch 2.10 on aarch64 is a fight with no prize —
+// 3.x reads the same audio through soundfile, which is already in this list and
+// has an aarch64 wheel. The 4.3.0 pin was only ever there to match GRPO's.
 const TTS_SETUP =
-  "uv pip install unsloth==2026.3.3 unsloth-zoo==2026.3.1 snac librosa soundfile torchcodec datasets==4.3.0 torch==2.10.0";
+  "uv pip install unsloth==2026.3.3 unsloth-zoo==2026.3.1 snac librosa soundfile datasets==3.6.0 torch==2.10.0";
 const TTS_RUN = "python unsloth-text-to-speech-train/train.py";
 /** Orpheus TTS base model — the trainer's default; shown as a base option in TTS mode. */
 export const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
