@@ -66,8 +66,18 @@ RUN find /opt/rantai -name '*.sh' -exec sed -i 's/\r$//' {} + \
     && chmod +x /usr/local/bin/rantai-entrypoint.sh
 
 # Ollama CLI (arch-matched) for `ollama create` in the export pipeline.
+#
+# TARGETARCH is set by buildx, which is how CI builds this — but NOT by a plain
+# `docker build` / the Docker HTTP build API. Falling back to "amd64" there put
+# an x86_64 binary in an aarch64 image, and the export pipeline then died on its
+# last step with "cannot execute binary file: Exec format error" — after the
+# merge and the GGUF conversion had already succeeded, which made it look like
+# an Ollama problem rather than a build one. `uname -m` is the ground truth of
+# the machine doing the build, so ask it when the build arg is absent.
 RUN set -eux; \
-    case "${TARGETARCH:-amd64}" in arm64) A=arm64 ;; *) A=amd64 ;; esac; \
+    A="${TARGETARCH:-}"; \
+    if [ -z "$A" ]; then case "$(uname -m)" in aarch64|arm64) A=arm64 ;; *) A=amd64 ;; esac; fi; \
+    case "$A" in arm64|aarch64) A=arm64 ;; *) A=amd64 ;; esac; \
     mkdir -p /root/.local; \
     curl -fL --retry 3 -o /tmp/o.tar.zst \
       "https://github.com/ollama/ollama/releases/latest/download/ollama-linux-${A}.tar.zst"; \
