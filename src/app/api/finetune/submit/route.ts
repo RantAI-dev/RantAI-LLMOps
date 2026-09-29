@@ -39,6 +39,7 @@ export async function POST(req: NextRequest) {
     "loraR",
     "loraAlpha",
     "loraDropout",
+    "evalSteps",
   ] as const;
   for (const key of NUMERIC) {
     const raw = (body as Record<string, unknown>)[key];

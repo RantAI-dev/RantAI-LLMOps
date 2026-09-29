@@ -59,6 +59,12 @@ export function FinetuneForm({
   // Token per sampel. Dataset gaya RAG (konteks retrieval ikut di prompt) gampang
   // tembus 2048 — kelebihannya dipotong diam-diam, jadi ini wajib bisa dinaikkan.
   const [maxSeqLength, setMaxSeqLength] = useState(2048);
+  // Tiap berapa langkah eval loss diukur. Default trainer sendiri 5 — dipilih supaya
+  // demo pendek tetap punya kurva. Pada dataset sungguhan itu mahal: terukur pada run
+  // 2.540 baris, satu eval lewat 254 sampel validasi makan 112 detik, jadi eval tiap 5
+  // langkah menghabiskan 3,6 jam untuk eval melawan 1,3 jam melatih — 73% jam dinding,
+  // demi 114 titik kurva yang 11 titik sudah cukup menggambarkannya.
+  const [evalSteps, setEvalSteps] = useState(50);
   // Off by default: GB10 has 128 GB unified memory, so 4-bit only adds compute —
   // and its kernels are reported to stall on sm_121. For small-VRAM hosts only.
   const [loadIn4bit, setLoadIn4bit] = useState(false);
@@ -159,6 +165,7 @@ export function FinetuneForm({
       learningRate,
       maxSteps,
       maxSeqLength,
+      evalSteps,
       loadIn4bit,
       ...(method === "grpo"
         ? { datasetInputField: inputField, datasetOutputField: outputField }
@@ -428,6 +435,31 @@ export function FinetuneForm({
                 value={maxSeqLength}
                 onChange={(e) => setMaxSeqLength(Number(e.target.value))}
                 onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : 2048))}
+              />
+            </div>
+            <div className="block">
+              <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                <label htmlFor="ft-eval-steps">Eval steps</label>
+                <InfoTip label="About eval steps">
+                  How often the eval loss is measured, in steps. Every eval pass runs the whole
+                  validation split, so a small number can cost more wall clock than the training
+                  itself — measured on a 2,540-row run, one pass took <strong>112 s</strong>, so
+                  evaluating every <code>5</code> steps spent 3.6 h on eval against 1.3 h of
+                  training. <code>50</code> still draws a curve detailed enough to show
+                  overfitting.
+                </InfoTip>
+              </span>
+              {/* Clamped on blur, not per keystroke: clamping on change snaps the field
+                  back the moment it is cleared, which makes typing a value impossible
+                  (the same trap Max context length documents above). */}
+              <Input
+                id="ft-eval-steps"
+                type="number"
+                min={1}
+                step={5}
+                value={evalSteps}
+                onChange={(e) => setEvalSteps(Number(e.target.value))}
+                onBlur={() => setEvalSteps((v) => (Number.isInteger(v) && v >= 1 ? v : 50))}
               />
             </div>
           </div>
