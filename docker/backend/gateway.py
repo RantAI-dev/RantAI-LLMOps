@@ -18,6 +18,8 @@ writes it, so access changes live with no restart):
                           request — this is where Tier 2 plugs in.
   GATEWAY_UPSTREAM        Ollama base URL (default http://ollama:11434).
   GATEWAY_PORT            listen port (default 8080).
+  GATEWAY_POST_PATHS      comma-separated EXTRA POST paths to proxy, e.g. /v1/systemone for a gateway
+                          in front of the decision server. Only /v1/... paths are accepted.
 
 Stdlib only — no extra deps.
 """
@@ -35,6 +37,23 @@ PORT = int(os.environ.get("GATEWAY_PORT", "8080"))
 # (pull / delete / create / tags / ps …) are DELIBERATELY not proxied: holding an
 # API key must never let a client mutate the server or pull arbitrary models.
 _POST_ALLOWED = ("/v1/chat/completions", "/v1/completions", "/v1/embeddings")
+
+
+def _extra_post_paths():
+    """Extra POST paths for a gateway in front of something that is not an LLM server (the decision
+    server's /v1/systemone). Only `/v1/...` paths are accepted: that keeps an upstream's own admin
+    routes (the decision server has /admin/models) out of reach of an API key, whatever is listed."""
+    paths = []
+    for p in os.environ.get("GATEWAY_POST_PATHS", "").split(","):
+        p = p.strip().rstrip("/")
+        if p.startswith("/v1/") and ".." not in p and "admin" not in p.lower():
+            paths.append(p)
+        elif p:
+            print(f"[rantai-gateway] ignoring GATEWAY_POST_PATHS entry {p!r}: only /v1/... paths are allowed", flush=True)
+    return tuple(paths)
+
+
+_POST_ALLOWED = _POST_ALLOWED + _extra_post_paths()
 
 
 def _split_env(name):

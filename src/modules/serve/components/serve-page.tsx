@@ -2,6 +2,7 @@
 
 import { InfoTip } from "@/components/ui/tooltip";
 import { AdapterManager } from "@/modules/serve/components/adapter-manager";
+import { DecisionDeploy } from "@/modules/serve/components/decision-deploy";
 import { EngineStatus } from "@/modules/serve/components/engine-status";
 import { GatewayAccess } from "@/modules/serve/components/gateway-access";
 import { VllmDeploy } from "@/modules/serve/components/vllm-deploy";
@@ -33,6 +34,7 @@ export function ServePage() {
       <EngineStatus />
       {showDeployVllm && <VllmDeploy />}
       <AdapterManager />
+      <DecisionDeploy />
       <GatewayAccess />
     </div>
   );

@@ -156,6 +156,31 @@ def validate_row(row) -> list[str]:
     return errors
 
 
+def validate_questions(questions) -> list[str]:
+    """Problems with the `questions` object of a Decision API request (empty = valid).
+
+    The serving twin of validate_row: same per-question rules and limits, but there is no gold to
+    check. docker/decision/server.py calls it so a malformed request is a 422 naming the question,
+    not an exception from inside the model.
+    """
+    if not isinstance(questions, dict) or not questions:
+        return ["questions must be a non-empty object of name -> question"]
+    errors: list[str] = []
+    if len(questions) > MAX_QUESTIONS:
+        errors.append(f"has {len(questions)} questions, at most {MAX_QUESTIONS} are allowed")
+    for name, question in questions.items():
+        if not isinstance(name, str) or not name.strip():
+            errors.append("question names must be non-empty strings")
+            continue
+        if not isinstance(question, dict):
+            errors.append(f'question "{name}" is not an object')
+            continue
+        problem = _question_error(question.get("type"), question.get("criteria"))
+        if problem:
+            errors.append(f'question "{name}": {problem}')
+    return errors
+
+
 def validate_rows(rows, max_report: int = 10) -> tuple[list, dict]:
     """Split `rows` into the valid ones and a report.
 

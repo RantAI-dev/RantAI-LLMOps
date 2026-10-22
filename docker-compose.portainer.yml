@@ -320,6 +320,69 @@ services:
     networks:
       - llmops
 
+  # ─── Decision server + its gateway (System One / Jev-style typed decisions) ─────
+  # A decision model scores the options of typed questions (noul / choice / score) and returns a
+  # calibrated probability. It is not a text generator, so vLLM and Ollama cannot serve it: this
+  # PyTorch server (docker/decision/server.py) does, on Unsloth Studio's /v1/systemone request shape.
+  # Models are added WITHOUT a restart through its admin API (the Deployments page does it for a
+  # finished decision job) and remembered in the decision_state volume. Behind a profile so a plain
+  # `docker compose up` does not start it:  docker compose --profile decision up -d
+  decision:
+    build:
+      context: .
+      dockerfile: docker/decision/Dockerfile
+    image: ${DECISION_IMAGE:-rantai-decision-server:latest}
+    container_name: rantai-decision
+    profiles: ["decision"]
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Enables the admin API (load / unload a model). Empty = the admin API is off.
+      - DECISION_ADMIN_TOKEN=${DECISION_ADMIN_TOKEN:-}
+      # Optional JSON list loaded at start, e.g. [{"name":"tiket-router","path":"/root/.transformerlab/..."}]
+      - DECISION_MODELS=${DECISION_MODELS:-}
+      - DECISION_MAX_MODELS=${DECISION_MAX_MODELS:-3}
+    volumes:
+      # The base models of SEA-LION decision adapters are already cached here by vLLM.
+      - vllm_hf_cache:/root/.cache/huggingface
+      # Finished decision jobs live here; read-only, the server only loads from it.
+      - tl_data:/root/.transformerlab:ro
+      - decision_state:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      llmops:
+        aliases: [decision]
+
+  # Third instance of gateway.py: an API key and a model allowlist in front of the decision server,
+  # exposing /v1/systemone (GATEWAY_POST_PATHS). The server's /admin/* routes are never proxied.
+  rantai-gateway-decision:
+    build:
+      context: .
+      dockerfile: docker/gateway/Dockerfile
+    image: ${GATEWAY_IMAGE:-rantai-gateway:latest}
+    container_name: rantai-gateway-decision
+    profiles: ["decision"]
+    environment:
+      - GATEWAY_UPSTREAM=http://decision:8000
+      - GATEWAY_PORT=8080
+      - GATEWAY_POST_PATHS=/v1/systemone
+      - GATEWAY_API_KEYS=${GATEWAY_DECISION_API_KEYS:-}
+      # The names of the decision models clients may call. Empty = every loaded model.
+      - GATEWAY_ALLOWED_MODELS=${GATEWAY_DECISION_ALLOWED_MODELS:-}
+    ports:
+      - "${GATEWAY_DECISION_HOST_PORT:-11439}:8080"
+    depends_on:
+      - decision
+    restart: unless-stopped
+    networks:
+      - llmops
+
   # ─── Frontend (Next.js) ──────────────────────────────────────────────────────
   frontend:
     # Override to test a locally built image: FRONTEND_IMAGE=rantai-llmops-fe:test
@@ -333,6 +396,10 @@ services:
       # team (TL resolves it server-side), which is what a fresh install wants.
       - INFERENCE_TEAM_ID=${INFERENCE_TEAM_ID:-}
       - OLLAMA_BASE_URL=http://ollama:11434
+      # Decision models (System One): the decision server and its admin token. Leave DECISION_BASE_URL
+      # empty to hide the Decision card on Deployments (the server is behind `--profile decision`).
+      - DECISION_BASE_URL=${DECISION_BASE_URL:-}
+      - DECISION_ADMIN_TOKEN=${DECISION_ADMIN_TOKEN:-}
       # Optional second engine: a permanent vLLM service (safetensors, full
       # precision) reachable by its network alias `vllm`. Leave unset to keep the
       # Serve UI showing vLLM as "not configured" (never an error). See the
@@ -398,6 +465,8 @@ volumes:
   # vLLM's Hugging Face cache — keeps the served model across restarts so it is
   # not re-downloaded every time the container recreates.
   vllm_hf_cache:
+  # The decision server's remembered model set (decision-models.json).
+  decision_state:
 
 networks:
   llmops:

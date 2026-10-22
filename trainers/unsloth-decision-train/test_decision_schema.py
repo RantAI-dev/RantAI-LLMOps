@@ -5,7 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from decision_schema import validate_row, validate_rows  # noqa: E402
+from decision_schema import validate_questions, validate_row, validate_rows  # noqa: E402
 
 GOOD = {
     "state": "Halo, saya ditagih dua kali untuk invoice #4411.",
@@ -90,6 +90,15 @@ def test_validate_rows_report():
     assert report["errors"][0].startswith("row 2:")
     assert report["questions"]["team"]["labels"] == {"billing": 2}
     assert report["questions"]["urgency"]["type"] == "score"
+
+
+def test_validate_questions_for_requests():
+    assert validate_questions(GOOD["questions"]) == []
+    assert validate_questions({}) and validate_questions(None) and validate_questions([])
+    assert 'question "q"' in validate_questions({"q": {"type": "choice", "criteria": ["only"]}})[0]
+    assert validate_questions({"q": "choice"})[0] == 'question "q" is not an object'
+    assert "at most 64" in validate_questions({f"q{i}": GOOD["questions"]["refund"] for i in range(65)})[0]
+    assert validate_questions({"": GOOD["questions"]["refund"]})
 
 
 def test_shared_fixture_with_the_typescript_validator():
