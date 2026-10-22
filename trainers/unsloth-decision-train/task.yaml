@@ -1,0 +1,55 @@
+name: unsloth-decision-train-task
+# Decision models (System One / Jev-style typed decisions): a language model plus a Clef decision
+# head, trained with Unsloth's FastDecisionModel/DecisionTrainer. See train.py's docstring.
+# Transformer Lab sparse-clones this directory per job from the repo's DEFAULT branch, unless the
+# launch names a branch (github_repo_branch; src/lib/finetune.ts reads TRAINER_GITHUB_BRANCH).
+github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
+github_repo_dir: trainers/unsloth-decision-train
+resources:
+  accelerators: "NVIDIA:1"
+# Recipe validated on the GB10 (aarch64, CUDA 13) on 2026-10-22:
+#  - torch AND torchvision from the cu130 index (Qwen3.5's processor imports torchvision; a CPU
+#    torchvision from PyPI would not match).
+#  - unsloth from git at a commit that holds FastDecisionModel; the PyPI release lags it. The
+#    pin is a sha so a job never silently moves with unsloth's main branch.
+#  - bitsandbytes is required by unsloth_zoo even for 16-bit LoRA.
+#  - s3fs lets `dataset` be an s3:// prefix pulled from MinIO.
+# Cold install ~140 s, warm ~20 s; Transformer Lab's setup limit is 600 s.
+setup: >-
+  uv pip install --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match "torch==2.10.0+cu130" "torchvision==0.25.0+cu130"
+  && uv pip install --index-strategy unsafe-best-match "unsloth @ git+https://github.com/unslothai/unsloth.git@5a955eff16" unsloth_zoo bitsandbytes datasets huggingface-hub s3fs
+run: "python unsloth-decision-train/train.py"
+envs:
+  PYTHONUNBUFFERED: "1"
+  UNSLOTH_DISABLE_STATISTICS: "1"
+  HF_TOKEN: "{{secret._HF_TOKEN}}"
+parameters:
+  model_name: "unsloth/Qwen3.5-2B"
+  # s3://bucket/prefix/ holding train.jsonl (+ optional eval.jsonl), or a path / UI upload.
+  dataset: ""
+  lr: 0.0001
+  head_lr: 0.0003
+  num_train_epochs: 1
+  # -1 = let num_train_epochs drive the run.
+  max_steps: -1
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  max_seq_length: 4096
+  lora_r: 64
+  lora_dropout: 0.0
+  load_in_4bit: false
+  # 0 = the head's width follows the backbone (512 below hidden size 3072, else 1024).
+  head_width: 0
+  head_warmup_steps: 0
+  label_smoothing: 0.0
+  brier_weight: 0.0
+  kl_weight: 0.0
+  holdout_fraction: 0.1
+  predict_rows: 200
+  save_merged: false
+  export_gguf: false
+  gguf_quantization: "q8_0"
+  optim: "adamw_torch"
+  logging_steps: 5
