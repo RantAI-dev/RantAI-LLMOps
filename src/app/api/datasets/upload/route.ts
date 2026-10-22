@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-import { DatasetInputError, uploadDatasetFile } from "@/lib/finetune";
+import { DatasetInputError, uploadDatasetFile, uploadDecisionDataset } from "@/lib/finetune";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +11,10 @@ const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
 /**
  * Upload a user's own dataset FILE (JSONL or CSV) as a local Transformer Lab
  * dataset, ready to fine-tune on. Multipart form: `name` + `file`.
+ *
+ * With `kind=decision` the file must be JSONL of decision rows ({state, questions, gold}); it is
+ * validated against the decision schema, an optional `eval_file` becomes the test set, and the
+ * response carries the validation report next to the id.
  */
 export async function POST(req: NextRequest) {
   // Reject oversized bodies before buffering the whole thing into memory.
@@ -39,6 +43,24 @@ export async function POST(req: NextRequest) {
 
   try {
     const content = await file.text();
+    if (String(form.get("kind") ?? "") === "decision") {
+      if (!/\.jsonl$/i.test(file.name)) {
+        return Response.json({ error: "A decision dataset must be a .jsonl file" }, { status: 400 });
+      }
+      const evalFile = form.get("eval_file");
+      let evalContent: string | undefined;
+      if (evalFile instanceof File && evalFile.size > 0) {
+        if (!/\.jsonl$/i.test(evalFile.name)) {
+          return Response.json({ error: "The eval file must be a .jsonl file" }, { status: 400 });
+        }
+        if (evalFile.size > MAX_BYTES) {
+          return Response.json({ error: "Maximum file size is 25 MB" }, { status: 413 });
+        }
+        evalContent = await evalFile.text();
+      }
+      const result = await uploadDecisionDataset(name, content, evalContent);
+      return Response.json(result);
+    }
     const id = await uploadDatasetFile(name, file.name, content);
     return Response.json({ id });
   } catch (err) {

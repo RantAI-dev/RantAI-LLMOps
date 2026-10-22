@@ -30,6 +30,11 @@ import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/v
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
 import { logServerError } from "@/lib/log";
+import {
+  decisionDatasetProblem,
+  validateDecisionJsonl,
+  type DecisionDatasetReport,
+} from "@/lib/decision-schema";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
 
@@ -503,9 +508,19 @@ export async function uploadDatasetFile(
   // Strip a leading UTF-8 BOM so it can't corrupt the first CSV header / JSON line.
   const clean = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
   const jsonl = /\.csv$/i.test(filename) ? csvToJsonl(clean) : normalizeJsonl(clean);
+  await createLocalTlDataset(id, [{ filename: `${id}_train.jsonl`, content: jsonl }]);
+  return id;
+}
 
-  // The slug is lossy ("My Data!" and "my-data" both → "my-data"), so refuse to
-  // silently clobber an existing dataset — ask the user to rename/delete first.
+/**
+ * Create the Transformer Lab dataset `id` and upload `files` into it. The slug is lossy
+ * ("My Data!" and "my-data" both → "my-data"), so it refuses to silently clobber an existing
+ * dataset and asks the user to rename/delete first.
+ */
+async function createLocalTlDataset(
+  id: string,
+  files: Array<{ filename: string; content: string }>
+): Promise<void> {
   const existing = await fetchLocalDatasets();
   if (existing.some((d) => d.dataset_id === id)) {
     throw new DatasetInputError(`Dataset "${id}" already exists. Use another name or delete it first.`);
@@ -518,13 +533,50 @@ export async function uploadDatasetFile(
   }
 
   const form = new FormData();
-  form.append("files", new Blob([jsonl], { type: "application/jsonl" }), `${id}_train.jsonl`);
+  for (const f of files) {
+    form.append("files", new Blob([f.content], { type: "application/jsonl" }), f.filename);
+  }
   const up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
     method: "POST",
     body: form,
   });
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
-  return id;
+}
+
+/**
+ * Upload a decision-model dataset (JSONL rows of `{state, questions, gold}`, see decision-schema.ts)
+ * as a local Transformer Lab dataset. Unlike {@link uploadDatasetFile} the rows are checked against
+ * the decision schema first: a dataset the trainer would refuse (too few valid rows, or more than
+ * 2% invalid) is refused here, with the first problems named, instead of failing minutes into a
+ * GPU job. The file is stored as uploaded; the trainer drops the few invalid rows and reports them.
+ * An optional eval file becomes `<id>_eval.jsonl`, which the trainer uses as its separate test set.
+ */
+export async function uploadDecisionDataset(
+  name: string,
+  content: string,
+  evalContent?: string
+): Promise<{ id: string; train: DecisionDatasetReport; eval?: DecisionDatasetReport }> {
+  const id = slugifyDatasetName(name);
+  if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
+  const strip = (t: string) => (t.charCodeAt(0) === 0xfeff ? t.slice(1) : t);
+
+  const trainText = normalizeJsonl(strip(content));
+  const train = validateDecisionJsonl(trainText);
+  const trainProblem = decisionDatasetProblem(train, "train");
+  if (trainProblem) throw new DatasetInputError(trainProblem);
+
+  const files = [{ filename: `${id}_train.jsonl`, content: trainText }];
+  let evalReport: DecisionDatasetReport | undefined;
+  if (evalContent && evalContent.trim()) {
+    const evalText = normalizeJsonl(strip(evalContent));
+    evalReport = validateDecisionJsonl(evalText);
+    const evalProblem = decisionDatasetProblem(evalReport, "eval", 5);
+    if (evalProblem) throw new DatasetInputError(evalProblem);
+    files.push({ filename: `${id}_eval.jsonl`, content: evalText });
+  }
+
+  await createLocalTlDataset(id, files);
+  return { id, train, ...(evalReport ? { eval: evalReport } : {}) };
 }
 
 /**

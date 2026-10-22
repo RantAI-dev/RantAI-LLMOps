@@ -11,13 +11,31 @@ import type { FinetuneOptions } from "@/lib/finetune";
 import { HfSearch } from "@/modules/hub/components/hf-search";
 import { cn } from "@/lib/utils";
 
-type Method = "sft" | "grpo" | "tts";
+type Method = "sft" | "grpo" | "tts" | "decision";
 
 // Mirror of the TTS trainer's defaults (kept local so this client component never
 // pulls the server-only finetune.ts module into the browser bundle). The backend
 // applies these same defaults regardless.
 const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
 const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
+
+// Decision models (System One): a language model plus a decision head. Mirrors
+// DECISION_DEFAULT_MODEL / buildDecisionParameters in finetune.ts (kept local, same reason as above).
+// Qwen3.5 is first because it is the one base with a complete train → GGUF → llama.cpp serving path;
+// the SEA-LION bases train fine but are served through the PyTorch decision server only.
+const DECISION_DEFAULT_MODEL = "unsloth/Qwen3.5-2B";
+const DECISION_MODELS = [
+  { id: "unsloth/Qwen3.5-2B", name: "Qwen3.5 2B (recommended)", architecture: "Qwen3_5ForConditionalGeneration", sizeMb: 4500 },
+  { id: "unsloth/Qwen3.5-0.8B", name: "Qwen3.5 0.8B (fast test)", architecture: "Qwen3_5ForConditionalGeneration", sizeMb: 1800 },
+  { id: "unsloth/Qwen3.5-4B", name: "Qwen3.5 4B", architecture: "Qwen3_5ForConditionalGeneration", sizeMb: 8500 },
+  { id: "aisingapore/Qwen-SEA-LION-v4-8B-VL", name: "SEA-LION v4 8B (PyTorch serving only)", architecture: "Qwen3VLForConditionalGeneration", sizeMb: 16300 },
+  { id: "aisingapore/Gemma-SEA-LION-v4-4B-VL", name: "SEA-LION v4 4B (PyTorch serving only)", architecture: "Gemma3ForConditionalGeneration", sizeMb: 8000 },
+] as const;
+
+// Starting values per method. Switching to or from "decision" swaps the whole set, so a value the
+// user typed is not silently kept at a number that only makes sense for the other method.
+const SFT_DEFAULTS = { loraR: 8, loraAlpha: 16, learningRate: 0.0002, maxSeqLength: 2048 };
+const DECISION_DEFAULTS = { loraR: 64, loraAlpha: 64, learningRate: 0.0001, maxSeqLength: 4096 };
 
 function slug(s: string): string {
   return (s.split("/").pop() ?? s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -68,6 +86,13 @@ export function FinetuneForm({
   // Off by default: GB10 has 128 GB unified memory, so 4-bit only adds compute —
   // and its kernels are reported to stall on sm_121. For small-VRAM hosts only.
   const [loadIn4bit, setLoadIn4bit] = useState(false);
+  // Decision method only.
+  const [headLearningRate, setHeadLearningRate] = useState(0.0003);
+  const [headWarmupSteps, setHeadWarmupSteps] = useState(0);
+  const [holdoutFraction, setHoldoutFraction] = useState(0.1);
+  const [gradAccum, setGradAccum] = useState(4);
+  const [saveMerged, setSaveMerged] = useState(false);
+  const [exportGguf, setExportGguf] = useState(false);
   const [inputField, setInputField] = useState("question");
   const [outputField, setOutputField] = useState("answer");
   const [audioColumn, setAudioColumn] = useState("audio");
@@ -113,6 +138,13 @@ export function FinetuneForm({
   // TTS trains an Orpheus/CSM audio model — not in the normal trainable-LLM list —
   // so inject it as a base option when TTS is the method.
   const modelOptions = useMemo(() => {
+    if (method === "decision") {
+      const list = [...options.models];
+      for (const m of [...DECISION_MODELS].reverse()) {
+        if (!list.some((x) => x.id === m.id)) list.unshift({ ...m, isGguf: false, downloaded: false });
+      }
+      return list;
+    }
     if (method !== "tts") return options.models;
     const list = [...options.models];
     if (!list.some((m) => m.id === TTS_DEFAULT_MODEL)) {
@@ -131,10 +163,21 @@ export function FinetuneForm({
   // Switching method also snaps the base model to a sensible default for it, so
   // e.g. a Qwen picked for SFT doesn't linger (wrong arch) after switching to TTS.
   function chooseMethod(next: Method) {
+    const swap = (d: typeof SFT_DEFAULTS) => {
+      setLoraR(d.loraR);
+      setLoraAlpha(d.loraAlpha);
+      setLearningRate(d.learningRate);
+      setMaxSeqLength(d.maxSeqLength);
+    };
+    if (next === "decision" && method !== "decision") swap(DECISION_DEFAULTS);
+    if (next !== "decision" && method === "decision") swap(SFT_DEFAULTS);
     setMethod(next);
     if (next === "tts") {
       setBaseModel(TTS_DEFAULT_MODEL);
-    } else if (baseModel === TTS_DEFAULT_MODEL) {
+    } else if (next === "decision") {
+      // A base picked for another method (an SFT chat model, the TTS one) is the wrong thing here.
+      if (!DECISION_MODELS.some((m) => m.id === baseModel)) setBaseModel(DECISION_DEFAULT_MODEL);
+    } else if (baseModel === TTS_DEFAULT_MODEL || (method === "decision" && baseModel === DECISION_DEFAULT_MODEL)) {
       setBaseModel("");
     }
   }
@@ -171,6 +214,16 @@ export function FinetuneForm({
         ? { datasetInputField: inputField, datasetOutputField: outputField }
         : {}),
       ...(method === "tts" ? { audioColumn, textColumn } : {}),
+      ...(method === "decision"
+        ? {
+            headLearningRate,
+            headWarmupSteps,
+            holdoutFraction,
+            gradientAccumulationSteps: gradAccum,
+            saveMerged: saveMerged || exportGguf,
+            exportGguf,
+          }
+        : {}),
     });
     if (ok && !touchedName) setAdaptorName("");
   }
@@ -184,7 +237,7 @@ export function FinetuneForm({
 
       <div className="mb-3">
         <span className="mb-1.5 block text-[13px] font-medium text-ink">Training method</span>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <MethodButton
             active={method === "sft"}
             onClick={() => chooseMethod("sft")}
@@ -202,6 +255,12 @@ export function FinetuneForm({
             onClick={() => chooseMethod("tts")}
             title="TTS"
             desc="Text-to-speech (Orpheus, needs a large GPU)"
+          />
+          <MethodButton
+            active={method === "decision"}
+            onClick={() => chooseMethod("decision")}
+            title="Decision"
+            desc="System One: typed answers with probabilities"
           />
         </div>
         {method === "grpo" ? (
@@ -246,6 +305,31 @@ export function FinetuneForm({
                 <Input value={textColumn} onChange={(e) => setTextColumn(e.target.value)} placeholder="text_to_synthesize" />
               </label>
             </div>
+          </div>
+        ) : null}
+        {method === "decision" ? (
+          <div className="mt-2 rounded-md border border-primary-soft bg-primary-tint-2 p-2.5 text-[12px]">
+            <p className="text-ink">
+              Trains a <strong>decision model</strong> (System One): it reads a <code>state</code> and
+              answers typed questions — <code>noul</code> (yes/no), <code>choice</code> or{" "}
+              <code>score</code> — each with a <strong>calibrated probability</strong>, instead of
+              writing text. Use it for routing, checks and classification.
+            </p>
+            <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] leading-4 text-ink-soft">
+              <li>
+                Dataset: JSONL rows <code>{`{state, questions, gold}`}</code>. Upload it as a{" "}
+                <strong>Decision dataset</strong> in Datasets to have it validated.
+              </li>
+              <li>
+                The result is <strong>not a chat model</strong>: it cannot be exported to Ollama or
+                attached to vLLM. Qwen3.5 bases can be exported to GGUF; SEA-LION bases are served
+                through the PyTorch decision server.
+              </li>
+              <li>
+                The report compares accuracy and calibration (ECE) before and after training on a
+                separate test set.
+              </li>
+            </ul>
           </div>
         ) : null}
       </div>
@@ -381,7 +465,9 @@ export function FinetuneForm({
               />
             </div>
             <label className="block">
-              <span className="mb-1 block text-[13px] font-medium text-ink">Learning rate</span>
+              <span className="mb-1 block text-[13px] font-medium text-ink">
+                {method === "decision" ? "Learning rate (backbone)" : "Learning rate"}
+              </span>
               <Input
                 type="number"
                 step="0.0001"
@@ -437,6 +523,7 @@ export function FinetuneForm({
                 onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : 2048))}
               />
             </div>
+            {method !== "decision" ? (
             <div className="block">
               <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
                 <label htmlFor="ft-eval-steps">Eval steps</label>
@@ -462,7 +549,118 @@ export function FinetuneForm({
                 onBlur={() => setEvalSteps((v) => (Number.isInteger(v) && v >= 1 ? v : 50))}
               />
             </div>
+            ) : null}
           </div>
+
+          {method === "decision" ? (
+            <div className="space-y-3 rounded-md border border-primary-soft p-3">
+              <p className="text-[12px] font-medium text-primary">Decision model</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-head-lr">Head learning rate</label>
+                    <InfoTip label="About the head learning rate">
+                      The decision head starts random, so it learns faster than the backbone:{" "}
+                      <code>0.0003</code> against the backbone&apos;s <code>0.0001</code>.
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-head-lr"
+                    type="number"
+                    step="0.0001"
+                    min={0}
+                    value={headLearningRate}
+                    onChange={(e) => setHeadLearningRate(Number(e.target.value))}
+                    onBlur={() => setHeadLearningRate((v) => (Number.isFinite(v) && v > 0 ? v : 0.0003))}
+                  />
+                </div>
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-head-warmup">Head warm-up steps</label>
+                    <InfoTip label="About head warm-up">
+                      Steps that train <strong>only the head</strong> with the backbone frozen,
+                      before LoRA starts. <code>0</code> skips it. A few dozen can help a large base.
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-head-warmup"
+                    type="number"
+                    min={0}
+                    step={5}
+                    value={headWarmupSteps}
+                    onChange={(e) => setHeadWarmupSteps(Number(e.target.value))}
+                    onBlur={() => setHeadWarmupSteps((v) => (Number.isInteger(v) && v >= 0 ? v : 0))}
+                  />
+                </div>
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-holdout">Holdout fraction</label>
+                    <InfoTip label="About the holdout">
+                      Share of the train rows kept out to <strong>calibrate</strong> the
+                      probabilities. Without an eval file it is also the test set, which makes the
+                      reported accuracy slightly optimistic.
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-holdout"
+                    type="number"
+                    min={0.05}
+                    max={0.5}
+                    step={0.05}
+                    value={holdoutFraction}
+                    onChange={(e) => setHoldoutFraction(Number(e.target.value))}
+                    onBlur={() =>
+                      setHoldoutFraction((v) => (Number.isFinite(v) && v >= 0.05 && v <= 0.5 ? v : 0.1))
+                    }
+                  />
+                </div>
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-grad-accum">Gradient accumulation</label>
+                    <InfoTip label="About gradient accumulation">
+                      Effective batch = batch size × this. The batch size itself is 4; raise this,
+                      not the batch, when memory is shared with a running vLLM.
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-grad-accum"
+                    type="number"
+                    min={1}
+                    value={gradAccum}
+                    onChange={(e) => setGradAccum(Number(e.target.value))}
+                    onBlur={() => setGradAccum((v) => (Number.isInteger(v) && v >= 1 ? v : 4))}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={saveMerged || exportGguf}
+                    disabled={exportGguf}
+                    onChange={(e) => setSaveMerged(e.target.checked)}
+                    className="size-4 shrink-0 accent-primary"
+                  />
+                  <span className="text-[11px] font-medium leading-4 text-ink">Also save merged 16-bit model</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={exportGguf}
+                    onChange={(e) => setExportGguf(e.target.checked)}
+                    className="size-4 shrink-0 accent-primary"
+                  />
+                  <span className="text-[11px] font-medium leading-4 text-ink">Export GGUF (Qwen3.5 only)</span>
+                </label>
+                <InfoTip label="About the exports">
+                  The adapter and head are always saved (small). The merged model is a full copy
+                  (about 1.7 GB for 0.8B, 16 GB for 8B). GGUF works for <strong>Qwen3.5</strong>{" "}
+                  bases only; on others the export is skipped and the report says so — the training
+                  itself is never failed by an export.
+                </InfoTip>
+              </div>
+            </div>
+          ) : null}
 
           <div className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2">
             <label className="flex cursor-pointer items-center gap-2">
@@ -502,7 +700,7 @@ export function FinetuneForm({
 
       <div className="mt-4 flex items-center gap-2">
         <Button type="button" onClick={handleSubmit} disabled={!canSubmit}>
-          {submitting ? "Starting…" : "Start fine-tune"}
+          {submitting ? "Starting…" : method === "decision" ? "Start decision training" : "Start fine-tune"}
         </Button>
         <InfoTip label="About the run">
           Runs on the GPU. A small model with a small dataset finishes fastest.

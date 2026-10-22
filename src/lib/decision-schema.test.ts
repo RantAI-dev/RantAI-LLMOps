@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { validateDecisionJsonl, validateDecisionRow } from "@/lib/decision-schema";
+import { decisionDatasetProblem, validateDecisionJsonl, validateDecisionRow } from "@/lib/decision-schema";
 
 // The Python validator that runs inside the training job reads the SAME file
 // (trainers/unsloth-decision-train/test_decision_schema.py). A row one accepts and the other
@@ -79,5 +79,31 @@ describe("validateDecisionJsonl", () => {
     const r = validateDecisionJsonl(Array(30).fill(badLabel).join("\n"), 5);
     expect(r.invalid).toBe(30);
     expect(r.errors).toHaveLength(5);
+  });
+});
+
+describe("decisionDatasetProblem", () => {
+  const ok = JSON.stringify({ state: "s", questions: { t: { type: "choice", criteria: ["a", "b"] } }, gold: { t: "a" } });
+  const bad = JSON.stringify({ state: "s", questions: { t: { type: "choice", criteria: ["a", "b"] } }, gold: { t: "z" } });
+  const file = (good: number, wrong: number) => [...Array(good).fill(ok), ...Array(wrong).fill(bad)].join("\n");
+
+  it("accepts a clean file and one with an invalid share under the limit", () => {
+    expect(decisionDatasetProblem(validateDecisionJsonl(file(30, 0)))).toBeNull();
+    expect(decisionDatasetProblem(validateDecisionJsonl(file(99, 1)))).toBeNull(); // 1 %
+  });
+
+  it("refuses an empty file and one with too few valid rows", () => {
+    expect(decisionDatasetProblem(validateDecisionJsonl(""), "train")).toBe("The train file is empty");
+    expect(decisionDatasetProblem(validateDecisionJsonl(file(5, 0)))).toContain("at least 20 are needed");
+  });
+
+  it("refuses above 2% invalid and shows the first problems", () => {
+    const msg = decisionDatasetProblem(validateDecisionJsonl(file(95, 5)), "train");
+    expect(msg).toContain("5 of 100 train rows are invalid");
+    expect(msg).toContain('question "t"');
+  });
+
+  it("allows a smaller minimum for an eval file", () => {
+    expect(decisionDatasetProblem(validateDecisionJsonl(file(8, 0)), "eval", 5)).toBeNull();
   });
 });

@@ -238,3 +238,26 @@ export function validateDecisionJsonl(text: string, maxReport = 10): DecisionDat
 /** The trainer aborts above this share of invalid rows; the upload refuses at the same point. */
 export const MAX_INVALID_FRACTION = 0.02;
 export const MIN_DECISION_ROWS = 20;
+
+/**
+ * Why a validated dataset cannot be trained on, or null when it can. Shared by the upload form (in
+ * the browser, for instant feedback) and the server, so the two never disagree about "usable".
+ */
+export function decisionDatasetProblem(
+  report: DecisionDatasetReport,
+  label = "dataset",
+  minRows = MIN_DECISION_ROWS
+): string | null {
+  const first = report.errors.slice(0, 3).join(" | ");
+  if (report.total === 0) return `The ${label} file is empty`;
+  if (report.valid < minRows) {
+    return `The ${label} has ${report.valid} valid rows; at least ${minRows} are needed.${first ? ` ${first}` : ""}`;
+  }
+  if (report.invalid / report.total > MAX_INVALID_FRACTION) {
+    return (
+      `${report.invalid} of ${report.total} ${label} rows are invalid ` +
+      `(the trainer stops above ${Math.round(MAX_INVALID_FRACTION * 100)}%). ${first}`
+    );
+  }
+  return null;
+}
