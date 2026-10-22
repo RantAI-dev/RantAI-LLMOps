@@ -113,6 +113,10 @@ export const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
  * Its `setup` mirrors the trainer's task.yaml (a recipe validated on the GB10 on 2026-10-22:
  * torch AND torchvision from the cu130 index, unsloth from a pinned git sha because the PyPI
  * release lags the decision code, bitsandbytes which unsloth_zoo needs even for 16-bit LoRA).
+ * transformers/trl/peft/accelerate are pinned because a job venv starts from Transformer Lab's
+ * base packages (transformers 4.57.1, trl 0.18.2, accelerate 1.3.0), and uv leaves an installed
+ * package alone when it already satisfies unsloth's range: Qwen3.5 then fails with "needs
+ * transformers 5.2.0" (seen on the first integration run, 2026-10-22).
  *
  * Jobs are tagged subtype "DECISION", NOT "TRAIN": everything that treats a TRAIN job as a chat
  * LoRA adapter (GGUF export to Ollama, adapter attach to vLLM, benchmark picker) must not see them.
@@ -126,8 +130,9 @@ const DECISION_SETUP =
   "--extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match " +
   '"torch==2.10.0+cu130" "torchvision==0.25.0+cu130" ' +
   "&& uv pip install --index-strategy unsafe-best-match " +
-  '"unsloth @ git+https://github.com/unslothai/unsloth.git@5a955eff16" ' +
-  "unsloth_zoo bitsandbytes datasets huggingface-hub s3fs";
+  '"unsloth @ git+https://github.com/unslothai/unsloth.git@5a955eff16" unsloth_zoo ' +
+  '"transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" ' +
+  "datasets huggingface-hub s3fs";
 const DECISION_RUN = "python unsloth-decision-train/train.py";
 /** job_data.subtype of a decision-model training job. */
 export const DECISION_SUBTYPE = "DECISION";
