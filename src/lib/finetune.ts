@@ -106,6 +106,34 @@ const TTS_RUN = "python unsloth-text-to-speech-train/train.py";
 export const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
 export const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
 
+/**
+ * Decision-model trainer (System One / Jev-style typed decisions) — a RantAI trainer in THIS repo,
+ * `trainers/unsloth-decision-train`. It turns a language model into a model that scores the options
+ * of typed questions (noul / choice / score) and returns a calibrated probability instead of text.
+ * Its `setup` mirrors the trainer's task.yaml (a recipe validated on the GB10 on 2026-10-22:
+ * torch AND torchvision from the cu130 index, unsloth from a pinned git sha because the PyPI
+ * release lags the decision code, bitsandbytes which unsloth_zoo needs even for 16-bit LoRA).
+ *
+ * Jobs are tagged subtype "DECISION", NOT "TRAIN": everything that treats a TRAIN job as a chat
+ * LoRA adapter (GGUF export to Ollama, adapter attach to vLLM, benchmark picker) must not see them.
+ *
+ * Like every trainer here it is cloned from the repo's default branch. To try it from a feature
+ * branch first, set DECISION_TRAINER_BRANCH on the frontend (read per launch, not at import).
+ */
+const DECISION_GITHUB_DIR = "trainers/unsloth-decision-train";
+const DECISION_SETUP =
+  "uv pip install --index-url https://download.pytorch.org/whl/cu130 " +
+  "--extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match " +
+  '"torch==2.10.0+cu130" "torchvision==0.25.0+cu130" ' +
+  "&& uv pip install --index-strategy unsafe-best-match " +
+  '"unsloth @ git+https://github.com/unslothai/unsloth.git@5a955eff16" ' +
+  "unsloth_zoo bitsandbytes datasets huggingface-hub s3fs";
+const DECISION_RUN = "python unsloth-decision-train/train.py";
+/** job_data.subtype of a decision-model training job. */
+export const DECISION_SUBTYPE = "DECISION";
+/** Default base for a decision model: the one base with a complete train→GGUF→serve path. */
+export const DECISION_DEFAULT_MODEL = "unsloth/Qwen3.5-2B";
+
 export type FinetuneDataset = {
   id: string;
   name: string;
@@ -127,6 +155,8 @@ export type TrainingJob = {
   model?: string;
   dataset?: string;
   adaptorName?: string;
+  /** "decision" for a decision-model job (listed with fine-tunes, but never exportable as a chat adapter). */
+  kind?: "decision";
 };
 
 /**
@@ -551,8 +581,22 @@ export type SubmitFinetuneParams = {
   evalSteps?: number;
   /** Optional HF token for gated models/datasets. */
   hfToken?: string;
-  /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech. */
-  method?: "sft" | "grpo" | "tts";
+  /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech;
+   *  "decision" = decision model (typed yes/no, choice and score answers with probabilities). */
+  method?: "sft" | "grpo" | "tts" | "decision";
+  /** Decision only: learning rate of the decision head (the backbone uses `learningRate`). */
+  headLearningRate?: number;
+  /** Decision only: steps that train the head alone with the backbone frozen, before LoRA starts. */
+  headWarmupSteps?: number;
+  /** Decision only: share of the training rows kept out for calibration (and as the test set when
+   *  the dataset has no eval.jsonl). */
+  holdoutFraction?: number;
+  /** Decision only: gradient accumulation steps (effective batch = batchSize × this). */
+  gradientAccumulationSteps?: number;
+  /** Decision only: also save the merged 16-bit model (needed to serve without the base + adapter). */
+  saveMerged?: boolean;
+  /** Decision only: also export a GGUF. Works for Qwen3.5 backbones only; failure is reported, not fatal. */
+  exportGguf?: boolean;
   /** GRPO only: the dataset's input/output column names + KL beta. */
   datasetInputField?: string;
   datasetOutputField?: string;
@@ -569,6 +613,42 @@ export type SubmitFinetuneParams = {
   textColumn?: string;
   samplingRate?: number;
 };
+
+/**
+ * `parameters` for the decision trainer (`lab.get_config()` keys of train.py). Pure, so the mapping
+ * is testable without a Transformer Lab. Defaults follow the trainer's task.yaml, which is why the
+ * learning rate is 1e-4 here and not the 2e-4 the SFT form starts from.
+ */
+export function buildDecisionParameters(p: SubmitFinetuneParams): Record<string, unknown> {
+  const loraR = p.loraR ?? 64;
+  return {
+    model_name: p.baseModel,
+    dataset: p.dataset,
+    lr: p.learningRate ?? 0.0001,
+    head_lr: p.headLearningRate ?? 0.0003,
+    num_train_epochs: p.epochs ?? 1,
+    // -1 = train the full `num_train_epochs`; a positive value silently overrides it.
+    max_steps: p.maxSteps ?? -1,
+    batch_size: p.batchSize ?? 4,
+    gradient_accumulation_steps: p.gradientAccumulationSteps ?? 4,
+    warmup_ratio: 0.05,
+    weight_decay: 0.01,
+    // 4096 is Clef's default context. Questions with many options (CLINC-style, 150) do not fit in 2048.
+    max_seq_length: p.maxSeqLength ?? 4096,
+    lora_r: loraR,
+    lora_alpha: p.loraAlpha ?? loraR,
+    lora_dropout: p.loraDropout ?? 0,
+    load_in_4bit: p.loadIn4bit ?? false,
+    head_warmup_steps: p.headWarmupSteps ?? 0,
+    holdout_fraction: p.holdoutFraction ?? 0.1,
+    predict_rows: 200,
+    save_merged: p.saveMerged ?? false,
+    export_gguf: p.exportGguf ?? false,
+    gguf_quantization: "q8_0",
+    optim: "adamw_torch",
+    logging_steps: 5,
+  };
+}
 
 /**
  * Launch a LoRA fine-tune on the local compute provider and return the REMOTE
@@ -651,6 +731,25 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       envVars: env_vars,
       description: `GRPO reasoning fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
       subtype: "TRAIN",
+    });
+  }
+
+  if (p.method === "decision") {
+    // Decision model — maps onto trainers/unsloth-decision-train. `s3://bucket/prefix/` datasets
+    // hold train.jsonl (+ eval.jsonl) rows of {state, questions, gold}; see decision_schema.py.
+    return launchProviderTask({
+      experimentId: experiment,
+      taskName: adaptorName,
+      run: DECISION_RUN,
+      setup: DECISION_SETUP,
+      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoDir: DECISION_GITHUB_DIR,
+      githubRepoBranch: process.env.DECISION_TRAINER_BRANCH?.trim() || undefined,
+      accelerators: "NVIDIA:1",
+      parameters: buildDecisionParameters(p),
+      envVars: env_vars,
+      description: `Decision model "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
+      subtype: DECISION_SUBTYPE,
     });
   }
 
@@ -739,6 +838,14 @@ function isTrainJob(j: TlJob): boolean {
   const d = j.job_data ?? {};
   if (d.subtype === "TRAIN") return true;
   return typeof d.run === "string" && d.run.includes(TRAINER_DIR_TAG);
+}
+
+/** A decision-model training job (subtype DECISION, or it ran the decision trainer). Deliberately
+ *  NOT a train job: those are treated as chat LoRA adapters by export, serving and evals. */
+export function isDecisionJob(j: { job_data?: { subtype?: string; run?: string } }): boolean {
+  const d = j.job_data ?? {};
+  if (d.subtype === DECISION_SUBTYPE) return true;
+  return typeof d.run === "string" && d.run.includes("unsloth-decision-train");
 }
 
 /**
@@ -939,6 +1046,7 @@ function normalizeJob(j: TlJob): TrainingJob {
     model: d.parameters?.model_name ?? d.model_name,
     dataset: d.parameters?.dataset ?? d.dataset,
     adaptorName: d.task_name ?? d.template_name,
+    ...(isDecisionJob(j) ? { kind: "decision" as const } : {}),
   };
 }
 
@@ -950,7 +1058,7 @@ function normalizeJob(j: TlJob): TrainingJob {
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
     const rows = await listJobsAllExperiments();
-    return rows.filter(isTrainJob).map(normalizeJob);
+    return rows.filter((j) => isTrainJob(j) || isDecisionJob(j)).map(normalizeJob);
   } catch (err) {
     logServerError("fetchTrainingJobs", err);
     return [];

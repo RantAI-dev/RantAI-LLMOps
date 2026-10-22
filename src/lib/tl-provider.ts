@@ -48,6 +48,12 @@ export type ProviderLaunchSpec = {
   setup: string;
   githubRepoUrl: string;
   githubRepoDir: string;
+  /**
+   * Branch to clone the trainer from. Unset = the repo's default branch, which is what every
+   * existing trainer wants. The backend honours it (`github_repo_branch` in the launch request);
+   * it exists so a new trainer can be tried from a feature branch before it reaches main.
+   */
+  githubRepoBranch?: string;
   /** SkyPilot-style accelerator spec, e.g. "NVIDIA:1". */
   accelerators?: string;
   /** Hyperparameters/config surfaced to the task via `lab.get_config()`. */
@@ -76,6 +82,7 @@ export async function launchProviderTask(spec: ProviderLaunchSpec): Promise<stri
     setup: spec.setup,
     github_repo_url: spec.githubRepoUrl,
     github_repo_dir: spec.githubRepoDir,
+    ...(spec.githubRepoBranch ? { github_repo_branch: spec.githubRepoBranch } : {}),
     accelerators: spec.accelerators ?? "NVIDIA:1",
     parameters: spec.parameters,
     env_vars: spec.envVars ?? { PYTHONUNBUFFERED: "1" },

@@ -1,5 +1,6 @@
 """Run: python -m pytest trainers/unsloth-decision-train/test_decision_schema.py  (or plain python)."""
 
+import json
 import os
 import sys
 
@@ -89,6 +90,22 @@ def test_validate_rows_report():
     assert report["errors"][0].startswith("row 2:")
     assert report["questions"]["team"]["labels"] == {"billing": 2}
     assert report["questions"]["urgency"]["type"] == "score"
+
+
+def test_shared_fixture_with_the_typescript_validator():
+    """src/lib/decision-schema.test.ts reads the same file; the two validators must agree."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "schema_cases.jsonl")
+    wrong = []
+    with open(path, encoding="utf-8") as f:
+        for n, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            expected = row.get("_expect", "invalid") if isinstance(row, dict) else "invalid"
+            got = "invalid" if validate_row(row) else "valid"
+            if got != expected:
+                wrong.append((n, row.get("_why") if isinstance(row, dict) else row, expected, got))
+    assert not wrong, wrong
 
 
 if __name__ == "__main__":

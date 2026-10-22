@@ -30,6 +30,14 @@ export async function POST(req: NextRequest) {
   // Coerce the numeric knobs. A client that sends `"2e-4"` for learningRate used
   // to sail through here and only blow up minutes later, deep inside SFTConfig,
   // with a message that never mentioned the real cause — a whole GPU run wasted.
+  // An unknown method used to fall through to SFT silently, so a typo trained the wrong thing.
+  const METHODS = ["sft", "grpo", "tts", "decision"] as const;
+  if (body.method !== undefined && !(METHODS as readonly string[]).includes(body.method)) {
+    return Response.json(
+      { error: `\`method\` must be one of ${METHODS.join(", ")}, got ${JSON.stringify(body.method)}` },
+      { status: 400 }
+    );
+  }
   const NUMERIC = [
     "learningRate",
     "epochs",
@@ -40,6 +48,11 @@ export async function POST(req: NextRequest) {
     "loraAlpha",
     "loraDropout",
     "evalSteps",
+    // decision method
+    "headLearningRate",
+    "headWarmupSteps",
+    "holdoutFraction",
+    "gradientAccumulationSteps",
   ] as const;
   for (const key of NUMERIC) {
     const raw = (body as Record<string, unknown>)[key];

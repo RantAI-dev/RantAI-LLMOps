@@ -72,6 +72,7 @@ function buildArtifacts(row: TlJobRow): TaskArtifact[] {
 function mapType(subtype: string, type: string): TaskType {
   switch ((subtype || type).toUpperCase()) {
     case "TRAIN":
+    case "DECISION": // decision-model training (trainers/unsloth-decision-train)
       return "Fine-tuning";
     case "EVAL":
       return "Evaluation";
