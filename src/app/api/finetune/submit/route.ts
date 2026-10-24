@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { DatasetInputError, submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
+import { ensureHfDecisionDataset, isHfDatasetId } from "@/lib/decision-hf";
 import { getGpuStatus } from "@/lib/gpu-metrics";
 import { getHfToken } from "@/lib/settings-store";
 
@@ -90,6 +91,11 @@ export async function POST(req: NextRequest) {
     if (stored) body.hfToken = stored;
   }
   try {
+    // A Hugging Face dataset id on a decision run is downloaded and converted first; the job starts
+    // only once that has worked (a failure here is reported and no job is created).
+    if (body.method === "decision" && isHfDatasetId(String(body.dataset))) {
+      body.dataset = await ensureHfDecisionDataset(String(body.dataset), body.datasetConfig);
+    }
     const jobId = await submitFinetune(body as SubmitFinetuneParams);
     return Response.json({ jobId });
   } catch (err) {

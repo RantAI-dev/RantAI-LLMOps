@@ -1,4 +1,4 @@
-import { DatasetInputError } from "@/lib/finetune";
+import { DatasetInputError, fetchLocalDatasets, slugifyDatasetName, uploadDecisionDataset } from "@/lib/finetune";
 
 const ROWS_API = "https://datasets-server.huggingface.co";
 const PAGE = 100; // the datasets-server /rows endpoint returns at most 100 rows per call
@@ -69,4 +69,40 @@ export async function fetchHfJsonl(src: HfDecisionSource): Promise<string> {
   }
   if (lines.length === 0) throw new DatasetInputError("That split has no rows");
   return lines.join("\n");
+}
+
+/** True for a Hugging Face hub id (`owner/name`), as opposed to a local dataset name, an s3:// ref or a path. */
+export function isHfDatasetId(spec: string): boolean {
+  const s = spec.trim();
+  return REPO_ID.test(s) && !s.startsWith(".");
+}
+
+const MAX_AUTO_ROWS = 5_000;
+
+/**
+ * Make a Hugging Face decision dataset usable by the trainer: download it, convert it and store it
+ * as a local dataset, then return that dataset's id. Reuses the copy from an earlier import of the
+ * same dataset + subset. `config` picks the subset (default: `all` when the dataset has one, else its first).
+ */
+export async function ensureHfDecisionDataset(spec: string, config?: string): Promise<string> {
+  const dataset = spec.trim();
+  const splits = await listHfSplits(dataset);
+  if (splits.length === 0) throw new DatasetInputError(`Hugging Face lists no splits for ${dataset}`);
+  const configs = [...new Set(splits.map((s) => s.config))];
+  const cfg = config?.trim() || (configs.includes("all") ? "all" : configs[0]);
+  if (!configs.includes(cfg)) {
+    throw new DatasetInputError(`${dataset} has no subset "${cfg}" (available: ${configs.join(", ")})`);
+  }
+  const mine = splits.filter((s) => s.config === cfg).map((s) => s.split);
+  const trainSplit = mine.includes("train") ? "train" : mine[0];
+  const evalSplit = mine.find((s) => s === "test") ?? mine.find((s) => s === "validation" || s === "val");
+
+  const id = slugifyDatasetName(`${dataset.replace("/", "-")}-${cfg}`);
+  if ((await fetchLocalDatasets()).some((d) => d.dataset_id === id)) return id;
+
+  const content = await fetchHfJsonl({ dataset, config: cfg, split: trainSplit, maxRows: MAX_AUTO_ROWS });
+  const evalContent = evalSplit
+    ? await fetchHfJsonl({ dataset, config: cfg, split: evalSplit, maxRows: 1_000 })
+    : undefined;
+  return (await uploadDecisionDataset(id, content, evalContent)).id;
 }

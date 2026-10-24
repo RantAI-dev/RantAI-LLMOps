@@ -242,7 +242,7 @@ type TlDataset = {
 };
 
 /** Datasets present on disk (TL `/data/list`) — includes user-created ones. */
-async function fetchLocalDatasets(): Promise<TlDataset[]> {
+export async function fetchLocalDatasets(): Promise<TlDataset[]> {
   // Deliberately NOT caught. An empty list here reaches the page as "you have
   // no datasets", which during an outage is a lie the reader cannot detect.
   // /api/datasets/list turns the rejection into a 502 the UI can show.

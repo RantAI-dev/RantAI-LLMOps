@@ -91,6 +91,7 @@ export function FinetuneForm({
   const [headWarmupSteps, setHeadWarmupSteps] = useState(0);
   const [holdoutFraction, setHoldoutFraction] = useState(0.1);
   const [gradAccum, setGradAccum] = useState(4);
+  const [hfSubset, setHfSubset] = useState("");
   const [saveMerged, setSaveMerged] = useState(false);
   const [exportGguf, setExportGguf] = useState(false);
   const [inputField, setInputField] = useState("question");
@@ -193,6 +194,8 @@ export function FinetuneForm({
   const effectiveName = touchedName ? adaptorName : suggestedName;
 
   const canSubmit = baseModel && dataset && effectiveName && !submitting;
+  // A Hugging Face id on a decision run: the server downloads and converts it, then starts the job.
+  const decisionFromHf = method === "decision" && /^[\w.-]+\/[\w.-]+$/.test(dataset.trim()) && !dataset.startsWith(".");
 
   async function handleSubmit() {
     const ok = await onSubmit({
@@ -222,6 +225,7 @@ export function FinetuneForm({
             gradientAccumulationSteps: gradAccum,
             saveMerged: saveMerged || exportGguf,
             exportGguf,
+            ...(decisionFromHf && hfSubset.trim() ? { datasetConfig: hfSubset.trim() } : {}),
           }
         : {}),
     });
@@ -390,6 +394,20 @@ export function FinetuneForm({
               </button>
             ) : null}
           </div>
+          {decisionFromHf ? (
+            <div className="mt-1.5 space-y-1.5">
+              <p className="text-[11px] leading-4 text-ink-soft">
+                From Hugging Face: it is downloaded and converted when you start, and training begins only
+                once that has worked. A dataset that is already on this server is reused.
+              </p>
+              <Input
+                value={hfSubset}
+                onChange={(e) => setHfSubset(e.target.value)}
+                placeholder="Subset (optional, e.g. all)"
+                aria-label="Hugging Face subset"
+              />
+            </div>
+          ) : null}
         </label>
 
         <label className="block">
@@ -700,7 +718,7 @@ export function FinetuneForm({
 
       <div className="mt-4 flex items-center gap-2">
         <Button type="button" onClick={handleSubmit} disabled={!canSubmit}>
-          {submitting ? "Starting…" : method === "decision" ? "Start decision training" : "Start fine-tune"}
+          {submitting ? (decisionFromHf ? "Downloading dataset, then starting…" : "Starting…") : method === "decision" ? "Start decision training" : "Start fine-tune"}
         </Button>
         <InfoTip label="About the run">
           Runs on the GPU. A small model with a small dataset finishes fastest.
