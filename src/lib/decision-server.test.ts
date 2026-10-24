@@ -66,6 +66,22 @@ describe("with a decision server", () => {
     expect(await decisionServerState()).toMatchObject({ configured: true, reachable: false, error: expect.any(String) });
   });
 
+  it("retries a read once when the connection fails before reaching the server", async () => {
+    const closed = Object.assign(new TypeError("fetch failed"), { cause: { code: "UND_ERR_SOCKET" } });
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(closed)
+      .mockResolvedValue(Response.json({ models: [], max_models: 3 }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await decisionServerState()).toMatchObject({ reachable: true });
+  });
+
+  it("names the low-level cause when the server stays unreachable", async () => {
+    const refused = Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(refused));
+    expect((await decisionServerState()).error).toContain("ECONNREFUSED");
+  });
+
   it("lists the served models with the admin token, and only health without one", async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("/health")) return new Response("{}", { status: 200 });

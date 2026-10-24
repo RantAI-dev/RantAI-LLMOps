@@ -321,8 +321,9 @@ export function FinetuneForm({
             </p>
             <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] leading-4 text-ink-soft">
               <li>
-                Dataset: JSONL rows <code>{`{state, questions, gold}`}</code>. Upload it as a{" "}
-                <strong>Decision dataset</strong> in Datasets to have it validated.
+                Dataset: JSONL rows <code>{`{state, questions, gold}`}</code>, uploaded as a{" "}
+                <strong>Decision dataset</strong> in Datasets, or a Hugging Face id in that format (e.g.{" "}
+                <code>LocalLLaMA/typed-decisions</code>), downloaded when you start.
               </li>
               <li>
                 The result is <strong>not a chat model</strong>: it cannot be exported to Ollama or

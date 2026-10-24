@@ -55,11 +55,29 @@ async function dsFetch(
   init: RequestInit & { admin?: boolean; timeoutMs?: number } = {}
 ): Promise<Response> {
   const { admin, timeoutMs = 15_000, headers, ...rest } = init;
-  return fetch(`${baseUrl()}${path}`, {
-    ...rest,
-    headers: { "Content-Type": "application/json", ...(admin ? { "X-Admin-Token": adminToken() } : {}), ...headers },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const send = () =>
+    fetch(`${baseUrl()}${path}`, {
+      ...rest,
+      headers: { "Content-Type": "application/json", ...(admin ? { "X-Admin-Token": adminToken() } : {}), ...headers },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  try {
+    return await send();
+  } catch (err) {
+    // A read that fails before reaching the server (a pooled keep-alive socket the server already
+    // closed, a DNS hiccup on the docker network) is retried once; that alone made the Deployments
+    // card say "not reachable" now and then while the server was fine. Writes are never retried.
+    if ((rest.method ?? "GET").toUpperCase() !== "GET" || (err as Error).name === "TimeoutError") throw err;
+    await new Promise((r) => setTimeout(r, 250));
+    return send();
+  }
+}
+
+/** The low-level reason of a failed fetch ("ECONNREFUSED", "ENOTFOUND", "timeout"), for messages. */
+function causeOf(err: unknown): string {
+  const e = err as { name?: string; cause?: { code?: string; message?: string } };
+  if (e?.name === "TimeoutError") return "timeout";
+  return e?.cause?.code ?? e?.cause?.message ?? (err instanceof Error ? err.message : "unknown");
 }
 
 async function errorOf(res: Response): Promise<DecisionServerError> {
@@ -86,10 +104,10 @@ export async function decisionServerState(): Promise<DecisionServerState> {
   };
   if (!empty.configured) return empty;
   try {
-    const health = await dsFetch("/health", { timeoutMs: 5_000 });
+    const health = await dsFetch("/health", { timeoutMs: 8_000 });
     if (!health.ok) return { ...empty, error: `The decision server answered ${health.status}` };
-  } catch {
-    return { ...empty, error: "The decision server is not reachable" };
+  } catch (err) {
+    return { ...empty, error: `The decision server is not reachable (${causeOf(err)})` };
   }
   if (!adminToken()) return { ...empty, reachable: true };
   try {
