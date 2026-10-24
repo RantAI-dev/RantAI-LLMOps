@@ -793,6 +793,14 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
   }
 
   if (p.method === "decision") {
+    // The trainer reads a local upload, a path, an http(s) URL or s3://; it cannot pull a Hugging Face
+    // hub id (owner/name). Refuse here instead of failing minutes into the job's environment setup.
+    if (/^[\w.-]+\/[\w.-]+$/.test(p.dataset.trim()) && !p.dataset.trim().startsWith(".")) {
+      throw new DatasetInputError(
+        `"${p.dataset}" looks like a Hugging Face dataset id, which decision training cannot load directly. ` +
+          `Import it first (Dataset → Upload → Decision → Import from Hugging Face), then pick the imported dataset by its name.`
+      );
+    }
     // Decision model — maps onto trainers/unsloth-decision-train. `s3://bucket/prefix/` datasets
     // hold train.jsonl (+ eval.jsonl) rows of {state, questions, gold}; see decision_schema.py.
     return launchProviderTask({
