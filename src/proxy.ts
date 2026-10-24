@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { AUTH_COOKIE, AUTH_ENABLED, AUTH_MISCONFIG, verifySession } from "@/lib/auth";
+import { AUTH_COOKIE, AUTH_ENABLED, AUTH_MISCONFIG, crossOriginWrite, verifySession } from "@/lib/auth";
 
 /**
  * Shared-password gate (Next 16 `proxy`, nodejs runtime). Active only when
@@ -17,9 +17,14 @@ export async function proxy(req: NextRequest) {
       { status: 503 }
     );
   }
+  const { pathname } = req.nextUrl;
+  // Another app on this host (another port) can make a logged-in browser POST here: refuse writes
+  // whose Origin is not this host, before anything else.
+  if (pathname.startsWith("/api/") && crossOriginWrite(req)) {
+    return NextResponse.json({ error: "Cross-origin request refused" }, { status: 403 });
+  }
   if (!AUTH_ENABLED) return NextResponse.next();
 
-  const { pathname } = req.nextUrl;
   if (pathname.startsWith("/login") || pathname.startsWith("/api/auth/")) {
     return NextResponse.next();
   }
@@ -44,5 +49,8 @@ export const config = {
   // (e.g. /rantai-logo.png) must be excluded too — otherwise the gate 307-redirects
   // them to /login, so the Image optimizer fetches HTML instead of a PNG ("not a
   // valid image") and the login screen's own logo can't load pre-auth.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|ico|webp)).*)"],
+  // The image pattern is anchored with `$`: unanchored, any path merely CONTAINING ".png" skipped the
+  // gate. API routes that act on a name repeat the check themselves (guardApi), since an API path may
+  // end in ".png" too.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpe?g|gif|svg|ico|webp)$).*)"],
 };

@@ -32,6 +32,8 @@ ANSWERS = {
     "urgency": {"answer": 2, "score": 1.99, "confidence": 0.9, "probabilities": {"0": 0.0, "1": 0.1, "2": 0.9}},
 }
 
+ADMIN = {"x-admin-token": "secret"}
+
 
 class FakeDecisionDataError(Exception):
     """Named like Unsloth's DecisionDataError, which the server maps by name."""
@@ -252,7 +254,120 @@ def test_restore_skips_a_broken_entry_and_keeps_the_rest(env):
     fresh = server.Registry(loader=lambda p, a, b: ({"path": p}, object()), predictor=env.reg.predictor,
                             free=lambda: None, state_file=str(state_file), roots=[str(env.root)], max_models=3)
     fresh.restore(extra=[{"name": "good", "path": good}])  # a duplicate name is loaded once
-    assert list(fresh.models) == ["good"]
+    assert fresh.ready
+    assert fresh.models["good"].model is not None
+    # The broken one stays visible (unloaded, with the reason) instead of vanishing...
+    assert fresh.models["gone"].model is None and "not loaded at start" in fresh.models["gone"].error
+    # ...and stays remembered, so a later restart (with the path back) serves it again.
+    assert sorted(e["name"] for e in json.loads(state_file.read_text())) == ["gone", "good"]
+
+
+def test_restore_survives_malformed_entries(env):
+    state_file = env.tmp / "state" / "models.json"
+    state_file.parent.mkdir(exist_ok=True)
+    state_file.write_text(json.dumps([{"name": 123, "path": "x"}, {"name": "p", "path": 5}, {"name": "q", "path": "/x",
+                                      "max_seq_length": "abc"}, "junk"]))
+    fresh = server.Registry(loader=env.reg.loader, predictor=env.reg.predictor, free=lambda: None,
+                            state_file=str(state_file), roots=[str(env.root)], max_models=3)
+    fresh.restore(extra={"not": "a list"})
+    assert fresh.ready
+    assert all(s.model is None for s in fresh.models.values())
+
+
+def test_ready_is_503_until_restored(env):
+    env.reg.ready = False
+    assert env.client.get("/ready").status_code == 503
+    assert env.client.get("/health").status_code == 200  # liveness stays up
+    env.reg.ready = True
+    assert env.client.get("/ready").status_code == 200
+
+
+def test_a_failed_restore_entry_can_be_unloaded_and_redeployed(env):
+    path = model_dir(env.root, "back")
+    failed = server.Served("back", path, False, 4096)
+    failed.error = "not loaded at start: boom"
+    env.reg.models["back"] = failed
+    assert env.client.post("/v1/systemone", json={"model": "back", "state": "x", "questions": QUESTIONS}).status_code == 404
+    r = env.client.post("/admin/models", headers=ADMIN, json={"name": "back", "path": path})
+    assert r.status_code == 201 and env.reg.models["back"].model is not None
+
+
+def test_oversized_body_is_413(env):
+    model_dir(env.root, "m")
+    env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m")})
+    big = {"model": "m", "state": "x", "questions": QUESTIONS, "pad": "y" * (9 * 1024 * 1024)}
+    assert env.client.post("/v1/systemone", content=json.dumps(big), headers={"content-type": "application/json"}).status_code == 413
+
+
+def test_deeply_nested_json_is_400_not_500(env):
+    body = "[" * 100000 + "]" * 100000
+    assert env.client.post("/v1/systemone", content=body, headers={"content-type": "application/json"}).status_code == 400
+
+
+def test_internal_errors_do_not_leak_detail(env):
+    model_dir(env.root, "m")
+    env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m")})
+    env.state["raise"] = RuntimeError("CUDA error at /secret/path/kernel.cu:42")
+    r = env.client.post("/v1/systemone", json={"model": "m", "state": "x", "questions": QUESTIONS})
+    assert r.status_code == 500 and "/secret/path" not in r.text
+
+
+def test_failed_load_frees_memory(env):
+    freed = []
+    env.reg.free = lambda: freed.append(1)
+    env.state["fail_load"] = True
+    model_dir(env.root, "m")
+    r = env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m")})
+    assert r.status_code == 500 and freed
+
+
+def test_admin_load_rejects_string_booleans_and_numbers(env):
+    model_dir(env.root, "m")
+    r1 = env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m"), "load_in_4bit": "false"})
+    r2 = env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m"), "max_seq_length": "x"})
+    assert r1.status_code == 422 and r2.status_code == 422
+
+
+def test_load_refused_when_gpu_memory_is_low(env):
+    env.reg.min_free_gb, env.reg.free_gb = 12.0, lambda: 3.5
+    model_dir(env.root, "m")
+    r = env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m")})
+    assert r.status_code == 507 and "3.5 GB" in r.json()["error"]["message"]
+    assert "m" not in env.reg.models and not env.reg._loading
+
+
+def test_unload_while_loading_is_409(env):
+    env.reg._loading.add("busy")
+    assert env.client.delete("/admin/models/busy", headers=ADMIN).status_code == 409
+
+
+def test_long_question_text_is_422(env):
+    model_dir(env.root, "m")
+    env.client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": str(env.root / "m")})
+    q = {"q": {"type": "noul", "instructions": "z" * 5000}}
+    assert env.client.post("/v1/systemone", json={"model": "m", "state": "x", "questions": q}).status_code == 422
+    q2 = {"q": {"type": "noul", "instructions": 7}}
+    assert env.client.post("/v1/systemone", json={"model": "m", "state": "x", "questions": q2}).status_code == 422
+
+
+def test_a_request_waiting_too_long_for_a_busy_model_is_503(tmp_path):
+    root = tmp_path / "models"
+    root.mkdir()
+    path = model_dir(root, "m")
+
+    def slow(model, processor, st, q):
+        time.sleep(1.0)
+        return dict(ANSWERS)
+
+    reg = server.Registry(loader=lambda p, a, b: ({"path": p}, object()), predictor=slow, free=lambda: None,
+                          roots=[str(root)], max_models=1)
+    client = TestClient(server.create_app(reg, admin_token="secret", queue_timeout=0.2))
+    client.post("/admin/models", headers=ADMIN, json={"name": "m", "path": path})
+    out = []
+    ts = [threading.Thread(target=lambda: out.append(client.post("/v1/systemone", json={"model": "m", "state": "x", "questions": QUESTIONS}).status_code)) for _ in range(2)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert sorted(out) == [200, 503]
 
 
 def test_an_unreadable_state_file_is_ignored(env):

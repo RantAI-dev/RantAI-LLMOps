@@ -312,7 +312,7 @@ export function UploadDatasetDialog({
           ) : null}
 
           {error ? (
-            <div className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[12px] leading-4 text-danger">
+            <div role="alert" className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[12px] leading-4 text-danger">
               {error}
             </div>
           ) : null}

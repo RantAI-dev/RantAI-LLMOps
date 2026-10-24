@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { guardApi } from "@/lib/auth";
 import { decisionConfigured, decisionPredict, DecisionServerError } from "@/lib/decision-server";
 
 export const runtime = "nodejs";
@@ -7,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 /** The "Try it" box on Deployments: ask a served decision model directly. `{ model, state, questions }`. */
 export async function POST(req: NextRequest) {
+  const denied = await guardApi(req);
+  if (denied) return denied;
   if (!decisionConfigured()) {
     return Response.json({ error: "The decision server is not configured" }, { status: 404 });
   }

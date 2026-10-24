@@ -57,16 +57,34 @@ function DecisionResult({ jobId }: { jobId: string }) {
   if (!r) return null;
   const b: DecisionMetrics = r.before;
   const a: DecisionMetrics = r.after;
+  const where = r.testSet === "holdout" ? "the held-out rows" : `the separate test set (${r.testSet})`;
+  const failedExports = Object.entries(r.exports)
+    .filter(([, st]) => st === "failed")
+    .map(([k]) => (k === "gguf" ? "GGUF" : k));
+  const small = r.testItems !== undefined && r.testItems < 50;
+  const truncated = r.truncated ?? 0;
   return (
     <div className="mt-2 rounded-md border border-hairline-2 bg-background p-2.5">
       <p className="mb-1.5 text-[11px] text-ink-soft">
-        Before → after training, on the {r.testSet === "holdout" ? "holdout (slightly optimistic)" : `separate test set (${r.testSet})`}
+        Before → after training, on {where}
+        {r.testItems !== undefined ? ` · ${r.testItems.toLocaleString()} test decisions` : ""}
       </p>
-      <div className="grid grid-cols-3 gap-3">
-        <Delta label="Accuracy" before={b.accuracy} after={a.accuracy} fmt={pct} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Delta label="Accuracy (per question)" before={b.accuracy} after={a.accuracy} fmt={pct} />
         <Delta label="Calibration error (ECE, lower is better)" before={b.ece} after={a.ece} fmt={fixed} />
-        <Delta label="Every question right" before={b.record_accuracy} after={a.record_accuracy} fmt={pct} />
+        <Delta label="Rows with every question right" before={b.record_accuracy} after={a.record_accuracy} fmt={pct} />
       </div>
+      {small || truncated > 0 || failedExports.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-[11px] leading-4 text-warning">
+          {small ? (
+            <li>Only {r.testItems} test decisions: these numbers are mostly noise. Add an eval file or more rows.</li>
+          ) : null}
+          {truncated > 0 ? <li>{truncated} training rows were cut to fit the context length.</li> : null}
+          {failedExports.length > 0 ? (
+            <li>{failedExports.join(", ")} export failed (the decision model itself is saved); see the log.</li>
+          ) : null}
+        </ul>
+      ) : null}
     </div>
   );
 }
@@ -127,7 +145,7 @@ export function JobList({
                 </span>
               </div>
             ) : null}
-            {job.kind === "decision" && !active && job.status.toUpperCase() === "COMPLETE" ? (
+            {job.kind === "decision" && !active && ["COMPLETE", "COMPLETED"].includes(job.status.toUpperCase()) ? (
               <DecisionResult jobId={job.id} />
             ) : null}
             <TrainingMonitor jobId={job.id} active={active} />

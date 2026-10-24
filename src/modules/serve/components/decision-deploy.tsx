@@ -39,11 +39,15 @@ export function DecisionDeploy() {
   const [answer, setAnswer] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  const [confirmUnload, setConfirmUnload] = useState<string | null>(null);
 
-  if (!loading && !server.configured) return null;
+  if (!loading && !server.configured && !error) return null;
 
   const served = server.models.filter((m) => m.loaded);
-  const target = tryModel || served[0]?.name || "";
+  // A model picked earlier may have been unloaded since: fall back instead of asking a model that is gone.
+  const target = served.some((m) => m.name === tryModel) ? tryModel : (served[0]?.name ?? "");
+  const deploying = busy !== null && jobs.some((j) => j.id === busy);
 
   const refresh = async () => {
     setRefreshing(true);
@@ -57,12 +61,14 @@ export function DecisionDeploy() {
   const ask = async () => {
     setAsking(true);
     setAnswer(null);
+    setAskError(null);
     try {
       let parsed: unknown;
       try {
         parsed = JSON.parse(questions);
-      } catch {
-        throw new Error("The questions are not valid JSON");
+      } catch (err) {
+        setAskError(`The questions are not valid JSON: ${(err as Error).message}`);
+        return;
       }
       const res = await fetch("/api/decision/predict", {
         method: "POST",
@@ -73,7 +79,7 @@ export function DecisionDeploy() {
       if (!res.ok) throw new Error(d.error || `Request failed (${res.status})`);
       setAnswer(JSON.stringify(d, null, 2));
     } catch (err) {
-      toast.error((err as Error).message);
+      setAskError((err as Error).message);
     } finally {
       setAsking(false);
     }
@@ -97,6 +103,7 @@ export function DecisionDeploy() {
             disabled={refreshing}
             className="ml-auto inline-flex shrink-0 items-center gap-1 rounded p-1 text-ink-soft hover:bg-surface-soft disabled:opacity-50"
             title="Refresh"
+            aria-label="Refresh decision models"
           >
             <RefreshCw className={`size-3.5 ${refreshing ? "animate-spin" : ""}`} aria-hidden />
           </button>
@@ -108,11 +115,15 @@ export function DecisionDeploy() {
           <Loader2 className="size-4 animate-spin" aria-hidden /> Loading…
         </div>
       ) : !server.reachable ? (
-        <p className="rounded-md bg-danger-soft px-3 py-2 text-[13px] text-danger">
-          {server.error ?? "The decision server is not reachable."}
-        </p>
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-md bg-danger-soft px-3 py-2 text-[13px] text-danger">
+          <span>{error ?? server.error ?? "The decision server is not reachable."}</span>
+          <Button type="button" variant="outline" size="sm" onClick={refresh} disabled={refreshing}>
+            {refreshing ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+            Try again
+          </Button>
+        </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4" aria-busy={busy !== null}>
           {!server.adminEnabled ? (
             <p className="rounded-md bg-warning-soft px-3 py-2 text-[12px] text-warning">
               The server is running but its admin token is not configured here, so models cannot be
@@ -132,17 +143,50 @@ export function DecisionDeploy() {
                 {server.models.map((m) => (
                   <li key={m.name} className="flex items-center justify-between gap-3 rounded-md border border-hairline-2 px-3 py-2">
                     <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium text-ink">
-                        {m.name}
-                        {m.load_in_4bit ? <span className="ml-2 text-[11px] font-normal text-ink-soft">4-bit</span> : null}
+                      <p className="flex items-center gap-2 text-[13px] font-medium text-ink">
+                        <span className="truncate">{m.name}</span>
+                        {m.load_in_4bit ? <span className="shrink-0 text-[11px] font-normal text-ink-soft">4-bit</span> : null}
+                        {m.loaded ? null : (
+                          <span className="shrink-0 rounded bg-danger-soft px-1.5 py-0.5 text-[10px] font-medium text-danger">
+                            Not loaded
+                          </span>
+                        )}
                       </p>
-                      {m.error ? <p className="truncate text-[11px] text-danger">{m.error}</p> : null}
+                      {m.error ? <p className="break-words text-[11px] leading-4 text-danger">{m.error}</p> : null}
                     </div>
                     {server.adminEnabled ? (
-                      <Button type="button" variant="outline" size="sm" disabled={busy !== null} onClick={() => void unload(m.name)}>
-                        {busy === m.name ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-                        Unload
-                      </Button>
+                      confirmUnload === m.name ? (
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <span className="text-[11px] text-ink-soft">Clients using it will get errors.</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            disabled={busy !== null}
+                            onClick={async () => {
+                              setConfirmUnload(null);
+                              if (await unload(m.name)) toast.success(`Unloaded "${m.name}"`);
+                            }}
+                          >
+                            Unload
+                          </Button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => setConfirmUnload(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={busy !== null}
+                          onClick={() => setConfirmUnload(m.name)}
+                          aria-label={`Unload ${m.name}`}
+                        >
+                          {busy === m.name ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+                          {m.loaded ? "Unload" : "Remove"}
+                        </Button>
+                      )
                     ) : null}
                   </li>
                 ))}
@@ -196,8 +240,16 @@ export function DecisionDeploy() {
             )}
           </div>
 
+          {deploying ? (
+            <p role="status" className="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-[12px] text-ink-soft">
+              <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+              Loading the model onto the GPU. A small model takes about 30 seconds, an 8B one a minute or two; you can
+              leave this page, it keeps loading.
+            </p>
+          ) : null}
+
           {error ? (
-            <div className="flex items-start justify-between gap-2 rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[12px] text-danger">
+            <div role="alert" className="flex items-start justify-between gap-2 rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[12px] text-danger">
               <span>{error}</span>
               <button type="button" onClick={clearError} className="shrink-0 underline">
                 Dismiss
@@ -242,6 +294,11 @@ export function DecisionDeploy() {
                     className="w-full rounded-md border border-input bg-background px-2 py-1.5 font-mono text-[11px]"
                   />
                 </label>
+                {askError ? (
+                  <p role="alert" className="rounded-md bg-danger-soft px-2 py-1.5 text-[12px] text-danger">
+                    {askError}
+                  </p>
+                ) : null}
                 <Button type="button" size="sm" onClick={ask} disabled={asking || !target}>
                   {asking ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
                   Ask

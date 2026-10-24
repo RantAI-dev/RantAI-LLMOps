@@ -32,6 +32,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 UPSTREAM = os.environ.get("GATEWAY_UPSTREAM", "http://ollama:11434").rstrip("/")
 PORT = int(os.environ.get("GATEWAY_PORT", "8080"))
+# Largest request body read into memory (32 MB leaves room for base64 images in a chat request).
+MAX_BODY = int(os.environ.get("GATEWAY_MAX_BODY_BYTES", str(32 * 1024 * 1024)))
 
 # Only the OpenAI inference endpoints are exposed. Ollama's native /api/* routes
 # (pull / delete / create / tags / ps …) are DELIBERATELY not proxied: holding an
@@ -76,6 +78,9 @@ def load_config():
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # A client that opens a connection and then sends nothing (or trickles bytes) must not hold a
+    # thread forever. Applies to socket reads/writes, not to the upstream call.
+    timeout = 120
 
     # ---- helpers ------------------------------------------------------------
     def _json(self, code, obj):
@@ -105,7 +110,20 @@ class Handler(BaseHTTPRequestHandler):
         self._json(401, {"error": {"message": "invalid or missing API key", "type": "auth"}})
 
     def _read_body(self):
-        n = int(self.headers.get("Content-Length", 0) or 0)
+        """The request body, or None after answering 400/411/413 for one that cannot be read safely."""
+        if "chunked" in self.headers.get("Transfer-Encoding", "").lower():
+            self._json(411, {"error": {"message": "send the body with a Content-Length", "type": "invalid_request"}})
+            return None
+        try:
+            n = int(self.headers.get("Content-Length", 0) or 0)
+        except ValueError:
+            n = -1
+        if n < 0:
+            self._json(400, {"error": {"message": "invalid Content-Length", "type": "invalid_request"}})
+            return None
+        if n > MAX_BODY:
+            self._json(413, {"error": {"message": f"the body is larger than {MAX_BODY} bytes", "type": "payload_too_large"}})
+            return None
         return self.rfile.read(n) if n else b""
 
     def _proxy(self, method, body=None):
@@ -114,7 +132,15 @@ class Handler(BaseHTTPRequestHandler):
         try:
             resp = urllib.request.urlopen(req, timeout=600)
         except urllib.error.HTTPError as e:
-            self._json(e.code, {"error": {"message": e.read().decode("utf-8", "replace")[:500]}})
+            raw = e.read()
+            try:
+                upstream = json.loads(raw)  # pass a JSON error through as JSON, keeping its "type"
+            except ValueError:
+                upstream = None
+            if isinstance(upstream, dict) and "error" in upstream:
+                self._json(e.code, upstream)
+            else:
+                self._json(e.code, {"error": {"message": raw.decode("utf-8", "replace")[:500]}})
             return
         except Exception as e:  # noqa: BLE001
             self._json(502, {"error": {"message": f"gateway upstream error: {e}"}})
@@ -163,6 +189,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": {"message": "not found", "type": "not_found"}})
             return
         body = self._read_body()
+        if body is None:
+            return
         try:
             model = (json.loads(body or b"{}") or {}).get("model", "")
         except Exception:

@@ -9,7 +9,7 @@
 FROM python:3.11-bookworm
 
 ENV PYTHONUNBUFFERED=1 UV_LINK_MODE=copy PIP_NO_CACHE_DIR=1
-RUN pip install uv
+RUN pip install uv==0.13.5
 
 # torch AND torchvision from the cu130 index (Qwen3.5's processor imports torchvision).
 RUN uv pip install --system --index-url https://download.pytorch.org/whl/cu130 \
@@ -22,7 +22,7 @@ RUN uv pip install --system --index-url https://download.pytorch.org/whl/cu130 \
 RUN uv pip install --system --index-strategy unsafe-best-match \
       "unsloth==2026.10.8" "unsloth_zoo==2026.10.8" \
       "transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" \
-      fastapi "uvicorn[standard]"
+      "fastapi==0.162.0" "starlette==1.9.0" "uvicorn[standard]==0.54.0"
 
 WORKDIR /app
 COPY docker/decision/server.py trainers/unsloth-decision-train/decision_schema.py /app/

@@ -93,20 +93,48 @@ describe("with a decision server", () => {
     expect(await deployableDecisionJobs(served)).toEqual([{ id: "j1", name: "Tiket Router", path: dir, deployedAs: "tiket" }]);
   });
 
+  /** A fake decision server: GET /health, GET /admin/models (`served`), POST /admin/models -> `posts` in order. */
+  function fakeServer(served: { name: string; path: string }[], posts: Response[]) {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/health")) return Response.json({ status: "ok" });
+      if (url.endsWith("/admin/models") && (init?.method ?? "GET") === "GET") return Response.json({ models: served, max_models: 3 });
+      return posts.shift() ?? Response.json({}, { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+  const posted = (m: ReturnType<typeof vi.fn>) =>
+    m.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST").map((c) => JSON.parse((c[1] as RequestInit).body as string));
+
   it("deploys by job id with the recorded path, and passes the server's refusal on with its status", async () => {
     const dir = `${JOBS}/j1/models/j1_unsloth_decision_model`;
     vi.mocked(listAllJobs).mockResolvedValue([row({ id: "j1", models: [dir] })]);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ name: "tiket-router", loaded: true }, { status: 201 }))
-      .mockResolvedValueOnce(Response.json({ error: { message: "at most 3 models can be loaded at once" } }, { status: 409 }));
-    vi.stubGlobal("fetch", fetchMock);
+    const fetchMock = fakeServer([], [
+      Response.json({ name: "tiket-router", loaded: true }, { status: 201 }),
+      Response.json({ error: { message: "at most 3 models can be loaded at once" } }, { status: 409 }),
+    ]);
 
     await deployDecisionJob("j1", { loadIn4bit: true });
-    const sent = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
-    expect(sent).toEqual({ name: "tiket-router", path: dir, load_in_4bit: true, max_seq_length: 4096 });
+    expect(posted(fetchMock)[0]).toEqual({ name: "tiket-router", path: dir, load_in_4bit: true, max_seq_length: 4096 });
 
     await expect(deployDecisionJob("j1")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("at most 3") });
+  });
+
+  it("gives a retrained job its own served name instead of colliding with the first", async () => {
+    const dir2 = `${JOBS}/j2/models/j2_unsloth_decision_model`;
+    vi.mocked(listAllJobs).mockResolvedValue([row({ id: "j2abcdef9", models: [dir2] })]);
+    const fetchMock = fakeServer([{ name: "tiket-router", path: `${JOBS}/j1/models/j1_unsloth_decision_model` }], [
+      Response.json({ name: "x" }, { status: 201 }),
+    ]);
+    await deployDecisionJob("j2abcdef9");
+    expect(posted(fetchMock)[0].name).toBe("tiket-router-j2abcdef");
+  });
+
+  it("reports the server refusing the admin token as a 502, not as the user's 401", async () => {
+    const dir = `${JOBS}/j1/models/j1_unsloth_decision_model`;
+    vi.mocked(listAllJobs).mockResolvedValue([row({ id: "j1", models: [dir] })]);
+    fakeServer([], [Response.json({ error: { message: "invalid or missing admin token" } }, { status: 401 })]);
+    await expect(deployDecisionJob("j1", { name: "n" })).rejects.toMatchObject({ status: 502 });
   });
 
   it("refuses a job that is not a finished decision job, before asking the server", async () => {

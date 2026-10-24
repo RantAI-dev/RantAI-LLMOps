@@ -32,7 +32,7 @@ import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/li
 import { logServerError } from "@/lib/log";
 import {
   decisionDatasetProblem,
-  normalizeDecisionJsonl,
+  validDecisionJsonl,
   validateDecisionJsonl,
   type DecisionDatasetReport,
 } from "@/lib/decision-schema";
@@ -537,10 +537,13 @@ async function createLocalTlDataset(
   for (const f of files) {
     form.append("files", new Blob([f.content], { type: "application/jsonl" }), f.filename);
   }
-  const up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
-    method: "POST",
-    body: form,
-  });
+  let up: Response | null = null;
+  try {
+    up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, { method: "POST", body: form });
+  } finally {
+    // An empty dataset left behind would be picked (and reused) by name and fail every job on it.
+    if (!up?.ok) await deleteDataset(id);
+  }
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
 }
 
@@ -561,19 +564,21 @@ export async function uploadDecisionDataset(
   if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
   const strip = (t: string) => (t.charCodeAt(0) === 0xfeff ? t.slice(1) : t);
 
-  const trainText = normalizeDecisionJsonl(normalizeJsonl(strip(content)));
-  const train = validateDecisionJsonl(trainText);
+  // Validated line by line exactly like the upload form's preview (a line that is not JSON counts as
+  // one invalid row, within the 2% the trainer allows); only the valid, normalized rows are stored.
+  const trainRaw = strip(content);
+  const train = validateDecisionJsonl(trainRaw);
   const trainProblem = decisionDatasetProblem(train, "train");
   if (trainProblem) throw new DatasetInputError(trainProblem);
 
-  const files = [{ filename: `${id}_train.jsonl`, content: trainText }];
+  const files = [{ filename: `${id}_train.jsonl`, content: validDecisionJsonl(trainRaw) }];
   let evalReport: DecisionDatasetReport | undefined;
   if (evalContent && evalContent.trim()) {
-    const evalText = normalizeDecisionJsonl(normalizeJsonl(strip(evalContent)));
-    evalReport = validateDecisionJsonl(evalText);
+    const evalRaw = strip(evalContent);
+    evalReport = validateDecisionJsonl(evalRaw);
     const evalProblem = decisionDatasetProblem(evalReport, "eval", 5);
     if (evalProblem) throw new DatasetInputError(evalProblem);
-    files.push({ filename: `${id}_eval.jsonl`, content: evalText });
+    files.push({ filename: `${id}_eval.jsonl`, content: validDecisionJsonl(evalRaw) });
   }
 
   await createLocalTlDataset(id, files);

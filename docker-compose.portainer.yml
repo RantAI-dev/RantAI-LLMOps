@@ -341,6 +341,15 @@ services:
       # Optional JSON list loaded at start, e.g. [{"name":"tiket-router","path":"/root/.transformerlab/..."}]
       - DECISION_MODELS=${DECISION_MODELS:-}
       - DECISION_MAX_MODELS=${DECISION_MAX_MODELS:-3}
+      # Refuse a load below this much free GPU memory (the GB10 shares it with vLLM and the host).
+      - DECISION_MIN_FREE_GB=${DECISION_MIN_FREE_GB:-12}
+    healthcheck:
+      # /ready is 503 until the remembered models are back after a restart.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 300s
+      retries: 3
     volumes:
       # The base models of SEA-LION decision adapters are already cached here by vLLM.
       - vllm_hf_cache:/root/.cache/huggingface

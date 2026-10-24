@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { guardApi } from "@/lib/auth";
 import {
   decisionConfigured,
   decisionServerState,
@@ -14,7 +15,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /** The decision server's state plus the finished decision jobs that could be deployed. */
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const denied = await guardApi(req);
+  if (denied) return denied;
   const server = await decisionServerState();
   if (!server.configured) return Response.json({ server, jobs: [] });
   let jobs: Awaited<ReturnType<typeof deployableDecisionJobs>> = [];
@@ -28,6 +31,8 @@ export async function GET() {
 
 /** Deploy a finished decision job: `{ jobId, name?, loadIn4bit? }`. */
 export async function POST(req: NextRequest) {
+  const denied = await guardApi(req);
+  if (denied) return denied;
   if (!decisionConfigured()) {
     return Response.json({ error: "The decision server is not configured" }, { status: 404 });
   }

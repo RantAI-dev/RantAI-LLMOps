@@ -27,6 +27,11 @@ export function useDecision() {
   const reload = useCallback(async () => {
     try {
       const res = await fetch("/api/decision/models", { cache: "no-store" });
+      if (!res.ok) {
+        // A 401 (session expired) or 500 is not "the feature is off": keep the card and say what happened.
+        setError(res.status === 401 ? "Your session expired: sign in again." : `Could not load the decision models (${res.status}).`);
+        return;
+      }
       const d = (await res.json()) as { server?: DecisionServerState; jobs?: DeployableDecisionJob[] };
       setServer(d.server ?? EMPTY);
       setJobs(d.jobs ?? []);

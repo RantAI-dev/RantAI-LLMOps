@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
-import { DatasetInputError, submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
+import { decisionParamProblems } from "@/lib/decision-schema";
+import { DatasetInputError, fetchLocalDatasets, submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
 import { ensureHfDecisionDataset, isHfDatasetId } from "@/lib/decision-hf";
 import { getGpuStatus } from "@/lib/gpu-metrics";
 import { getHfToken } from "@/lib/settings-store";
@@ -93,8 +94,38 @@ export async function POST(req: NextRequest) {
   try {
     // A Hugging Face dataset id on a decision run is downloaded and converted first; the job starts
     // only once that has worked (a failure here is reported and no job is created).
-    if (body.method === "decision" && isHfDatasetId(String(body.dataset))) {
-      body.dataset = await ensureHfDecisionDataset(String(body.dataset), body.datasetConfig);
+    if (body.method === "decision") {
+      const problems = decisionParamProblems({
+        lr: body.learningRate,
+        head_lr: body.headLearningRate,
+        num_train_epochs: body.epochs,
+        max_steps: body.maxSteps,
+        batch_size: body.batchSize,
+        gradient_accumulation_steps: body.gradientAccumulationSteps,
+        max_seq_length: body.maxSeqLength,
+        lora_r: body.loraR,
+        lora_alpha: body.loraAlpha,
+        lora_dropout: body.loraDropout,
+        head_warmup_steps: body.headWarmupSteps,
+        holdout_fraction: body.holdoutFraction,
+      });
+      if (problems.length > 0) {
+        return Response.json({ error: `Invalid settings: ${problems.join("; ")}` }, { status: 400 });
+      }
+      const config = typeof body.datasetConfig === "string" ? body.datasetConfig : undefined;
+      const ref = String(body.dataset).trim();
+      if (isHfDatasetId(ref)) {
+        body.dataset = await ensureHfDecisionDataset(ref, config);
+      } else if (!/^(s3|https?):\/\//.test(ref) && !ref.startsWith("/")) {
+        // A local dataset name: make sure it exists, or the job fails minutes later after its setup.
+        const local = await fetchLocalDatasets();
+        if (!local.some((d) => d.dataset_id === ref)) {
+          return Response.json(
+            { error: `Dataset "${ref}" was not found on this server. Upload or import it first.` },
+            { status: 400 }
+          );
+        }
+      }
     }
     const jobId = await submitFinetune(body as SubmitFinetuneParams);
     return Response.json({ jobId });

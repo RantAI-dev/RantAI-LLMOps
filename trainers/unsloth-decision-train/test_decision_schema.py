@@ -127,6 +127,18 @@ def test_hf_style_rows_with_stringified_json():
     assert set(valid[0]) == {"state", "questions", "gold"}
 
 
+def test_param_problems():
+    from decision_schema import param_problems
+
+    assert param_problems({"lr": 1e-4, "num_train_epochs": 1, "holdout_fraction": 0.1, "batch_size": 4}) == []
+    assert param_problems({"num_train_epochs": 0, "max_steps": -1})
+    assert param_problems({"num_train_epochs": 0, "max_steps": 50}) == []
+    for bad in ({"lr": -1}, {"lr": 0}, {"head_lr": -0.1}, {"holdout_fraction": 1}, {"holdout_fraction": 0},
+                {"batch_size": 0}, {"gradient_accumulation_steps": 0}, {"max_seq_length": 10},
+                {"lora_dropout": 1}, {"lr": "abc"}, {"lr": True}, {"lr": float("nan")}):
+        assert param_problems(bad), bad
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

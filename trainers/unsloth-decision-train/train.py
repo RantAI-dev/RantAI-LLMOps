@@ -46,6 +46,7 @@ import json
 import math
 import os
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -59,13 +60,15 @@ from transformers import TrainerCallback, TrainingArguments
 
 from huggingface_hub import login
 
-from decision_schema import validate_rows
+from decision_schema import param_problems, validate_rows
 
 if os.getenv("HF_TOKEN"):
     login(token=os.getenv("HF_TOKEN"))
 
 MAX_INVALID_FRACTION = 0.02
 MIN_ROWS = 20
+# Below this many test decisions the before/after numbers are mostly noise (logged, not fatal).
+MIN_TEST_ITEMS = 50
 
 
 class LabCallback(TrainerCallback):
@@ -113,8 +116,10 @@ def _read_jsonl(path: str) -> list:
                 continue
             try:
                 rows.append(json.loads(line))
-            except json.JSONDecodeError as e:
-                raise RuntimeError(f"{os.path.basename(path)} line {n} is not valid JSON: {e}") from e
+            except json.JSONDecodeError:
+                # Kept as a non-object so validation counts it as one invalid row (the 2% rule), the
+                # same way the upload form counts it, instead of failing the whole job on one line.
+                rows.append(f"<line {n} of {os.path.basename(path)} is not valid JSON>")
     return rows
 
 
@@ -210,7 +215,9 @@ def _load_rows(spec: str):
 def _fail(msg: str):
     lab.log(f"❌ {msg}")
     lab.error(msg)
-    raise RuntimeError(msg)
+    err = RuntimeError(msg)
+    err._reported = True
+    raise err
 
 
 def _checked_rows(rows: list, label: str) -> list:
@@ -298,6 +305,13 @@ def _write_predictions(model, processor, rows: list, path: str, limit: int) -> i
     return written
 
 
+def _flag(value) -> bool:
+    """A boolean job parameter; the string "false" must not read as True."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
 def train_decision():
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     start = time.time()
@@ -322,21 +336,30 @@ def train_decision():
         lora_dropout = float(config.get("lora_dropout", 0.0))
         # Opt-in on purpose (GB10 has memory to spare), but 4-bit was validated on GB10:
         # SEA-LION 8B trains in 12.7 GB peak with bitsandbytes 0.50.
-        load_in_4bit = bool(config.get("load_in_4bit", False))
-        head_width = config.get("head_width") or None
+        load_in_4bit = _flag(config.get("load_in_4bit", False))
+        head_width = int(config.get("head_width") or 0) or None
         head_warmup_steps = int(config.get("head_warmup_steps", 0))
         label_smoothing = float(config.get("label_smoothing", 0.0))
         brier_weight = float(config.get("brier_weight", 0.0))
         kl_weight = float(config.get("kl_weight", 0.0))
         holdout_fraction = float(config.get("holdout_fraction", 0.1))
         predict_rows = int(config.get("predict_rows", 200))
-        save_merged = bool(config.get("save_merged", False))
-        export_gguf = bool(config.get("export_gguf", False))
+        save_merged = _flag(config.get("save_merged", False))
+        export_gguf = _flag(config.get("export_gguf", False))
         gguf_quant = str(config.get("gguf_quantization", "q8_0"))
         optim = config.get("optim", "adamw_torch")
         logging_steps = int(config.get("logging_steps", 5))
         seed = int(config.get("seed", 3407))
 
+        problems = param_problems({"lr": lr, "head_lr": head_lr, "num_train_epochs": epochs, "max_steps": max_steps,
+                                   "batch_size": batch_size, "gradient_accumulation_steps": grad_accum,
+                                   "warmup_ratio": warmup_ratio, "weight_decay": weight_decay,
+                                   "max_seq_length": max_seq_length, "lora_r": lora_r, "lora_alpha": lora_alpha,
+                                   "lora_dropout": lora_dropout, "head_warmup_steps": head_warmup_steps,
+                                   "holdout_fraction": holdout_fraction, "label_smoothing": label_smoothing,
+                                   "brier_weight": brier_weight, "kl_weight": kl_weight, "predict_rows": predict_rows})
+        if problems:
+            _fail("Invalid training parameters: " + "; ".join(problems))
         if not dataset_spec:
             _fail("No dataset given. Set `dataset` to an s3:// prefix with train.jsonl, a path or an uploaded dataset.")
 
@@ -394,9 +417,18 @@ def train_decision():
         train_items, holdout = FastDecisionModel.split_holdout(items, seed, fraction=holdout_fraction)
         test_items, test_rows, test_kind = holdout, _rows_of(holdout, train_rows), "holdout"
         if eval_rows:
-            test_items, _ = FastDecisionModel.build_dataset(eval_rows, processor, model)
+            test_items, eval_build = FastDecisionModel.build_dataset(eval_rows, processor, model)
             test_rows, test_kind = eval_rows, "eval.jsonl"
+        if eval_rows:
+            lab.log(f"Built {len(test_items)} eval items from {len(eval_rows)} rows "
+                    f"(skipped {eval_build['skipped']}, truncated {eval_build['truncated']})")
         lab.log(f"Train items {len(train_items)}, holdout {len(holdout)}, test set {len(test_items)} ({test_kind})")
+        if len(train_items) < MIN_ROWS:
+            _fail(f"Only {len(train_items)} training items remain after holding out {len(holdout)}; "
+                  f"lower holdout_fraction or add rows.")
+        if len(test_items) < MIN_TEST_ITEMS:
+            lab.log(f"⚠️  Only {len(test_items)} test decisions: before/after accuracy on so few is mostly noise. "
+                    f"Give an eval.jsonl or more rows.")
         if not test_items:
             _fail("The test set is empty: give an eval.jsonl or a larger holdout_fraction.")
 
@@ -410,12 +442,12 @@ def train_decision():
         steps_per_epoch = max(1, math.ceil(len(train_items) / (batch_size * grad_accum)))
         total_steps = max_steps if max_steps > 0 else max(1, math.ceil(epochs * steps_per_epoch))
 
-        def make_trainer(steps=None, num_epochs=None, pct=(50, 88)):
+        def make_trainer(steps=None, num_epochs=None, pct=(50, 88), kl=None):
             n = steps or total_steps
             return DecisionTrainer(
                 model=model, tokenizer=processor, train_dataset=train_items,
                 head_learning_rate=head_lr, label_smoothing=label_smoothing, brier_weight=brier_weight,
-                kl_weight=kl_weight, callbacks=[LabCallback(*pct)],
+                kl_weight=kl_weight if kl is None else kl, callbacks=[LabCallback(*pct)],
                 args=TrainingArguments(
                     output_dir=os.path.join(out_root, "_run"),
                     per_device_train_batch_size=batch_size, gradient_accumulation_steps=grad_accum,
@@ -434,7 +466,8 @@ def train_decision():
         if head_warmup_steps > 0:
             lab.log(f"Head warm-up: {head_warmup_steps} steps with the backbone frozen")
             FastDecisionModel.freeze_backbone(model)
-            make_trainer(steps=head_warmup_steps, pct=(45, 50)).train()
+            # kl_weight needs the LoRA model, which only exists after get_peft_model below.
+            make_trainer(steps=head_warmup_steps, pct=(45, 50), kl=0.0).train()
             FastDecisionModel.unfreeze_backbone(model)
         model = FastDecisionModel.get_peft_model(model, r=lora_r, lora_alpha=lora_alpha,
                                                  lora_dropout=lora_dropout, random_state=seed)
@@ -455,7 +488,15 @@ def train_decision():
                         f"{ {k: calibration[k] for k in ('accuracy', 'ece', 'fitted_types') if k in calibration} }")
             except Exception as e:  # too few items per question type is the usual reason
                 lab.log(f"⚠️  Calibration skipped: {e}")
+        if calibration and not calibration.get("fitted_types"):
+            lab.log("⚠️  Calibration fitted no question type (each needs enough holdout items); "
+                    "the probabilities are the head's raw ones")
         tuned = _metrics(FastDecisionModel.evaluate(model, processor, test_items))
+        if test_kind == "holdout" and _metrics(calibration):
+            # Calibration was fitted on this same holdout, so scoring it directly is in-sample. calibrate()
+            # also scores each half with temperatures fitted on the other half: report that instead.
+            tuned = {**tuned, **{k: v for k, v in _metrics(calibration).items() if k in ("accuracy", "ece")}}
+            lab.log("After-training accuracy/ECE on the holdout are cross-fitted (calibrated on the other half)")
         lab.log(f"After training on {test_kind}: {_fmt(tuned)}")
         peak_gb = round(torch.cuda.max_memory_allocated() / 1e9, 2) if torch.cuda.is_available() else None
 
@@ -521,7 +562,11 @@ def train_decision():
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
         # A single greppable line, for anything that reads stdout.log rather than artifacts.
-        print("DECISION_REPORT " + json.dumps({"before": _no_loss(base), "after": _no_loss(tuned), "test_set": test_kind}), flush=True)
+        print("DECISION_REPORT " + json.dumps({
+            "before": _no_loss(base), "after": _no_loss(tuned), "test_set": test_kind, "test_items": len(test_items),
+            "truncated": build["truncated"], "skipped": build["skipped"],
+            "exports": {k: v.get("status") for k, v in exports.items()},
+        }), flush=True)
         lab.save_artifact(report_path, "decision_report.json")
         if n_pred:
             lab.save_artifact(predictions, "eval_predictions.jsonl")
@@ -535,6 +580,8 @@ def train_decision():
             lab.save_model(os.path.join(merged_dir, "gguf"), name="unsloth_decision_gguf")
         if save_merged and exports.get("merged", {}).get("status") == "saved":
             lab.save_model(merged_dir, name="unsloth_decision_merged")
+        # The job models directory now holds copies; the working copy only takes disk space.
+        shutil.rmtree(merged_dir, ignore_errors=True)
 
         lab.log(f"Done in {report['wall_minutes']} min")
         lab.finish("Decision training completed")
@@ -547,10 +594,11 @@ def train_decision():
         msg = str(e)
         print(f"Decision training failed: {msg}", flush=True)
         traceback.print_exc()
-        try:
-            lab.error(msg)
-        except Exception:
-            pass
+        if not getattr(e, "_reported", False):  # _fail already told the lab
+            try:
+                lab.error(msg)
+            except Exception:
+                pass
         return {"status": "error", "error": msg}
 
 

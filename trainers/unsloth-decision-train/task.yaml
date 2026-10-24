@@ -10,8 +10,8 @@ resources:
 # Recipe validated on the GB10 (aarch64, CUDA 13) on 2026-10-22:
 #  - torch AND torchvision from the cu130 index (Qwen3.5's processor imports torchvision; a CPU
 #    torchvision from PyPI would not match).
-#  - unsloth from git at a commit that holds FastDecisionModel; the PyPI release lags it. The
-#    pin is a sha so a job never silently moves with unsloth's main branch.
+#  - unsloth from PyPI, pinned to a release that holds FastDecisionModel (2026.10.8), so a job
+#    never silently moves with a new unsloth release.
 #  - bitsandbytes is required by unsloth_zoo even for 16-bit LoRA.
 #  - transformers/trl/peft/accelerate are PINNED: a job venv starts from Transformer Lab's base
 #    packages (transformers 4.57.1, trl 0.18.2, accelerate 1.3.0) and uv does not upgrade a package

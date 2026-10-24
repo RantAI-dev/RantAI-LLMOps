@@ -70,6 +70,27 @@ export function normalizeDecisionJsonl(text: string): string {
     .join("\n");
 }
 
+/**
+ * Only the rows that will train, normalized, as JSONL. Lines that are not JSON or rows that fail
+ * validation are dropped: the upload report already counted them (within the 2% the trainer allows),
+ * and storing them would only make the job re-discover them.
+ */
+export function validDecisionJsonl(text: string): string {
+  const kept: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let row: unknown;
+    try {
+      row = normalizeDecisionRow(JSON.parse(line));
+    } catch {
+      continue;
+    }
+    if (validateDecisionRow(row).length === 0) kept.push(JSON.stringify(row));
+  }
+  return kept.join("\n");
+}
+
 /** The option ids of a question, or null when its criteria are unusable. */
 function optionsOf(kind: string, criteria: unknown): string[] | null {
   if (kind === "noul") return ["false", "true"];
@@ -118,6 +139,15 @@ function isNumber(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+// A number, or a plain decimal string ("0.3", "2", "1e-3") as Python's float() reads one. Booleans and
+// forms JavaScript accepts but Python does not ("0x1", "") are not numbers here, so the twins agree.
+const NUMERIC = /^\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?\s*$/;
+function toNumber(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "string" && NUMERIC.test(v)) return Number(v);
+  return Number.NaN;
+}
+
 /** null when `gold` yields a usable target, as Unsloth's `_target_for` decides it. */
 function goldError(kind: string, options: string[], goldIn: unknown): string | null {
   const gold: Obj = isObj(goldIn) ? goldIn : { label: goldIn };
@@ -128,8 +158,8 @@ function goldError(kind: string, options: string[], goldIn: unknown): string | n
   if (isObj(probabilities)) {
     const values: Record<string, number> = {};
     for (const [k, v] of Object.entries(probabilities)) {
-      const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
-      if (typeof n !== "number" || Number.isNaN(n)) return "probabilities must be numbers";
+      const n = toNumber(v);
+      if (Number.isNaN(n)) return "probabilities must be numbers";
       if (!Number.isFinite(n)) return "probabilities must be finite numbers";
       values[k] = n;
     }
@@ -144,8 +174,8 @@ function goldError(kind: string, options: string[], goldIn: unknown): string | n
   if (raw === undefined || raw === null) return "has no label or usable probabilities";
   let label: string;
   if (kind === "score") {
-    const level = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : raw;
-    if (typeof raw === "boolean" || typeof level !== "number" || Number.isNaN(level)) {
+    const level = toNumber(raw);
+    if (Number.isNaN(level)) {
       return `score label must be a level number (got ${JSON.stringify(raw)})`;
     }
     if (!Number.isInteger(level)) return `score label must be a whole level number (got ${JSON.stringify(raw)})`;
@@ -198,13 +228,13 @@ export function validateDecisionRow(row: unknown): string[] {
       errors.push(`question "${name}": ${problem}`);
       continue;
     }
-    if (!(name in gold)) continue;
+    if (!Object.hasOwn(gold, name)) continue;
     labelled += 1;
     const kind = q.type as string;
     const gp = goldError(kind, optionsOf(kind, q.criteria) ?? [], gold[name]);
     if (gp) errors.push(`question "${name}": gold ${gp}`);
   }
-  const extra = Object.keys(gold).filter((n) => !(n in questions));
+  const extra = Object.keys(gold).filter((n) => !Object.hasOwn(questions, n));
   if (extra.length > 0) errors.push(`gold names no such question: ${extra.slice(0, 3).join(", ")}`);
   if (labelled === 0 && errors.length === 0) errors.push("no question has a gold label");
   return errors;
@@ -300,4 +330,52 @@ export function decisionDatasetProblem(
     );
   }
   return null;
+}
+
+/**
+ * Training-parameter ranges: twin of PARAM_RANGES / param_problems in decision_schema.py. The job
+ * refuses these too; checking at submit turns a failed GPU job into a message on the form.
+ * [low, high, lowInclusive, highInclusive]
+ */
+export const DECISION_PARAM_RANGES: Record<string, [number, number, boolean, boolean]> = {
+  lr: [0, 1, false, true],
+  head_lr: [0, 1, false, true],
+  num_train_epochs: [0, 1000, true, true],
+  batch_size: [1, 512, true, true],
+  gradient_accumulation_steps: [1, 1024, true, true],
+  warmup_ratio: [0, 0.5, true, true],
+  weight_decay: [0, 1, true, true],
+  max_seq_length: [256, 65536, true, true],
+  lora_r: [1, 1024, true, true],
+  lora_alpha: [0, 1e6, false, true],
+  lora_dropout: [0, 1, true, false],
+  head_warmup_steps: [0, 1_000_000, true, true],
+  holdout_fraction: [0, 0.5, false, true],
+  label_smoothing: [0, 0.5, true, false],
+  brier_weight: [0, 100, true, true],
+  kl_weight: [0, 100, true, true],
+  predict_rows: [0, 1_000_000, true, true],
+};
+
+/** Problems with decision training parameters (empty = fine). Missing keys are not problems. */
+export function decisionParamProblems(params: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  for (const [key, [low, high, lowIn, highIn]] of Object.entries(DECISION_PARAM_RANGES)) {
+    const value = params[key];
+    if (value === undefined || value === null) continue;
+    const v = toNumber(value);
+    if (!Number.isFinite(v)) {
+      errors.push(`${key} must be a number`);
+      continue;
+    }
+    if ((lowIn ? v < low : v <= low) || (highIn ? v > high : v >= high)) {
+      errors.push(`${key} must be ${lowIn ? ">=" : ">"} ${low} and ${highIn ? "<=" : "<"} ${high} (got ${String(value)})`);
+    }
+  }
+  const epochs = params.num_train_epochs;
+  const steps = params.max_steps;
+  const noEpochs = epochs !== undefined && epochs !== null && toNumber(epochs) <= 0;
+  const noSteps = steps === undefined || steps === null || !(toNumber(steps) > 0);
+  if (noEpochs && noSteps) errors.push("num_train_epochs must be > 0 (or set max_steps > 0): otherwise nothing is trained");
+  return errors;
 }

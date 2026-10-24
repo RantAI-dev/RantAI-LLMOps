@@ -34,6 +34,8 @@ QUESTION_TYPES = ("noul", "choice", "score")
 MAX_QUESTIONS = 64
 MIN_CHOICES, MAX_CHOICES = 2, 255
 MIN_LEVELS, MAX_LEVELS = 2, 10
+MAX_NAME_CHARS = 200   # question names and option ids in a served request
+MAX_TEXT_CHARS = 4000  # instructions and option descriptions in a served request
 
 
 def _options(kind: str, criteria) -> list[str] | None:
@@ -83,6 +85,8 @@ def _gold_error(kind, options: list[str], gold) -> str | None:
         probabilities = {"true": noul} if isinstance(noul, (int, float)) and not isinstance(noul, bool) else None
     if isinstance(probabilities, dict):
         try:
+            if any(isinstance(v, bool) for v in probabilities.values()):
+                raise TypeError("bool")
             values = {str(k): float(v) for k, v in probabilities.items()}
         except (TypeError, ValueError):
             return "probabilities must be numbers"
@@ -136,7 +140,7 @@ def normalize_row(row):
     if not isinstance(row, dict):
         return row
     out = {"state": row.get("state"), "questions": _json_field(row.get("questions"))}
-    gold = row.get("gold", row.get("answers"))
+    gold = (row.get("gold") if row.get("gold") is not None else row.get("answers"))
     out["gold"] = _json_field(gold)
     return out
 
@@ -155,7 +159,7 @@ def validate_row(row) -> list[str]:
         return errors
     if len(questions) > MAX_QUESTIONS:
         errors.append(f"has {len(questions)} questions, at most {MAX_QUESTIONS} are allowed")
-    gold = row.get("gold", row.get("answers"))
+    gold = (row.get("gold") if row.get("gold") is not None else row.get("answers"))
     if not isinstance(gold, dict) or not gold:
         errors.append('"gold" (or "answers") must be a non-empty object of question name -> label')
         return errors
@@ -202,10 +206,28 @@ def validate_questions(questions) -> list[str]:
         if not isinstance(question, dict):
             errors.append(f'question "{name}" is not an object')
             continue
-        problem = _question_error(question.get("type"), question.get("criteria"))
+        problem = _question_error(question.get("type"), question.get("criteria")) or _text_error(question)
+        if len(name) > MAX_NAME_CHARS:
+            problem = f"name is longer than {MAX_NAME_CHARS} characters"
         if problem:
-            errors.append(f'question "{name}": {problem}')
+            errors.append(f'question "{name[:60]}": {problem}')
     return errors
+
+
+def _text_error(question: dict) -> str | None:
+    """Length/type limits on the free text of a served question, so one request cannot hand the model
+    megabytes of instructions or option descriptions (the state has its own limit in the server)."""
+    instructions = question.get("instructions")
+    if instructions is not None and not isinstance(instructions, str):
+        return "instructions must be text"
+    if isinstance(instructions, str) and len(instructions) > MAX_TEXT_CHARS:
+        return f"instructions are longer than {MAX_TEXT_CHARS} characters"
+    criteria = question.get("criteria")
+    texts = list(criteria.values()) if isinstance(criteria, dict) else (criteria if isinstance(criteria, list) else [])
+    keys = list(criteria.keys()) if isinstance(criteria, dict) else []
+    if any(isinstance(t, str) and len(t) > MAX_TEXT_CHARS for t in texts) or any(len(str(k)) > MAX_NAME_CHARS for k in keys):
+        return f"an option is longer than {MAX_TEXT_CHARS} characters (or its id longer than {MAX_NAME_CHARS})"
+    return None
 
 
 def validate_rows(rows, max_report: int = 10) -> tuple[list, dict]:
@@ -226,7 +248,7 @@ def validate_rows(rows, max_report: int = 10) -> tuple[list, dict]:
                 errors.append(f"row {i + 1}: {'; '.join(problems[:3])}")
             continue
         valid.append(row)
-        gold = row.get("gold", row.get("answers"))
+        gold = (row.get("gold") if row.get("gold") is not None else row.get("answers"))
         for name, question in row["questions"].items():
             entry = summary.setdefault(name, {"type": question["type"], "rows": 0, "labels": Counter()})
             if name in gold:
@@ -249,3 +271,58 @@ def validate_rows(rows, max_report: int = 10) -> tuple[list, dict]:
         },
     }
     return valid, report
+
+
+# Training parameters: the job refuses values that would train nothing or train wrongly, before any GPU
+# time. The TypeScript twin (decisionParamProblems in src/lib/decision-schema.ts) refuses the same at
+# submit, so the form says it instead of a failed job.
+PARAM_RANGES = {
+    # name: (low, high, low_inclusive, high_inclusive)
+    "lr": (0.0, 1.0, False, True),
+    "head_lr": (0.0, 1.0, False, True),
+    "num_train_epochs": (0.0, 1000.0, True, True),
+    "batch_size": (1, 512, True, True),
+    "gradient_accumulation_steps": (1, 1024, True, True),
+    "warmup_ratio": (0.0, 0.5, True, True),
+    "weight_decay": (0.0, 1.0, True, True),
+    "max_seq_length": (256, 65536, True, True),
+    "lora_r": (1, 1024, True, True),
+    "lora_alpha": (0.0, 1e6, False, True),
+    "lora_dropout": (0.0, 1.0, True, False),
+    "head_warmup_steps": (0, 1_000_000, True, True),
+    "holdout_fraction": (0.0, 0.5, False, True),
+    "label_smoothing": (0.0, 0.5, True, False),
+    "brier_weight": (0.0, 100.0, True, True),
+    "kl_weight": (0.0, 100.0, True, True),
+    "predict_rows": (0, 1_000_000, True, True),
+}
+
+
+def param_problems(params: dict) -> list[str]:
+    """Problems with decision training parameters (empty = fine). Missing keys are not problems."""
+    errors = []
+    for key, (low, high, low_in, high_in) in PARAM_RANGES.items():
+        if key not in params or params[key] is None:
+            continue
+        value = params[key]
+        if isinstance(value, bool):
+            errors.append(f"{key} must be a number")
+            continue
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            errors.append(f"{key} must be a number")
+            continue
+        if not math.isfinite(v) or (v < low if low_in else v <= low) or (v > high if high_in else v >= high):
+            errors.append(f"{key} must be {'>=' if low_in else '>'} {low:g} and {'<=' if high_in else '<'} {high:g} (got {value})")
+    epochs = params.get("num_train_epochs")
+    steps = params.get("max_steps")
+    try:
+        no_epochs = epochs is not None and float(epochs) <= 0
+        no_steps = steps is None or int(float(steps)) <= 0
+    except (TypeError, ValueError):
+        no_epochs, no_steps = False, False
+        errors.append("max_steps must be a whole number")
+    if no_epochs and no_steps:
+        errors.append("num_train_epochs must be > 0 (or set max_steps > 0): otherwise nothing is trained")
+    return errors

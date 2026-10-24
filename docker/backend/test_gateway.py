@@ -99,6 +99,46 @@ def test_admin_routes_are_never_reachable_even_if_listed():
     assert call(port, "GET", "/admin/models")[0] == 404
 
 
+def _raw(port, head):
+    """Send raw request bytes (bad Content-Length cannot be made with urllib) and return the status."""
+    import socket
+
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as s:
+        s.sendall(head)
+        data = s.recv(4096).decode("latin-1")
+    return int(data.split(" ", 2)[1])
+
+
+def test_unsafe_bodies_are_refused_before_reading():
+    up = start(Upstream)
+    _, gw = load_gateway(up.server_address[1], GATEWAY_POST_PATHS="/v1/systemone", GATEWAY_MAX_BODY_BYTES="1000")
+    port = gw.server_address[1]
+    auth = b"Authorization: Bearer k-test-123456789012\r\n"
+    base = b"POST /v1/systemone HTTP/1.1\r\nHost: x\r\n" + auth
+    assert _raw(port, base + b"Content-Length: -5\r\n\r\n") == 400
+    assert _raw(port, base + b"Content-Length: 99999999\r\n\r\n") == 413
+    assert _raw(port, base + b"Transfer-Encoding: chunked\r\n\r\n0\r\n\r\n") == 411
+    # under the cap it still works
+    assert call(port, "POST", "/v1/systemone", {"model": "decision-a", "state": "x"})[0] == 200
+
+
+class ErrorUpstream(Upstream):
+    def do_POST(self):
+        b = json.dumps({"error": {"message": "model 'x' is busy", "type": "busy"}}).encode()
+        self.send_response(503)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+
+def test_upstream_json_errors_pass_through_with_their_type():
+    up = start(ErrorUpstream)
+    _, gw = load_gateway(up.server_address[1], GATEWAY_POST_PATHS="/v1/systemone")
+    status, body = call(gw.server_address[1], "POST", "/v1/systemone", {"model": "x", "state": "s"})
+    assert status == 503 and body == {"error": {"message": "model 'x' is busy", "type": "busy"}}
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

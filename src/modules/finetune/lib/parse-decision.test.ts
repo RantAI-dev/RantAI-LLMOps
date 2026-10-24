@@ -12,6 +12,18 @@ describe("parseDecisionReport", () => {
       before: { accuracy: 0.4917, ece: 0.0979, record_accuracy: 0.0625 },
       after: { accuracy: 1, ece: 0, record_accuracy: 1 },
       testSet: "eval.jsonl",
+      exports: {},
+    });
+  });
+
+  it("reads the test size, truncation and export statuses of a newer report", () => {
+    const line =
+      'DECISION_REPORT {"before": {}, "after": {"accuracy": 0.7}, "test_set": "holdout", "test_items": 12, ' +
+      '"truncated": 3, "skipped": 0, "exports": {"merged": "saved", "gguf": "failed", "bad": 5}}';
+    expect(parseDecisionReport(line)).toMatchObject({
+      testItems: 12,
+      truncated: 3,
+      exports: { merged: "saved", gguf: "failed" },
     });
   });
 
@@ -31,7 +43,7 @@ describe("parseDecisionReport", () => {
 
   it("drops non-numeric metrics and defaults the test set", () => {
     const r = parseDecisionReport('DECISION_REPORT {"before": {"accuracy": "x"}, "after": {"ece": 0.1}}');
-    expect(r).toEqual({ before: {}, after: { ece: 0.1 }, testSet: "holdout" });
+    expect(r).toEqual({ before: {}, after: { ece: 0.1 }, testSet: "holdout", exports: {} });
   });
 
   it("is not read as a training-loss point by the loss parser", () => {
