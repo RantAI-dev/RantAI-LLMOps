@@ -263,7 +263,7 @@ export function UploadDatasetDialog({
               </label>
               <p className="text-[11px] leading-4 text-ink-soft">
                 Rows with questions and gold stored as JSON strings are converted automatically. Try{" "}
-                <code>LocalLLaMA/typed-decisions</code> (subset <code>all</code>, 1,600 train rows, Apache-2.0).
+                <code>LocalLLaMA/typed-decisions</code> (subset <code>all</code>, 1,200 train + 400 test rows, Apache-2.0).
               </p>
             </div>
           ) : null}
