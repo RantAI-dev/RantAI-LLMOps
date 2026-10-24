@@ -32,6 +32,7 @@ import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/li
 import { logServerError } from "@/lib/log";
 import {
   decisionDatasetProblem,
+  normalizeDecisionJsonl,
   validateDecisionJsonl,
   type DecisionDatasetReport,
 } from "@/lib/decision-schema";
@@ -560,7 +561,7 @@ export async function uploadDecisionDataset(
   if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
   const strip = (t: string) => (t.charCodeAt(0) === 0xfeff ? t.slice(1) : t);
 
-  const trainText = normalizeJsonl(strip(content));
+  const trainText = normalizeDecisionJsonl(normalizeJsonl(strip(content)));
   const train = validateDecisionJsonl(trainText);
   const trainProblem = decisionDatasetProblem(train, "train");
   if (trainProblem) throw new DatasetInputError(trainProblem);
@@ -568,7 +569,7 @@ export async function uploadDecisionDataset(
   const files = [{ filename: `${id}_train.jsonl`, content: trainText }];
   let evalReport: DecisionDatasetReport | undefined;
   if (evalContent && evalContent.trim()) {
-    const evalText = normalizeJsonl(strip(evalContent));
+    const evalText = normalizeDecisionJsonl(normalizeJsonl(strip(evalContent)));
     evalReport = validateDecisionJsonl(evalText);
     const evalProblem = decisionDatasetProblem(evalReport, "eval", 5);
     if (evalProblem) throw new DatasetInputError(evalProblem);

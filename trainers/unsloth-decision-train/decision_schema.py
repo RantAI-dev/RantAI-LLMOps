@@ -26,6 +26,7 @@ two in step.
 
 from __future__ import annotations
 
+import json
 import math
 from collections import Counter
 
@@ -114,6 +115,32 @@ def _gold_error(kind, options: list[str], gold) -> str | None:
     return None
 
 
+def _json_field(value):
+    """A field some exporters store as a JSON string (Hugging Face parquet does): parse it, else leave it."""
+    if isinstance(value, str) and value.strip()[:1] in ("{", "["):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+def normalize_row(row):
+    """The row as the trainer reads it: stringified `questions`/`gold` parsed, extra columns dropped.
+
+    LocalLLaMA/typed-decisions (the dataset Unsloth's guide trains on) keeps questions and gold as
+    JSON strings next to bookkeeping columns (id, workflow, factors, ...). `state` is left as it is:
+    a string stays the text the model reads. Anything that is not an object is returned unchanged
+    so validate_row reports it.
+    """
+    if not isinstance(row, dict):
+        return row
+    out = {"state": row.get("state"), "questions": _json_field(row.get("questions"))}
+    gold = row.get("gold", row.get("answers"))
+    out["gold"] = _json_field(gold)
+    return out
+
+
 def validate_row(row) -> list[str]:
     """Every problem with one row, as short messages (empty list = valid)."""
     if not isinstance(row, dict):
@@ -192,6 +219,7 @@ def validate_rows(rows, max_report: int = 10) -> tuple[list, dict]:
     valid, errors = [], []
     summary: dict[str, dict] = {}
     for i, row in enumerate(rows):
+        row = normalize_row(row)
         problems = validate_row(row)
         if problems:
             if len(errors) < max_report:

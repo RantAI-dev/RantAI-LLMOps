@@ -56,8 +56,15 @@ export function UploadDatasetDialog({
   const [train, setTrain] = useState<ChosenReport | null>(null);
   const [test, setTest] = useState<ChosenReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fromHf, setFromHf] = useState(false);
+  const [hfId, setHfId] = useState("LocalLLaMA/typed-decisions");
+  const [hfConfig, setHfConfig] = useState("all");
+  const [hfSplit, setHfSplit] = useState("train");
+  const [hfEval, setHfEval] = useState("test");
+  const [hfRows, setHfRows] = useState("2000");
 
   const reset = () => {
+    setFromHf(false);
     setName("");
     setFile(null);
     setBusy(false);
@@ -97,21 +104,40 @@ export function UploadDatasetDialog({
     };
   }, [decision, evalFile]);
 
-  const blocked = decision && (!train || train.problem !== null || (evalFile !== null && (!test || test.problem !== null)));
+  const hf = decision && fromHf;
+  const blocked =
+    !hf && decision && (!train || train.problem !== null || (evalFile !== null && (!test || test.problem !== null)));
+  const ready = hf ? hfId.trim().length > 0 : file !== null;
 
   const submit = async () => {
-    if (!name.trim() || !file || busy || blocked) return;
+    if (!name.trim() || !ready || busy || blocked) return;
     setBusy(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append("name", name.trim());
-      form.append("file", file);
-      if (decision) {
-        form.append("kind", "decision");
-        if (evalFile) form.append("eval_file", evalFile);
+      let res: Response;
+      if (hf) {
+        res = await fetch("/api/datasets/import-hf", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: name.trim(),
+            dataset: hfId.trim(),
+            config: hfConfig.trim(),
+            split: hfSplit.trim(),
+            evalSplit: hfEval.trim(),
+            maxRows: Number(hfRows),
+          }),
+        });
+      } else {
+        const form = new FormData();
+        form.append("name", name.trim());
+        form.append("file", file as File);
+        if (decision) {
+          form.append("kind", "decision");
+          if (evalFile) form.append("eval_file", evalFile);
+        }
+        res = await fetch("/api/datasets/upload", { method: "POST", body: form });
       }
-      const res = await fetch("/api/datasets/upload", { method: "POST", body: form });
       const data = (await res.json().catch(() => ({}))) as {
         id?: string;
         error?: string;
@@ -195,6 +221,54 @@ export function UploadDatasetDialog({
             </span>
           </label>
 
+          {decision ? (
+            <label className="flex cursor-pointer items-center gap-2 rounded-md bg-surface-2 px-3 py-2">
+              <input
+                type="checkbox"
+                checked={fromHf}
+                disabled={busy}
+                onChange={(e) => {
+                  setFromHf(e.target.checked);
+                  setError(null);
+                }}
+                className="size-4 shrink-0 accent-primary"
+              />
+              <span className="text-[12px] font-medium leading-4 text-ink">Import from Hugging Face instead of a file</span>
+            </label>
+          ) : null}
+
+          {hf ? (
+            <div className="space-y-2 rounded-md border border-hairline-2 p-3">
+              <label className="block">
+                <span className="mb-1 block text-[12px] font-medium text-ink">Dataset id</span>
+                <Input value={hfId} onChange={(e) => setHfId(e.target.value)} placeholder="owner/name" disabled={busy} />
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <label className="block">
+                  <span className="mb-1 block text-[12px] font-medium text-ink">Subset</span>
+                  <Input value={hfConfig} onChange={(e) => setHfConfig(e.target.value)} disabled={busy} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[12px] font-medium text-ink">Train split</span>
+                  <Input value={hfSplit} onChange={(e) => setHfSplit(e.target.value)} disabled={busy} />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-[12px] font-medium text-ink">Eval split</span>
+                  <Input value={hfEval} onChange={(e) => setHfEval(e.target.value)} placeholder="optional" disabled={busy} />
+                </label>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-[12px] font-medium text-ink">Max train rows</span>
+                <Input value={hfRows} onChange={(e) => setHfRows(e.target.value.replace(/\D/g, ""))} inputMode="numeric" disabled={busy} />
+              </label>
+              <p className="text-[11px] leading-4 text-ink-soft">
+                Rows with questions and gold stored as JSON strings are converted automatically. Try{" "}
+                <code>LocalLLaMA/typed-decisions</code> (subset <code>all</code>, 1,600 train rows, Apache-2.0).
+              </p>
+            </div>
+          ) : null}
+
+          {hf ? null : (
           <label className="block">
             <span className="mb-1 block text-[13px] font-medium text-ink">
               {decision ? "Train file (.jsonl)" : "File (.jsonl / .csv)"}
@@ -212,9 +286,10 @@ export function UploadDatasetDialog({
               </span>
             ) : null}
           </label>
-          {decision && file ? <ReportCard label="Train" chosen={train} /> : null}
+          )}
+          {decision && file && !hf ? <ReportCard label="Train" chosen={train} /> : null}
 
-          {decision ? (
+          {decision && !hf ? (
             <>
               <label className="block">
                 <span className="mb-1 block text-[13px] font-medium text-ink">
@@ -255,9 +330,9 @@ export function UploadDatasetDialog({
           >
             Cancel
           </Button>
-          <Button type="button" onClick={submit} disabled={!name.trim() || !file || busy || blocked}>
+          <Button type="button" onClick={submit} disabled={!name.trim() || !ready || busy || blocked}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-            {busy ? "Uploading…" : "Upload"}
+            {busy ? (hf ? "Importing…" : "Uploading…") : hf ? "Import" : "Upload"}
           </Button>
         </DialogFooter>
       </DialogContent>

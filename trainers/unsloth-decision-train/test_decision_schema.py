@@ -117,6 +117,16 @@ def test_shared_fixture_with_the_typescript_validator():
     assert not wrong, wrong
 
 
+def test_hf_style_rows_with_stringified_json():
+    """LocalLLaMA/typed-decisions keeps questions/gold as JSON strings next to extra columns."""
+    row = {"id": "x", "workflow": "w", "state": "text", "factors": "{}",
+           "questions": json.dumps({"a": {"type": "noul"}}),
+           "gold": json.dumps({"a": {"noul": 0.8, "type": "noul"}})}
+    valid, report = validate_rows([row])
+    assert report["valid"] == 1 and valid[0]["questions"] == {"a": {"type": "noul"}}
+    assert set(valid[0]) == {"state", "questions", "gold"}
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

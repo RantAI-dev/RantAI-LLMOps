@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { decisionDatasetProblem, validateDecisionJsonl, validateDecisionRow } from "@/lib/decision-schema";
+import {
+  decisionDatasetProblem,
+  normalizeDecisionJsonl,
+  validateDecisionJsonl,
+  validateDecisionRow,
+} from "@/lib/decision-schema";
 
 // The Python validator that runs inside the training job reads the SAME file
 // (trainers/unsloth-decision-train/test_decision_schema.py). A row one accepts and the other
@@ -105,5 +110,18 @@ describe("decisionDatasetProblem", () => {
 
   it("allows a smaller minimum for an eval file", () => {
     expect(decisionDatasetProblem(validateDecisionJsonl(file(8, 0)), "eval", 5)).toBeNull();
+  });
+
+  it("accepts Hugging Face rows that keep questions and gold as JSON strings", () => {
+    const row = {
+      id: "x",
+      state: "text",
+      factors: "{}",
+      questions: JSON.stringify({ a: { type: "noul" } }),
+      gold: JSON.stringify({ a: { noul: 0.8, type: "noul" } }),
+    };
+    const text = normalizeDecisionJsonl(JSON.stringify(row));
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(["gold", "questions", "state"]);
+    expect(validateDecisionJsonl(JSON.stringify(row)).valid).toBe(1);
   });
 });

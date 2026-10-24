@@ -30,6 +30,46 @@ export const MAX_LEVELS = 10;
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
+/** A field some exporters store as a JSON string (Hugging Face parquet does): parse it, else leave it. */
+function jsonField(value: unknown): unknown {
+  if (typeof value === "string" && /^\s*[{[]/.test(value)) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+}
+
+/**
+ * The row as the trainer reads it: stringified `questions`/`gold` parsed, extra columns dropped.
+ * LocalLLaMA/typed-decisions (the dataset Unsloth's guide trains on) keeps questions and gold as JSON
+ * strings next to bookkeeping columns (id, workflow, factors, ...). `state` stays as it is. Anything
+ * that is not an object is returned unchanged so validateDecisionRow reports it. Twin of
+ * normalize_row in trainers/unsloth-decision-train/decision_schema.py.
+ */
+export function normalizeDecisionRow(row: unknown): unknown {
+  if (!isObj(row)) return row;
+  return { state: row.state, questions: jsonField(row.questions), gold: jsonField(row.gold ?? row.answers) };
+}
+
+/** Rewrite every JSONL line with normalizeDecisionRow; lines that do not parse are kept for the validator to report. */
+export function normalizeDecisionJsonl(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((raw) => {
+      const line = raw.trim();
+      if (!line) return line;
+      try {
+        return JSON.stringify(normalizeDecisionRow(JSON.parse(line)));
+      } catch {
+        return line;
+      }
+    })
+    .join("\n");
+}
+
 /** The option ids of a question, or null when its criteria are unusable. */
 function optionsOf(kind: string, criteria: unknown): string[] | null {
   if (kind === "noul") return ["false", "true"];
@@ -195,7 +235,7 @@ export function validateDecisionJsonl(text: string, maxReport = 10): DecisionDat
     report.total += 1;
     let row: unknown;
     try {
-      row = JSON.parse(line);
+      row = normalizeDecisionRow(JSON.parse(line));
     } catch {
       report.invalid += 1;
       if (report.errors.length < maxReport) report.errors.push(`row ${i + 1}: not valid JSON`);
