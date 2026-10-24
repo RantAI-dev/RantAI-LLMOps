@@ -16,11 +16,11 @@ RUN uv pip install --system --index-url https://download.pytorch.org/whl/cu130 \
       --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match \
       "torch==2.10.0+cu130" "torchvision==0.25.0+cu130"
 
-# unsloth from a pinned git sha (the PyPI release lags the decision code); bitsandbytes is required
+# unsloth 2026.10.8 is the first PyPI release pinned here that carries the decision code; bitsandbytes is required
 # by unsloth_zoo even for 16-bit weights. gcc comes with this base image and is needed: Triton
 # compiles small kernels at run time.
 RUN uv pip install --system --index-strategy unsafe-best-match \
-      "unsloth @ git+https://github.com/unslothai/unsloth.git@5a955eff16" unsloth_zoo \
+      "unsloth==2026.10.8" "unsloth_zoo==2026.10.8" \
       "transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" \
       fastapi "uvicorn[standard]"
 

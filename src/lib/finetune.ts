@@ -136,7 +136,7 @@ const DECISION_SETUP =
   "--extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match " +
   '"torch==2.10.0+cu130" "torchvision==0.25.0+cu130" ' +
   "&& uv pip install --index-strategy unsafe-best-match " +
-  '"unsloth @ git+https://github.com/unslothai/unsloth.git@5a955eff16" unsloth_zoo ' +
+  '"unsloth==2026.10.8" "unsloth_zoo==2026.10.8" ' +
   '"transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" ' +
   "datasets huggingface-hub s3fs";
 const DECISION_RUN = "python unsloth-decision-train/train.py";
