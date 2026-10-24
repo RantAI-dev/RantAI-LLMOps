@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, RefreshCw, Scale } from "lucide-react";
+import { Check, Copy, Loader2, RefreshCw, Scale } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/ui/tooltip";
+import { copyText } from "@/lib/copy-text";
 import { useDecision } from "@/modules/serve/hooks/use-decision";
 
 const EXAMPLE_STATE = "Halo, saya ditagih dua kali untuk invoice #4411. Mohon refund secepatnya.";
@@ -37,6 +38,7 @@ export function DecisionDeploy() {
   const [questions, setQuestions] = useState(EXAMPLE_QUESTIONS);
   const [answer, setAnswer] = useState<string | null>(null);
   const [asking, setAsking] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   if (!loading && !server.configured) return null;
 
@@ -245,7 +247,26 @@ export function DecisionDeploy() {
                   Ask
                 </Button>
                 {answer ? (
-                  <pre className="max-h-64 overflow-auto rounded-md bg-surface-2 p-2 font-mono text-[11px] leading-4">{answer}</pre>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (await copyText(answer)) {
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 1500);
+                        } else {
+                          toast.error("Could not copy: select the response and copy it manually");
+                        }
+                      }}
+                      className="absolute right-2 top-2 inline-flex items-center gap-1 rounded border border-hairline-2 bg-surface px-1.5 py-1 text-[11px] text-ink-soft hover:text-ink"
+                      title="Copy the response"
+                      aria-label="Copy the response"
+                    >
+                      {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                    <pre className="max-h-64 overflow-auto rounded-md bg-surface-2 p-2 pr-20 font-mono text-[11px] leading-4">{answer}</pre>
+                  </div>
                 ) : null}
               </div>
             </details>
