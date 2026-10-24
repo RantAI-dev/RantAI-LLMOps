@@ -9,6 +9,9 @@ import { InfoTip } from "@/components/ui/tooltip";
 import { copyText } from "@/lib/copy-text";
 import { useDecision } from "@/modules/serve/hooks/use-decision";
 
+/** Finished jobs listed before "Show all": the newest ones are the ones usually deployed. */
+const JOBS_SHOWN = 5;
+
 const EXAMPLE_STATE = "Halo, saya ditagih dua kali untuk invoice #4411. Mohon refund secepatnya.";
 const EXAMPLE_QUESTIONS = JSON.stringify(
   {
@@ -41,6 +44,7 @@ export function DecisionDeploy() {
   const [copied, setCopied] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
   const [confirmUnload, setConfirmUnload] = useState<string | null>(null);
+  const [showAllJobs, setShowAllJobs] = useState(false);
 
   if (!loading && !server.configured && !error) return null;
 
@@ -201,7 +205,7 @@ export function DecisionDeploy() {
             ) : (
               <>
                 <ul className="space-y-1.5">
-                  {jobs.map((j) => (
+                  {(showAllJobs ? jobs : jobs.slice(0, JOBS_SHOWN)).map((j) => (
                     <li key={j.id} className="flex items-center justify-between gap-3 rounded-md border border-hairline-2 px-3 py-2">
                       <div className="min-w-0">
                         <p className="truncate text-[13px] font-medium text-ink">{j.name}</p>
@@ -225,6 +229,16 @@ export function DecisionDeploy() {
                     </li>
                   ))}
                 </ul>
+                {jobs.length > JOBS_SHOWN ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllJobs((v) => !v)}
+                    className="mt-1.5 text-[12px] font-medium text-primary hover:underline"
+                    aria-expanded={showAllJobs}
+                  >
+                    {showAllJobs ? "Show fewer" : `Show all ${jobs.length} jobs`}
+                  </button>
+                ) : null}
                 <label className="mt-2 flex cursor-pointer items-center gap-2">
                   <input
                     type="checkbox"

@@ -176,7 +176,13 @@ export function UploadDatasetDialog({
         <DialogHeader>
           <DialogTitle className="text-primary">Upload dataset</DialogTitle>
           <DialogDescription>
-            {decision ? (
+            {decision && fromHf ? (
+              <>
+                Imports a Hugging Face dataset whose rows are decisions{" "}
+                <code>{`{"state", "questions", "gold"}`}</code> (questions and gold may be JSON strings).
+                The rows are checked before anything is stored.
+              </>
+            ) : decision ? (
               <>
                 One <strong>.jsonl</strong> row per decision:{" "}
                 <code>{`{"state": "...", "questions": {…}, "gold": {…}}`}</code>. Each question is{" "}
