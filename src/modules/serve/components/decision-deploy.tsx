@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Check, Copy, Loader2, RefreshCw, Scale } from "lucide-react";
 import { toast } from "sonner";
@@ -157,6 +158,14 @@ export function DecisionDeploy() {
                         )}
                       </p>
                       {m.error ? <p className="break-words text-[11px] leading-4 text-danger">{m.error}</p> : null}
+                      {m.loaded ? (
+                        <Link
+                          href={`/evals?tab=decision&model=${encodeURIComponent(m.name)}`}
+                          className="text-[11px] font-medium text-primary hover:underline"
+                        >
+                          Evaluate on a test set
+                        </Link>
+                      ) : null}
                     </div>
                     {server.adminEnabled ? (
                       confirmUnload === m.name ? (

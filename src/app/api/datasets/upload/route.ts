@@ -1,27 +1,34 @@
 import type { NextRequest } from "next/server";
 
-import { DatasetInputError, uploadDatasetFile, uploadDecisionDataset } from "@/lib/finetune";
+import { guardApi } from "@/lib/auth";
+import { DatasetInputError, MAX_DATASET_BYTES } from "@/lib/dataset-ingest";
+import { ingestDataset, type DatasetDestination, type IngestKind } from "@/lib/finetune";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Cap the upload so a huge file can't exhaust memory (we read it as text).
-const MAX_BYTES = 25 * 1024 * 1024; // 25 MB
+// The multipart envelope adds a little to the file; the proxy body limit in next.config.ts is set above this.
+const MAX_BODY = MAX_DATASET_BYTES + 2 * 1024 * 1024;
+const tooLarge = () =>
+  Response.json({ error: `Maximum dataset size is ${MAX_DATASET_BYTES / 1024 / 1024} MB` }, { status: 413 });
 
 /**
- * Upload a user's own dataset FILE (JSONL or CSV) as a local Transformer Lab
- * dataset, ready to fine-tune on. Multipart form: `name` + `file`.
+ * Add a dataset: the one API behind the "Add dataset" dialog (Datasets and Fine-tune pages). Multipart form:
  *
- * With `kind=decision` the file must be JSONL of decision rows ({state, questions, gold}); it is
- * validated against the decision schema, an optional `eval_file` becomes the test set, and the
- * response carries the validation report next to the id.
+ *   name         required
+ *   file | text  the dataset: a file (JSONL, CSV, JSON array) or pasted text (JSONL or `prompt | completion` lines)
+ *   kind         "text" (default: SFT / GRPO) or "decision" (System One rows of {state, questions, gold})
+ *   eval_file    decision only: a separate test file (also becomes a test set in Evals → Decision)
+ *   destination  "workspace" (default) or "s3" with `bucket` and `prefix`
+ *
+ * The whole content is validated before anything is stored. The response carries the report the review
+ * step shows (`report`, and `eval` for a test file) next to the `id` / `ref` to pick in Fine-tune.
  */
 export async function POST(req: NextRequest) {
+  const denied = await guardApi(req);
+  if (denied) return denied;
   // Reject oversized bodies before buffering the whole thing into memory.
-  const declared = Number(req.headers.get("content-length") ?? 0);
-  if (declared > MAX_BYTES) {
-    return Response.json({ error: "Maximum file size is 25 MB" }, { status: 413 });
-  }
+  if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY) return tooLarge();
 
   let form: FormData;
   try {
@@ -31,44 +38,58 @@ export async function POST(req: NextRequest) {
   }
 
   const name = String(form.get("name") ?? "").trim();
-  const file = form.get("file");
   if (!name) return Response.json({ error: "Dataset name is required" }, { status: 400 });
-  if (!(file instanceof File)) return Response.json({ error: "A file is required" }, { status: 400 });
-  if (!/\.(jsonl|csv)$/i.test(file.name)) {
-    return Response.json({ error: "Only .jsonl or .csv files are supported" }, { status: 400 });
+
+  const kindRaw = String(form.get("kind") ?? "text");
+  if (kindRaw !== "text" && kindRaw !== "decision") {
+    return Response.json({ error: "`kind` must be \"text\" or \"decision\"" }, { status: 400 });
   }
-  if (file.size > MAX_BYTES) {
-    return Response.json({ error: "Maximum file size is 25 MB" }, { status: 413 });
+  const kind: IngestKind = kindRaw;
+
+  const file = form.get("file");
+  const pasted = form.get("text");
+  let content: string;
+  let filename: string;
+  if (file instanceof File) {
+    if (file.size > MAX_DATASET_BYTES) return tooLarge();
+    if (!/\.(jsonl|ndjson|json|csv)$/i.test(file.name)) {
+      return Response.json({ error: "Only .jsonl, .json or .csv files are supported" }, { status: 400 });
+    }
+    content = await file.text();
+    filename = file.name;
+  } else if (typeof pasted === "string" && pasted.trim()) {
+    if (Buffer.byteLength(pasted, "utf8") > MAX_DATASET_BYTES) return tooLarge();
+    content = pasted;
+    filename = "";
+  } else {
+    return Response.json({ error: "A file or pasted text is required" }, { status: 400 });
+  }
+
+  let evalContent: string | undefined;
+  let evalFilename: string | undefined;
+  const evalFile = form.get("eval_file");
+  if (evalFile instanceof File && evalFile.size > 0) {
+    if (kind !== "decision") {
+      return Response.json({ error: "A separate test file is only used by decision datasets" }, { status: 400 });
+    }
+    if (evalFile.size > MAX_DATASET_BYTES) return tooLarge();
+    if (!/\.(jsonl|ndjson|json)$/i.test(evalFile.name)) {
+      return Response.json({ error: "The test file must be .jsonl or .json" }, { status: 400 });
+    }
+    evalContent = await evalFile.text();
+    evalFilename = evalFile.name;
+  }
+
+  let destination: DatasetDestination = { kind: "workspace" };
+  if (String(form.get("destination") ?? "workspace") === "s3") {
+    destination = { kind: "s3", bucket: String(form.get("bucket") ?? "").trim(), prefix: String(form.get("prefix") ?? "datasets").trim() };
   }
 
   try {
-    const content = await file.text();
-    if (String(form.get("kind") ?? "") === "decision") {
-      if (!/\.jsonl$/i.test(file.name)) {
-        return Response.json({ error: "A decision dataset must be a .jsonl file" }, { status: 400 });
-      }
-      const evalFile = form.get("eval_file");
-      let evalContent: string | undefined;
-      if (evalFile instanceof File && evalFile.size > 0) {
-        if (!/\.jsonl$/i.test(evalFile.name)) {
-          return Response.json({ error: "The eval file must be a .jsonl file" }, { status: 400 });
-        }
-        if (evalFile.size > MAX_BYTES) {
-          return Response.json({ error: "Maximum file size is 25 MB" }, { status: 413 });
-        }
-        evalContent = await evalFile.text();
-      }
-      const result = await uploadDecisionDataset(name, content, evalContent);
-      return Response.json(result);
-    }
-    const id = await uploadDatasetFile(name, file.name, content);
-    return Response.json({ id });
+    return Response.json(await ingestDataset({ name, kind, filename, content, evalContent, evalFilename, destination }));
   } catch (err) {
     // Bad file/name = the user's fault (400); anything else = upstream (502).
-    if (err instanceof DatasetInputError) {
-      return Response.json({ error: err.message }, { status: 400 });
-    }
-    const message = err instanceof Error ? err.message : "Failed to upload the dataset";
-    return Response.json({ error: message }, { status: 502 });
+    if (err instanceof DatasetInputError) return Response.json({ error: err.message }, { status: 400 });
+    return Response.json({ error: err instanceof Error ? err.message : "Failed to add the dataset" }, { status: 502 });
   }
 }

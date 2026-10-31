@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2, Sparkles, Trash2 } from "lucide-react";
+import { Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InfoTip } from "@/components/ui/tooltip";
 import type { FinetuneOptions } from "@/lib/finetune";
+import { AddDatasetDialog } from "@/modules/datasets/components/add-dataset-dialog";
 import { HfSearch } from "@/modules/hub/components/hf-search";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +49,7 @@ export function FinetuneForm({
   error,
   onSubmit,
   onDeleteDataset,
-  presetDataset,
+  onDatasetAdded,
 }: {
   options: FinetuneOptions;
   loading: boolean;
@@ -56,9 +57,10 @@ export function FinetuneForm({
   error: string | null;
   onSubmit: (body: Record<string, unknown>) => Promise<boolean>;
   onDeleteDataset: (id: string) => Promise<void>;
-  /** When set (e.g. a just-created dataset), select it in the dataset field. */
-  presetDataset?: string;
+  /** A dataset was just added: refresh the list so it can be picked. */
+  onDatasetAdded: () => Promise<void>;
 }) {
+  const [addOpen, setAddOpen] = useState(false);
   const [method, setMethod] = useState<Method>("sft");
   const [baseModel, setBaseModel] = useState("");
   // Prefilled HF search query when arriving from Model Registry's "Fine-tune".
@@ -120,11 +122,6 @@ export function FinetuneForm({
     if (b) setBaseQuery(b);
   }, []);
 
-  // Select a dataset the "New dataset" form just created (its s3:// ref or id).
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reconcile the field to the newly-created dataset
-    if (presetDataset) setDataset(presetDataset);
-  }, [presetDataset]);
 
   // Show the chosen dataset in the select even if it's a HF id not in the local
   // list — the trainer pulls HF datasets by id at runtime.
@@ -370,6 +367,16 @@ export function FinetuneForm({
                 presets={datasetOptions.map((d) => ({ id: d.id, label: d.name, local: d.downloaded }))}
               />
             </div>
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              aria-label="Add dataset"
+              title="Upload a file, paste text or import from Hugging Face"
+              className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-input px-2.5 text-[13px] font-medium text-ink hover:bg-surface-2"
+            >
+              <Plus className="size-4" aria-hidden />
+              Add
+            </button>
             {selectedDataset?.downloaded ? (
               <button
                 type="button"
@@ -410,6 +417,16 @@ export function FinetuneForm({
             </div>
           ) : null}
         </label>
+
+        <AddDatasetDialog
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          defaultKind={method === "decision" ? "decision" : "text"}
+          onAdded={(ref) => {
+            setDataset(ref);
+            void onDatasetAdded();
+          }}
+        />
 
         <label className="block">
           <span className="mb-1 block text-[13px] font-medium text-ink">Adaptor name</span>

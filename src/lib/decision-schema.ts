@@ -92,7 +92,7 @@ export function validDecisionJsonl(text: string): string {
 }
 
 /** The option ids of a question, or null when its criteria are unusable. */
-function optionsOf(kind: string, criteria: unknown): string[] | null {
+export function optionsOf(kind: string, criteria: unknown): string[] | null {
   if (kind === "noul") return ["false", "true"];
   if (kind === "choice") {
     if (Array.isArray(criteria) && criteria.length > 0 && criteria.every((c) => typeof c === "string")) {

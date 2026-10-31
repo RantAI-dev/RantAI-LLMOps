@@ -176,5 +176,5 @@ export async function ensureHfDecisionDataset(spec: string, config?: string): Pr
   const evalContent = source.evalSplit
     ? await fetchHfJsonl({ dataset, config: source.config, split: source.evalSplit, maxRows: 1_000 })
     : undefined;
-  return (await uploadDecisionDataset(id, content, evalContent)).id;
+  return (await uploadDecisionDataset(id, content, evalContent, "huggingface")).id;
 }

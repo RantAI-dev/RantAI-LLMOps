@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
     const evalContent = src.evalSplit
       ? await fetchHfJsonl({ dataset, config: src.config, split: src.evalSplit, maxRows: Math.min(maxRows, 1_000) })
       : undefined;
-    return Response.json(await uploadDecisionDataset(name, content, evalContent));
+    return Response.json(await uploadDecisionDataset(name, content, evalContent, "huggingface"));
   } catch (err) {
     return fail(err, "Failed to import the dataset");
   }
