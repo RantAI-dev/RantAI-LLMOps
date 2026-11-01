@@ -23,8 +23,8 @@ import { getHfToken } from "@/lib/settings-store";
 import { createDeploymentStore, type VllmDeployment } from "@/lib/vllm-deployment-store";
 import type { DeployVllmParams, VllmDeploymentStatus } from "@/lib/serve-vllm";
 
-// GB10 (CUDA 13 driver, aarch64) needs a cu13 build, e.g.
-// lmsysorg/sglang:dev-cu13-qwen38-27b-dflash2; the default suits x86 + CUDA 12.
+// GB10 (CUDA 13 driver, aarch64) needs a cu130 release, e.g.
+// lmsysorg/sglang:v0.5.23-cu130 (tested there); the default suits x86 + CUDA 12.
 const IMAGE = process.env.SGLANG_IMAGE ?? "lmsysorg/sglang:latest";
 const CONTAINER = process.env.SGLANG_MANAGED_NAME ?? "rantai-sglang-managed";
 const NETWORK = process.env.SGLANG_NETWORK ?? process.env.VLLM_NETWORK ?? "rantai-llmops_llmops";
