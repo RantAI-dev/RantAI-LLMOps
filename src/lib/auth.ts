@@ -86,3 +86,36 @@ export async function verifySession(cookie: string | undefined): Promise<boolean
   if (!cookie) return false;
   return constantTimeEqual(cookie, await sessionToken());
 }
+
+/**
+ * True when a state-changing request comes from another origin. Browsers send `Origin` on cross-site
+ * POST/DELETE; another app on the same host but a different port (the mockups on :3080/:3090) is
+ * "same-site" for the SameSite=Lax cookie, so the cookie alone does not stop it. A request without
+ * `Origin` (curl, server-to-server) is not a browser CSRF and is allowed.
+ */
+export function crossOriginWrite(req: Request): boolean {
+  if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") return false;
+  const origin = req.headers.get("origin");
+  if (!origin) return false;
+  let host: string;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return true;
+  }
+  const allowed = [req.headers.get("host"), req.headers.get("x-forwarded-host")].filter(Boolean);
+  return !allowed.includes(host);
+}
+
+/**
+ * The same checks the proxy applies, for a route handler to repeat (defence in depth: the proxy's
+ * matcher skips paths that look like static images, and a model may be named "x.png").
+ * Returns a Response to send back, or null when the request may proceed.
+ */
+export async function guardApi(req: Request & { cookies?: { get(name: string): { value: string } | undefined } }): Promise<Response | null> {
+  if (crossOriginWrite(req)) return Response.json({ error: "Cross-origin request refused" }, { status: 403 });
+  if (!AUTH_ENABLED) return null;
+  const cookie = req.cookies?.get(AUTH_COOKIE)?.value;
+  if (await verifySession(cookie)) return null;
+  return Response.json({ error: "Unauthorized" }, { status: 401 });
+}

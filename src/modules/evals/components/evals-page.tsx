@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { LoadingState } from "@/components/ui/loading-state";
 import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { ClassificationEval } from "@/modules/evals/components/classification-eval";
+import { DecisionEval } from "@/modules/evals/components/decision-eval";
 import { EvalCompare } from "@/modules/evals/components/eval-compare";
 import { EvalForm } from "@/modules/evals/components/eval-form";
 import { EvalJobList } from "@/modules/evals/components/eval-job-list";
@@ -13,7 +14,7 @@ import { GroundingEval } from "@/modules/evals/components/grounding-eval";
 import { RetentionView } from "@/modules/evals/components/retention-view";
 import { useEvals } from "@/modules/evals/hooks/use-evals";
 
-type Tab = "single" | "compare" | "retention" | "grounding" | "classification";
+type Tab = "single" | "compare" | "retention" | "grounding" | "classification" | "decision";
 
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
@@ -22,6 +23,12 @@ export function EvalsPage() {
     comparing, compareProgress, submitCompare,
   } = useEvals();
   const [tab, setTab] = useState<Tab>("single");
+
+  // Deployments links here with ?tab=decision&model=...
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync from the URL on mount
+    if (new URLSearchParams(window.location.search).get("tab") === "decision") setTab("decision");
+  }, []);
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
@@ -32,6 +39,8 @@ export function EvalsPage() {
           the workspace. Compare the base against your <strong>fine-tune</strong> to see the effect.
           The <strong>Grounding</strong> tab measures something different: whether the model answers
           only from the material provided, refuses when the answer is not there, and cites its source.
+          The <strong>Decision</strong> tab grades a System One model on a labelled test set: accuracy
+          and whether its stated confidence can be trusted.
         </InfoTip>
       </div>
 
@@ -47,6 +56,7 @@ export function EvalsPage() {
                 ["retention", "Retention"],
                 ["grounding", "Grounding"],
                 ["classification", "Classification"],
+                ["decision", "Decision"],
               ] as const
             ).map(([id, lbl]) => (
               <button
@@ -115,8 +125,10 @@ export function EvalsPage() {
             />
           ) : tab === "grounding" ? (
             <GroundingEval />
-          ) : (
+          ) : tab === "classification" ? (
             <ClassificationEval />
+          ) : (
+            <DecisionEval />
           )}
         </>
       )}

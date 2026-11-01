@@ -48,3 +48,22 @@ upstream and is **not** what runs — treat it as the diff baseline.
 Transformer Lab clones the repo's **default branch**. A trainer edit only takes
 effect once it is merged and pushed to `main` — running a job from a feature
 branch still gets `main`'s copy.
+
+## `unsloth-decision-train/` (decision models)
+
+Trains **decision models** (System One / Jev-style): a language model plus a Clef decision head that
+scores typed questions (`noul`, `choice`, `score`) and returns an answer with a calibrated
+probability instead of writing text. Built on Unsloth's `FastDecisionModel` / `DecisionTrainer`
+(AGPL-3.0, `unsloth/models/decision.py`). Validated on the GB10 on 2026-10-22 with Qwen3.5-0.8B,
+SEA-LION 8B (4-bit) and SEA-LION 4B (4-bit); see `AI_KNOWLEDGE_LOG.md`.
+
+- Row format and validation: `decision_schema.py` (tests: `python test_decision_schema.py`).
+- Outputs: an adapter + head under the model name `unsloth_decision_model` (deliberately not
+  `unsloth_trained_model`, so chat-LoRA tooling never picks it up), `decision_report.json`
+  (before/after accuracy, ECE, record accuracy), `eval_predictions.jsonl`; optional merged 16-bit
+  weights and a GGUF (Qwen3.5 backbones only).
+- Loss lines are printed as `{'loss': x, 'step': n}` on purpose: transformers 5 prints numbers as
+  strings, which the UI's loss chart cannot parse. Never print an evaluation metric called `loss`
+  as a dict, it would show up as a training-loss point.
+- Try a branch before merging: set `DECISION_TRAINER_BRANCH=<branch>` on the frontend; the launch
+  passes `github_repo_branch` (the backend supports it, the SFT trainers just never use it).

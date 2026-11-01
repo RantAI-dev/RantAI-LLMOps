@@ -10,7 +10,7 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { DatasetCard } from "@/modules/datasets/components/dataset-card";
 import { DatasetFiltersBar } from "@/modules/datasets/components/dataset-filters";
 import { DatasetSummaryCards } from "@/modules/datasets/components/dataset-summary-cards";
-import { UploadDatasetDialog } from "@/modules/datasets/components/upload-dataset-dialog";
+import { AddDatasetDialog } from "@/modules/datasets/components/add-dataset-dialog";
 import { datasetUi } from "@/modules/datasets/constants/dataset-ui";
 import { datasetHref } from "@/modules/datasets/lib/routes";
 import { useDatasets } from "@/modules/datasets/hooks/use-datasets";
@@ -106,7 +106,7 @@ export function DatasetsPage() {
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
           <Button type="button" variant="outline" onClick={() => setUploadOpen(true)}>
             <Upload className="size-4" />
-            Upload dataset
+            Add dataset
           </Button>
           <Button type="button" onClick={goToHub}>
             <Download className="size-4" />
@@ -115,10 +115,10 @@ export function DatasetsPage() {
         </div>
       </div>
 
-      <UploadDatasetDialog
+      <AddDatasetDialog
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
-        onUploaded={() => reloadDatasets()}
+        onAdded={() => reloadDatasets()}
       />
 
       <DatasetSummaryCards datasets={datasets} />

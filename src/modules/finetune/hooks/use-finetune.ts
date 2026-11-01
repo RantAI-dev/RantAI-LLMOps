@@ -83,31 +83,6 @@ export function useFinetune() {
     }
   }, []);
 
-  /**
-   * Create a prompt/completion dataset. With `dest` it is saved to S3/MinIO and
-   * the returned ref is the `s3://` URI (directly trainable); without it, the
-   * legacy TL-local id. Refreshes the local dataset list either way.
-   */
-  const createDataset = useCallback(
-    async (
-      name: string,
-      rows: Array<{ prompt: string; completion: string }>,
-      dest?: { bucket: string; prefix?: string }
-    ) => {
-      const res = await fetch("/api/datasets/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, rows, ...dest }),
-      });
-      const data = (await res.json()) as { id?: string; ref?: string; error?: string };
-      if (!res.ok || !data.id) throw new Error(data.error || "Could not create dataset");
-      await refreshOptions();
-      // Prefer the s3:// ref (trainable as-is) over the bare id.
-      return data.ref ?? data.id;
-    },
-    [refreshOptions]
-  );
-
   const deleteDataset = useCallback(
     async (datasetId: string) => {
       try {
@@ -171,7 +146,7 @@ export function useFinetune() {
     submitting,
     error,
     submit,
-    createDataset,
+    refreshOptions,
     deleteDataset,
     deleteJob,
     refreshJobs: loadJobs,

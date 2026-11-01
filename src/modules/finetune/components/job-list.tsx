@@ -1,11 +1,14 @@
 "use client";
 
 import { CheckCircle2, CircleAlert, Loader2, Trash2 } from "lucide-react";
+import { useMemo } from "react";
 
+import { useJobOutput } from "@/components/job-log";
 import { Progress } from "@/components/ui/progress";
 import type { TrainingJob } from "@/lib/finetune";
 import { isJobActive, isJobFailed } from "@/modules/finetune/hooks/use-finetune";
 import { TrainingMonitor } from "@/modules/finetune/components/training-monitor";
+import { parseDecisionReport, type DecisionMetrics } from "@/modules/finetune/lib/parse-decision";
 import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: string }) {
@@ -33,6 +36,59 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+const pct = (v?: number) => (v === undefined ? "—" : `${(v * 100).toFixed(1)}%`);
+const fixed = (v?: number) => (v === undefined ? "—" : v.toFixed(3));
+
+function Delta({ label, before, after, fmt }: { label: string; before?: number; after?: number; fmt: (v?: number) => string }) {
+  return (
+    <div>
+      <p className="text-[11px] text-ink-soft">{label}</p>
+      <p className="text-[13px] font-medium tabular-nums text-ink">
+        <span className="text-ink-soft">{fmt(before)}</span> → {fmt(after)}
+      </p>
+    </div>
+  );
+}
+
+/** Before/after quality of a finished decision-model job, read from its output (no extra API). */
+function DecisionResult({ jobId }: { jobId: string }) {
+  const output = useJobOutput(jobId, false, true);
+  const r = useMemo(() => parseDecisionReport(output), [output]);
+  if (!r) return null;
+  const b: DecisionMetrics = r.before;
+  const a: DecisionMetrics = r.after;
+  const where = r.testSet === "holdout" ? "the held-out rows" : `the separate test set (${r.testSet})`;
+  const failedExports = Object.entries(r.exports)
+    .filter(([, st]) => st === "failed")
+    .map(([k]) => (k === "gguf" ? "GGUF" : k));
+  const small = r.testItems !== undefined && r.testItems < 50;
+  const truncated = r.truncated ?? 0;
+  return (
+    <div className="mt-2 rounded-md border border-hairline-2 bg-background p-2.5">
+      <p className="mb-1.5 text-[11px] text-ink-soft">
+        Before → after training, on {where}
+        {r.testItems !== undefined ? ` · ${r.testItems.toLocaleString()} test decisions` : ""}
+      </p>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Delta label="Accuracy (per question)" before={b.accuracy} after={a.accuracy} fmt={pct} />
+        <Delta label="Calibration error (ECE, lower is better)" before={b.ece} after={a.ece} fmt={fixed} />
+        <Delta label="Rows with every question right" before={b.record_accuracy} after={a.record_accuracy} fmt={pct} />
+      </div>
+      {small || truncated > 0 || failedExports.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-[11px] leading-4 text-warning">
+          {small ? (
+            <li>Only {r.testItems} test decisions: these numbers are mostly noise. Add an eval file or more rows.</li>
+          ) : null}
+          {truncated > 0 ? <li>{truncated} training rows were cut to fit the context length.</li> : null}
+          {failedExports.length > 0 ? (
+            <li>{failedExports.join(", ")} export failed (the decision model itself is saved); see the log.</li>
+          ) : null}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function JobList({
   jobs,
   onDelete,
@@ -55,7 +111,14 @@ export function JobList({
           <div key={job.id} className="rounded-xl border border-border bg-surface p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-ink">{job.name}</p>
+                <p className="truncate text-sm font-medium text-ink">
+                  {job.name}
+                  {job.kind === "decision" ? (
+                    <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 align-middle text-[10px] font-medium text-primary">
+                      Decision
+                    </span>
+                  ) : null}
+                </p>
                 <p className="truncate text-[12px] text-ink-soft">
                   {job.model ?? "—"} · {job.dataset ?? "—"}
                 </p>
@@ -81,6 +144,9 @@ export function JobList({
                   {Math.round(job.progress)}%
                 </span>
               </div>
+            ) : null}
+            {job.kind === "decision" && !active && ["COMPLETE", "COMPLETED"].includes(job.status.toUpperCase()) ? (
+              <DecisionResult jobId={job.id} />
             ) : null}
             <TrainingMonitor jobId={job.id} active={active} />
           </div>

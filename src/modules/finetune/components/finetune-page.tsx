@@ -6,7 +6,6 @@ import { LoadingState } from "@/components/ui/loading-state";
 import { InfoTip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { CompareRuns } from "@/modules/finetune/components/compare-runs";
-import { DatasetForm } from "@/modules/finetune/components/dataset-form";
 import { FinetuneForm } from "@/modules/finetune/components/finetune-form";
 import { JobList } from "@/modules/finetune/components/job-list";
 import { SweepPanel } from "@/modules/finetune/components/sweep-panel";
@@ -23,13 +22,11 @@ export function FinetunePage() {
     submitting,
     error,
     submit,
-    createDataset,
+    refreshOptions,
     deleteDataset,
     deleteJob,
   } = useFinetune();
   const [tab, setTab] = useState<Tab>("single");
-  // Set when "New dataset" creates one, so the form above selects it immediately.
-  const [presetDataset, setPresetDataset] = useState<string | undefined>();
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
@@ -77,10 +74,8 @@ export function FinetunePage() {
                 error={error}
                 onSubmit={submit}
                 onDeleteDataset={deleteDataset}
-                presetDataset={presetDataset}
+                onDatasetAdded={refreshOptions}
               />
-
-              <DatasetForm onCreate={createDataset} onCreated={setPresetDataset} />
             </>
           ) : tab === "sweep" ? (
             <SweepPanel options={options} />

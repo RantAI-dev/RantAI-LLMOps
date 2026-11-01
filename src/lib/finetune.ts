@@ -30,8 +30,26 @@ import { assertDatasetRef, assertJobId, assertModelId, assertTag } from "@/lib/v
 import { tlFetch, unwrapList } from "@/lib/tl-fetch";
 import { allExperimentIds, createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
 import { logServerError } from "@/lib/log";
+import {
+  DatasetInputError,
+  buildTextReport,
+  detectFormat,
+  jsonArrayToJsonl,
+  stripBom,
+  toJsonl,
+  type TextReport,
+  type TextSchema,
+} from "@/lib/dataset-ingest";
+import { decisionEvalSetExists, saveDecisionEvalSet, type DecisionEvalSetSource } from "@/lib/decision-eval-set-store";
+import {
+  decisionDatasetProblem,
+  validDecisionJsonl,
+  validateDecisionJsonl,
+  type DecisionDatasetReport,
+} from "@/lib/decision-schema";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
+export { DatasetInputError, csvToJsonl, normalizeJsonl } from "@/lib/dataset-ingest";
 
 /** All fine-tuning runs live under one experiment so jobs are easy to list. */
 export { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
@@ -106,6 +124,39 @@ const TTS_RUN = "python unsloth-text-to-speech-train/train.py";
 export const TTS_DEFAULT_MODEL = "unsloth/orpheus-3b-0.1-ft";
 export const TTS_DEFAULT_ARCHITECTURE = "OrpheusForConditionalGeneration";
 
+/**
+ * Decision-model trainer (System One / Jev-style typed decisions) — a RantAI trainer in THIS repo,
+ * `trainers/unsloth-decision-train`. It turns a language model into a model that scores the options
+ * of typed questions (noul / choice / score) and returns a calibrated probability instead of text.
+ * Its `setup` mirrors the trainer's task.yaml (a recipe validated on the GB10 on 2026-10-22:
+ * torch AND torchvision from the cu130 index, unsloth from a pinned git sha because the PyPI
+ * release lags the decision code, bitsandbytes which unsloth_zoo needs even for 16-bit LoRA).
+ * transformers/trl/peft/accelerate are pinned because a job venv starts from Transformer Lab's
+ * base packages (transformers 4.57.1, trl 0.18.2, accelerate 1.3.0), and uv leaves an installed
+ * package alone when it already satisfies unsloth's range: Qwen3.5 then fails with "needs
+ * transformers 5.2.0" (seen on the first integration run, 2026-10-22).
+ *
+ * Jobs are tagged subtype "DECISION", NOT "TRAIN": everything that treats a TRAIN job as a chat
+ * LoRA adapter (GGUF export to Ollama, adapter attach to vLLM, benchmark picker) must not see them.
+ *
+ * Like every trainer here it is cloned from the repo's default branch. To try it from a feature
+ * branch first, set DECISION_TRAINER_BRANCH on the frontend (read per launch, not at import).
+ */
+const DECISION_GITHUB_DIR = "trainers/unsloth-decision-train";
+const DECISION_SETUP =
+  "uv pip install --index-url https://download.pytorch.org/whl/cu130 " +
+  "--extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match " +
+  '"torch==2.10.0+cu130" "torchvision==0.25.0+cu130" ' +
+  "&& uv pip install --index-strategy unsafe-best-match " +
+  '"unsloth==2026.10.8" "unsloth_zoo==2026.10.8" ' +
+  '"transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" ' +
+  "datasets huggingface-hub s3fs";
+const DECISION_RUN = "python unsloth-decision-train/train.py";
+/** job_data.subtype of a decision-model training job. */
+export const DECISION_SUBTYPE = "DECISION";
+/** Default base for a decision model: the one base with a complete train→GGUF→serve path. */
+export const DECISION_DEFAULT_MODEL = "unsloth/Qwen3.5-2B";
+
 export type FinetuneDataset = {
   id: string;
   name: string;
@@ -127,6 +178,8 @@ export type TrainingJob = {
   model?: string;
   dataset?: string;
   adaptorName?: string;
+  /** "decision" for a decision-model job (listed with fine-tunes, but never exportable as a chat adapter). */
+  kind?: "decision";
 };
 
 /**
@@ -201,7 +254,7 @@ type TlDataset = {
 };
 
 /** Datasets present on disk (TL `/data/list`) — includes user-created ones. */
-async function fetchLocalDatasets(): Promise<TlDataset[]> {
+export async function fetchLocalDatasets(): Promise<TlDataset[]> {
   // Deliberately NOT caught. An empty list here reaches the page as "you have
   // no datasets", which during an outage is a lie the reader cannot detect.
   // /api/datasets/list turns the rejection into a 502 the UI can show.
@@ -299,178 +352,20 @@ export async function deleteDataset(datasetId: string): Promise<boolean> {
   }
 }
 
-/**
- * Create a local dataset from prompt/completion rows (TL `/data/new` +
- * `/data/fileupload`). Returns the slugified dataset id, ready to fine-tune on.
- */
-export async function createDataset(
-  name: string,
-  rows: Array<{ prompt: string; completion: string }>
-): Promise<string> {
-  const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  if (!id) throw new Error("Dataset name is required");
-  if (rows.length === 0) throw new Error("At least one row is required");
-
-  // The slug is lossy (two distinct names can slug equally), so refuse to
-  // silently write into an existing dataset's id — mirror uploadDatasetFile.
-  const existing = await fetchLocalDatasets();
-  if (existing.some((d) => d.dataset_id === id)) {
-    throw new Error(`Dataset "${id}" already exists. Use another name or delete it first.`);
-  }
-
-  const created = await tlFetch(`/data/new?dataset_id=${encodeURIComponent(id)}`);
-  const cData = (await created.json().catch(() => ({}))) as { status?: string; message?: string };
-  // Check the HTTP status too: a 4xx/5xx with a non-JSON body would otherwise
-  // parse to `{}` and slip past the `status === "error"` check, leaving us to
-  // upload into a dataset that was never created.
-  if (!created.ok || cData.status === "error") {
-    throw new Error(cData.message || `Could not create dataset (${created.status})`);
-  }
-
-  const jsonl = rows
-    .map((r) => JSON.stringify({ prompt: r.prompt, completion: r.completion }))
-    .join("\n");
-  const form = new FormData();
-  form.append("files", new Blob([jsonl], { type: "application/jsonl" }), `${id}_train.jsonl`);
-
-  const up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
-    method: "POST",
-    // multipart boundary is set by fetch from the FormData
-    body: form,
-  });
-  if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
-  return id;
-}
-
 /** Slugify a dataset name into a safe id/path segment (shared by both stores). */
 export function slugifyDatasetName(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 }
 
 /**
- * Save a prompt/completion dataset straight to S3/MinIO and return its `s3://`
- * URI — the reference the trainer resolves at run time (unlike a TL-local
- * dataset, which the trainer would mistake for a Hugging Face hub id). The
- * destination (bucket + prefix) is chosen by the caller, so this isn't tied to
- * any one project's layout. Written as `<prefix>/<id>/train.jsonl` so a future
- * `eval.jsonl` can sit beside it and be picked up as a validation split.
+ * Create the Transformer Lab dataset `id` and upload `files` into it. The slug is lossy
+ * ("My Data!" and "my-data" both → "my-data"), so it refuses to silently clobber an existing
+ * dataset and asks the user to rename/delete first.
  */
-export async function createDatasetOnS3(
-  name: string,
-  rows: Array<{ prompt: string; completion: string }>,
-  bucket: string,
-  prefix = "datasets"
-): Promise<{ id: string; ref: string }> {
-  const id = slugifyDatasetName(name);
-  if (!id) throw new Error("Dataset name is required");
-  if (rows.length === 0) throw new Error("At least one row is required");
-  if (!bucket.trim()) throw new Error("A destination bucket is required");
-  const jsonl =
-    rows.map((r) => JSON.stringify({ prompt: r.prompt, completion: r.completion })).join("\n") + "\n";
-  const cleanPrefix = prefix.replace(/^\/+|\/+$/g, "");
-  const key = `${cleanPrefix ? `${cleanPrefix}/` : ""}${id}/train.jsonl`;
-  const ref = await putObject(bucket.trim(), key, jsonl);
-  return { id, ref };
-}
-
-/** A user-input problem (bad file / name) — the route maps this to HTTP 400. */
-export class DatasetInputError extends Error {}
-
-/** RFC-4180-ish CSV parse: handles quoted fields, escaped `""`, and CRLF. */
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = "";
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quoted) {
-      if (c === '"') {
-        if (text[i + 1] === '"') { field += '"'; i++; }
-        else quoted = false;
-      } else field += c;
-    } else if (c === '"') quoted = true;
-    else if (c === ",") { row.push(field); field = ""; }
-    else if (c === "\n") { row.push(field); rows.push(row); row = []; field = ""; }
-    else if (c !== "\r") field += c;
-  }
-  // An odd number of quotes leaves us stuck inside a quoted field at EOF, which
-  // silently swallows the rest of the file into one value — flag it instead.
-  if (quoted) {
-    throw new DatasetInputError("The CSV has an unterminated quoted field (an odd number of quotes)");
-  }
-  if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
-  // Drop blank lines (from a trailing newline or gaps) — a bare "\n" parses to [""].
-  return rows.filter((r) => !(r.length === 1 && r[0] === ""));
-}
-
-/** CSV (header row + data rows) -> JSONL of `{ [column]: value }` objects. */
-export function csvToJsonl(csv: string): string {
-  const rows = parseCsv(csv);
-  if (rows.length < 2) {
-    throw new DatasetInputError("CSV must have a header row plus at least one data row");
-  }
-  const headers = rows[0]!.map((h) => h.trim());
-  if (headers.some((h) => !h)) throw new DatasetInputError("The CSV has an empty header column");
-  if (new Set(headers).size !== headers.length) {
-    throw new DatasetInputError("The CSV has duplicate header column names");
-  }
-  return rows
-    .slice(1)
-    .map((r, ri) => {
-      if (r.length > headers.length) {
-        throw new DatasetInputError(
-          `Row ${ri + 2} has more columns (${r.length}) than the header (${headers.length})`
-        );
-      }
-      return JSON.stringify(Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
-    })
-    .join("\n");
-}
-
-/** Validate a JSONL file (every non-empty line must parse as a JSON object). */
-export function normalizeJsonl(text: string): string {
-  const kept: string[] = [];
-  // Iterate the RAW lines so error messages report the real file line number.
-  text.split(/\r?\n/).forEach((raw, i) => {
-    const line = raw.trim();
-    if (!line) return;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      throw new DatasetInputError(`Row ${i + 1} is not valid JSON`);
-    }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      throw new DatasetInputError(
-        `Row ${i + 1} must be a JSON object, e.g. {"prompt": "...", "completion": "..."}`
-      );
-    }
-    kept.push(line);
-  });
-  if (kept.length === 0) throw new DatasetInputError("The JSONL file is empty");
-  return kept.join("\n");
-}
-
-/**
- * Upload a user's own dataset FILE (JSONL or CSV, arbitrary columns) as a local
- * Transformer Lab dataset — unlike {@link createDataset} which only takes fixed
- * prompt/completion rows. CSV is converted to JSONL; JSONL is validated. Returns
- * the slugified dataset id, ready to pick in Fine-tune.
- */
-export async function uploadDatasetFile(
-  name: string,
-  filename: string,
-  content: string
-): Promise<string> {
-  const id = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-  if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
-  // Strip a leading UTF-8 BOM so it can't corrupt the first CSV header / JSON line.
-  const clean = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
-  const jsonl = /\.csv$/i.test(filename) ? csvToJsonl(clean) : normalizeJsonl(clean);
-
-  // The slug is lossy ("My Data!" and "my-data" both → "my-data"), so refuse to
-  // silently clobber an existing dataset — ask the user to rename/delete first.
+async function createLocalTlDataset(
+  id: string,
+  files: Array<{ filename: string; content: string }>
+): Promise<void> {
   const existing = await fetchLocalDatasets();
   if (existing.some((d) => d.dataset_id === id)) {
     throw new DatasetInputError(`Dataset "${id}" already exists. Use another name or delete it first.`);
@@ -483,13 +378,241 @@ export async function uploadDatasetFile(
   }
 
   const form = new FormData();
-  form.append("files", new Blob([jsonl], { type: "application/jsonl" }), `${id}_train.jsonl`);
-  const up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, {
-    method: "POST",
-    body: form,
-  });
+  for (const f of files) {
+    form.append("files", new Blob([f.content], { type: "application/jsonl" }), f.filename);
+  }
+  let up: Response | null = null;
+  try {
+    up = await tlFetch(`/data/fileupload?dataset_id=${encodeURIComponent(id)}`, { method: "POST", body: form });
+  } finally {
+    // An empty dataset left behind would be picked (and reused) by name and fail every job on it.
+    if (!up?.ok) await deleteDataset(id);
+  }
   if (!up.ok) throw new Error(`Dataset upload failed (${up.status})`);
-  return id;
+}
+
+/** Where a new dataset is stored: the Transformer Lab workspace, or an S3/MinIO bucket (`s3://` ref). */
+export type DatasetDestination = { kind: "workspace" } | { kind: "s3"; bucket: string; prefix?: string };
+
+export type IngestKind = "text" | "decision";
+
+export type IngestResult = {
+  id: string;
+  /** What to pick in Fine-tune: the workspace id, or the `s3://` prefix the trainer pulls from. */
+  ref: string;
+  kind: IngestKind;
+  report: TextReport | DecisionDatasetReport;
+  /** Decision datasets: the report of the separate test file, when one was given. */
+  eval?: DecisionDatasetReport;
+  /** Decision datasets: the id the test file was registered under in Evals → Decision. */
+  evalSetId?: string;
+  /** The dataset was stored, but its test file could not be registered as a test set. */
+  evalSetError?: string;
+};
+
+const s3Key = (prefix: string | undefined, id: string, file: string): string => {
+  const clean = (prefix ?? "datasets").replace(/^\/+|\/+$/g, "");
+  return `${clean ? `${clean}/` : ""}${id}/${file}`;
+};
+
+/** Rows shaped for the trainer's prompt/completion reader, from any recognised text layout. */
+function toPromptCompletionJsonl(jsonl: string, schema: TextSchema): string {
+  const map = (r: Record<string, unknown>): { prompt: string; completion: string } | null => {
+    const str = (k: string) => (typeof r[k] === "string" ? (r[k] as string).trim() : "");
+    if (schema.id === "prompt-completion") return { prompt: str("prompt"), completion: str("completion") };
+    if (schema.id === "question-answer") return { prompt: str("question"), completion: str("answer") };
+    if (schema.id === "instruction-output") {
+      const input = str("input");
+      return { prompt: input ? `${str("instruction")}\n\n${input}` : str("instruction"), completion: str("output") };
+    }
+    return null;
+  };
+  if (!["prompt-completion", "question-answer", "instruction-output"].includes(schema.id)) {
+    throw new DatasetInputError(
+      "Saving to S3 needs prompt/completion rows (columns prompt + completion, question + answer, or instruction + output). Save to the workspace instead, or rename the columns."
+    );
+  }
+  const rows = jsonl
+    .split("\n")
+    .map((l) => map(JSON.parse(l) as Record<string, unknown>))
+    .filter((r): r is { prompt: string; completion: string } => r !== null && r.prompt !== "" && r.completion !== "");
+  if (rows.length === 0) throw new DatasetInputError("No row has both a prompt and a completion");
+  return rows.map((r) => JSON.stringify(r)).join("\n");
+}
+
+type PreparedDecision = {
+  id: string;
+  files: Array<{ filename: string; content: string }>;
+  train: DecisionDatasetReport;
+  eval?: DecisionDatasetReport;
+  /** The validated, normalized test rows (undefined without a test file). */
+  evalJsonl?: string;
+};
+
+/**
+ * Validate a decision dataset (JSONL rows of `{state, questions, gold}`, see decision-schema.ts) and
+ * normalize it. A dataset the trainer would refuse (too few valid rows, or more than 2% invalid) is
+ * refused here, with the first problems named, instead of failing minutes into a GPU job. Only the
+ * valid rows are stored. An optional test file becomes `<id>_eval.jsonl`, the trainer's separate test set.
+ */
+function prepareDecisionDataset(
+  name: string,
+  content: string,
+  evalContent?: string,
+  filename = "",
+  evalFilename = ""
+): PreparedDecision {
+  const id = slugifyDatasetName(name);
+  if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
+  const asJsonl = (text: string, what: string, file: string): string => {
+    const clean = stripBom(text);
+    const format = detectFormat(file, clean);
+    if (format === "csv" || format === "pairs") {
+      throw new DatasetInputError(`The ${what} must be JSONL or a JSON array of decision rows, not ${format === "csv" ? "CSV" : "prompt | completion lines"}`);
+    }
+    return format === "json" ? jsonArrayToJsonl(clean) : clean;
+  };
+
+  // Validated line by line exactly like the upload form's preview (a line that is not JSON counts as
+  // one invalid row, within the 2% the trainer allows); only the valid, normalized rows are stored.
+  const trainRaw = asJsonl(content, "train file", filename);
+  const train = validateDecisionJsonl(trainRaw);
+  const trainProblem = decisionDatasetProblem(train, "train");
+  if (trainProblem) throw new DatasetInputError(trainProblem);
+
+  const files = [{ filename: `${id}_train.jsonl`, content: validDecisionJsonl(trainRaw) }];
+  let evalReport: DecisionDatasetReport | undefined;
+  let evalJsonl: string | undefined;
+  if (evalContent && evalContent.trim()) {
+    const evalRaw = asJsonl(evalContent, "eval file", evalFilename);
+    evalReport = validateDecisionJsonl(evalRaw);
+    const evalProblem = decisionDatasetProblem(evalReport, "eval", 5);
+    if (evalProblem) throw new DatasetInputError(evalProblem);
+    evalJsonl = validDecisionJsonl(evalRaw);
+    files.push({ filename: `${id}_eval.jsonl`, content: evalJsonl });
+  }
+  return { id, files, train, ...(evalReport ? { eval: evalReport } : {}), ...(evalJsonl ? { evalJsonl } : {}) };
+}
+
+/**
+ * The test file of a decision dataset is also the test set of Evals → Decision, so the file that
+ * trained a model can grade it. A failure here must not fail the dataset that was just stored.
+ */
+async function registerEvalSet(
+  prep: PreparedDecision,
+  name: string,
+  source: DecisionEvalSetSource
+): Promise<{ id?: string; error?: string }> {
+  if (!prep.evalJsonl) return {};
+  try {
+    // Never replace a test set that already exists: earlier runs are only comparable on the same rows.
+    const base = prep.id.slice(0, 70);
+    let id = base;
+    for (let n = 1; await decisionEvalSetExists(id); n++) id = n === 1 ? `${base}-test` : `${base}-test-${n}`;
+    await saveDecisionEvalSet({ id, name: name.trim() || prep.id, jsonl: prep.evalJsonl, source });
+    return { id };
+  } catch (err) {
+    logServerError("registerEvalSet", err);
+    return { error: err instanceof Error ? err.message : "The test file could not be registered" };
+  }
+}
+
+/**
+ * Add a dataset: the single entry point behind the "Add dataset" dialog, the paste/upload API and the
+ * Hugging Face import. `content` may be JSONL, CSV, a JSON array or `prompt | completion` lines (text
+ * datasets); decision datasets are JSONL or a JSON array of `{state, questions, gold}` rows. The whole
+ * content is validated first and nothing is stored when it is refused.
+ */
+export async function ingestDataset(input: {
+  name: string;
+  kind: IngestKind;
+  filename?: string;
+  content: string;
+  evalContent?: string;
+  evalFilename?: string;
+  destination?: DatasetDestination;
+  /** Where a decision test file came from (shown in Evals); defaults to the dataset it arrived with. */
+  evalSource?: DecisionEvalSetSource;
+}): Promise<IngestResult> {
+  const id = slugifyDatasetName(input.name);
+  if (!id) throw new DatasetInputError("Dataset name is required (use letters/numbers)");
+  const dest = input.destination ?? { kind: "workspace" };
+  if (dest.kind === "s3" && !dest.bucket.trim()) throw new DatasetInputError("A destination bucket is required");
+
+  if (input.kind === "decision") {
+    const prep = prepareDecisionDataset(input.name, input.content, input.evalContent, input.filename, input.evalFilename);
+    let ref = id;
+    if (dest.kind === "s3") {
+      // The decision trainer reads `s3://bucket/prefix/` holding train.jsonl (+ eval.jsonl).
+      const bucket = dest.bucket.trim();
+      const train = prep.files[0]!;
+      await putObject(bucket, s3Key(dest.prefix, id, "train.jsonl"), train.content + "\n");
+      if (prep.evalJsonl) await putObject(bucket, s3Key(dest.prefix, id, "eval.jsonl"), prep.evalJsonl + "\n");
+      ref = `s3://${bucket}/${s3Key(dest.prefix, id, "")}`;
+    } else {
+      await createLocalTlDataset(id, prep.files);
+    }
+    const reg = await registerEvalSet(prep, input.name, input.evalSource ?? "dataset");
+    return {
+      id,
+      ref,
+      kind: "decision",
+      report: prep.train,
+      ...(prep.eval ? { eval: prep.eval } : {}),
+      ...(reg.id ? { evalSetId: reg.id } : {}),
+      ...(reg.error ? { evalSetError: reg.error } : {}),
+    };
+  }
+
+  const { jsonl, format } = toJsonl(input.content, input.filename ?? "");
+  const report = { ...buildTextReport(jsonl, "dataset.jsonl"), format };
+  if (dest.kind === "s3") {
+    const rows = toPromptCompletionJsonl(jsonl, report.schema);
+    const ref = await putObject(dest.bucket.trim(), s3Key(dest.prefix, id, "train.jsonl"), rows + "\n");
+    return { id, ref, kind: "text", report };
+  }
+  await createLocalTlDataset(id, [{ filename: `${id}_train.jsonl`, content: jsonl }]);
+  return { id, ref: id, kind: "text", report };
+}
+
+/**
+ * Create a local dataset from prompt/completion rows. Kept for the rows API (`/api/datasets/create`);
+ * it goes through {@link ingestDataset} like every other way of adding a dataset.
+ */
+export async function createDataset(
+  name: string,
+  rows: Array<{ prompt: string; completion: string }>
+): Promise<string> {
+  if (rows.length === 0) throw new Error("At least one row is required");
+  const content = rows.map((r) => JSON.stringify({ prompt: r.prompt, completion: r.completion })).join("\n");
+  return (await ingestDataset({ name, kind: "text", filename: "rows.jsonl", content })).id;
+}
+
+/** Same rows, saved to S3/MinIO: returns the `s3://` ref the trainer pulls from. */
+export async function createDatasetOnS3(
+  name: string,
+  rows: Array<{ prompt: string; completion: string }>,
+  bucket: string,
+  prefix = "datasets"
+): Promise<{ id: string; ref: string }> {
+  if (rows.length === 0) throw new Error("At least one row is required");
+  const content = rows.map((r) => JSON.stringify({ prompt: r.prompt, completion: r.completion })).join("\n");
+  const { id, ref } = await ingestDataset({ name, kind: "text", filename: "rows.jsonl", content, destination: { kind: "s3", bucket, prefix } });
+  return { id, ref };
+}
+
+/**
+ * Upload a decision-model dataset to the workspace (JSONL rows of `{state, questions, gold}`). Used by
+ * the Hugging Face import, which fetches the rows itself and then stores them like an uploaded file.
+ */
+export async function uploadDecisionDataset(
+  name: string,
+  content: string,
+  evalContent?: string,
+  evalSource: DecisionEvalSetSource = "dataset"
+): Promise<{ id: string; train: DecisionDatasetReport; eval?: DecisionDatasetReport; evalSetId?: string }> {
+  const r = await ingestDataset({ name, kind: "decision", content, evalContent, evalSource });
+  return { id: r.id, train: r.report as DecisionDatasetReport, ...(r.eval ? { eval: r.eval } : {}), ...(r.evalSetId ? { evalSetId: r.evalSetId } : {}) };
 }
 
 /**
@@ -551,8 +674,22 @@ export type SubmitFinetuneParams = {
   evalSteps?: number;
   /** Optional HF token for gated models/datasets. */
   hfToken?: string;
-  /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech. */
-  method?: "sft" | "grpo" | "tts";
+  /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech;
+   *  "decision" = decision model (typed yes/no, choice and score answers with probabilities). */
+  method?: "sft" | "grpo" | "tts" | "decision";
+  /** Decision only: learning rate of the decision head (the backbone uses `learningRate`). */
+  headLearningRate?: number;
+  /** Decision only: steps that train the head alone with the backbone frozen, before LoRA starts. */
+  headWarmupSteps?: number;
+  /** Decision only: share of the training rows kept out for calibration (and as the test set when
+   *  the dataset has no eval.jsonl). */
+  holdoutFraction?: number;
+  /** Decision only: gradient accumulation steps (effective batch = batchSize × this). */
+  gradientAccumulationSteps?: number;
+  /** Decision only: also save the merged 16-bit model (needed to serve without the base + adapter). */
+  saveMerged?: boolean;
+  /** Decision only: also export a GGUF. Works for Qwen3.5 backbones only; failure is reported, not fatal. */
+  exportGguf?: boolean;
   /** GRPO only: the dataset's input/output column names + KL beta. */
   datasetInputField?: string;
   datasetOutputField?: string;
@@ -569,6 +706,42 @@ export type SubmitFinetuneParams = {
   textColumn?: string;
   samplingRate?: number;
 };
+
+/**
+ * `parameters` for the decision trainer (`lab.get_config()` keys of train.py). Pure, so the mapping
+ * is testable without a Transformer Lab. Defaults follow the trainer's task.yaml, which is why the
+ * learning rate is 1e-4 here and not the 2e-4 the SFT form starts from.
+ */
+export function buildDecisionParameters(p: SubmitFinetuneParams): Record<string, unknown> {
+  const loraR = p.loraR ?? 64;
+  return {
+    model_name: p.baseModel,
+    dataset: p.dataset,
+    lr: p.learningRate ?? 0.0001,
+    head_lr: p.headLearningRate ?? 0.0003,
+    num_train_epochs: p.epochs ?? 1,
+    // -1 = train the full `num_train_epochs`; a positive value silently overrides it.
+    max_steps: p.maxSteps ?? -1,
+    batch_size: p.batchSize ?? 4,
+    gradient_accumulation_steps: p.gradientAccumulationSteps ?? 4,
+    warmup_ratio: 0.05,
+    weight_decay: 0.01,
+    // 4096 is Clef's default context. Questions with many options (CLINC-style, 150) do not fit in 2048.
+    max_seq_length: p.maxSeqLength ?? 4096,
+    lora_r: loraR,
+    lora_alpha: p.loraAlpha ?? loraR,
+    lora_dropout: p.loraDropout ?? 0,
+    load_in_4bit: p.loadIn4bit ?? false,
+    head_warmup_steps: p.headWarmupSteps ?? 0,
+    holdout_fraction: p.holdoutFraction ?? 0.1,
+    predict_rows: 200,
+    save_merged: p.saveMerged ?? false,
+    export_gguf: p.exportGguf ?? false,
+    gguf_quantization: "q8_0",
+    optim: "adamw_torch",
+    logging_steps: 5,
+  };
+}
 
 /**
  * Launch a LoRA fine-tune on the local compute provider and return the REMOTE
@@ -651,6 +824,33 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
       envVars: env_vars,
       description: `GRPO reasoning fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
       subtype: "TRAIN",
+    });
+  }
+
+  if (p.method === "decision") {
+    // The trainer reads a local upload, a path, an http(s) URL or s3://; it cannot pull a Hugging Face
+    // hub id (owner/name). Refuse here instead of failing minutes into the job's environment setup.
+    if (/^[\w.-]+\/[\w.-]+$/.test(p.dataset.trim()) && !p.dataset.trim().startsWith(".")) {
+      throw new DatasetInputError(
+        `"${p.dataset}" looks like a Hugging Face dataset id, which decision training cannot load directly. ` +
+          `Import it first (Dataset → Upload → Decision → Import from Hugging Face), then pick the imported dataset by its name.`
+      );
+    }
+    // Decision model — maps onto trainers/unsloth-decision-train. `s3://bucket/prefix/` datasets
+    // hold train.jsonl (+ eval.jsonl) rows of {state, questions, gold}; see decision_schema.py.
+    return launchProviderTask({
+      experimentId: experiment,
+      taskName: adaptorName,
+      run: DECISION_RUN,
+      setup: DECISION_SETUP,
+      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoDir: DECISION_GITHUB_DIR,
+      githubRepoBranch: process.env.DECISION_TRAINER_BRANCH?.trim() || undefined,
+      accelerators: "NVIDIA:1",
+      parameters: buildDecisionParameters(p),
+      envVars: env_vars,
+      description: `Decision model "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
+      subtype: DECISION_SUBTYPE,
     });
   }
 
@@ -739,6 +939,14 @@ function isTrainJob(j: TlJob): boolean {
   const d = j.job_data ?? {};
   if (d.subtype === "TRAIN") return true;
   return typeof d.run === "string" && d.run.includes(TRAINER_DIR_TAG);
+}
+
+/** A decision-model training job (subtype DECISION, or it ran the decision trainer). Deliberately
+ *  NOT a train job: those are treated as chat LoRA adapters by export, serving and evals. */
+export function isDecisionJob(j: { job_data?: { subtype?: string; run?: string } }): boolean {
+  const d = j.job_data ?? {};
+  if (d.subtype === DECISION_SUBTYPE) return true;
+  return typeof d.run === "string" && d.run.includes("unsloth-decision-train");
 }
 
 /**
@@ -939,6 +1147,7 @@ function normalizeJob(j: TlJob): TrainingJob {
     model: d.parameters?.model_name ?? d.model_name,
     dataset: d.parameters?.dataset ?? d.dataset,
     adaptorName: d.task_name ?? d.template_name,
+    ...(isDecisionJob(j) ? { kind: "decision" as const } : {}),
   };
 }
 
@@ -950,7 +1159,7 @@ function normalizeJob(j: TlJob): TrainingJob {
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
     const rows = await listJobsAllExperiments();
-    return rows.filter(isTrainJob).map(normalizeJob);
+    return rows.filter((j) => isTrainJob(j) || isDecisionJob(j)).map(normalizeJob);
   } catch (err) {
     logServerError("fetchTrainingJobs", err);
     return [];

@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 
-import { submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
+import { decisionParamProblems } from "@/lib/decision-schema";
+import { DatasetInputError, fetchLocalDatasets, submitFinetune, type SubmitFinetuneParams } from "@/lib/finetune";
+import { ensureHfDecisionDataset, isHfDatasetId } from "@/lib/decision-hf";
 import { getGpuStatus } from "@/lib/gpu-metrics";
 import { getHfToken } from "@/lib/settings-store";
 
@@ -30,6 +32,14 @@ export async function POST(req: NextRequest) {
   // Coerce the numeric knobs. A client that sends `"2e-4"` for learningRate used
   // to sail through here and only blow up minutes later, deep inside SFTConfig,
   // with a message that never mentioned the real cause — a whole GPU run wasted.
+  // An unknown method used to fall through to SFT silently, so a typo trained the wrong thing.
+  const METHODS = ["sft", "grpo", "tts", "decision"] as const;
+  if (body.method !== undefined && !(METHODS as readonly string[]).includes(body.method)) {
+    return Response.json(
+      { error: `\`method\` must be one of ${METHODS.join(", ")}, got ${JSON.stringify(body.method)}` },
+      { status: 400 }
+    );
+  }
   const NUMERIC = [
     "learningRate",
     "epochs",
@@ -40,6 +50,11 @@ export async function POST(req: NextRequest) {
     "loraAlpha",
     "loraDropout",
     "evalSteps",
+    // decision method
+    "headLearningRate",
+    "headWarmupSteps",
+    "holdoutFraction",
+    "gradientAccumulationSteps",
   ] as const;
   for (const key of NUMERIC) {
     const raw = (body as Record<string, unknown>)[key];
@@ -77,10 +92,45 @@ export async function POST(req: NextRequest) {
     if (stored) body.hfToken = stored;
   }
   try {
+    // A Hugging Face dataset id on a decision run is downloaded and converted first; the job starts
+    // only once that has worked (a failure here is reported and no job is created).
+    if (body.method === "decision") {
+      const problems = decisionParamProblems({
+        lr: body.learningRate,
+        head_lr: body.headLearningRate,
+        num_train_epochs: body.epochs,
+        max_steps: body.maxSteps,
+        batch_size: body.batchSize,
+        gradient_accumulation_steps: body.gradientAccumulationSteps,
+        max_seq_length: body.maxSeqLength,
+        lora_r: body.loraR,
+        lora_alpha: body.loraAlpha,
+        lora_dropout: body.loraDropout,
+        head_warmup_steps: body.headWarmupSteps,
+        holdout_fraction: body.holdoutFraction,
+      });
+      if (problems.length > 0) {
+        return Response.json({ error: `Invalid settings: ${problems.join("; ")}` }, { status: 400 });
+      }
+      const config = typeof body.datasetConfig === "string" ? body.datasetConfig : undefined;
+      const ref = String(body.dataset).trim();
+      if (isHfDatasetId(ref)) {
+        body.dataset = await ensureHfDecisionDataset(ref, config);
+      } else if (!/^(s3|https?):\/\//.test(ref) && !ref.startsWith("/")) {
+        // A local dataset name: make sure it exists, or the job fails minutes later after its setup.
+        const local = await fetchLocalDatasets();
+        if (!local.some((d) => d.dataset_id === ref)) {
+          return Response.json(
+            { error: `Dataset "${ref}" was not found on this server. Upload or import it first.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
     const jobId = await submitFinetune(body as SubmitFinetuneParams);
     return Response.json({ jobId });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to start fine-tune";
-    return Response.json({ error: message }, { status: 502 });
+    return Response.json({ error: message }, { status: err instanceof DatasetInputError ? 400 : 502 });
   }
 }
