@@ -214,6 +214,7 @@ Copy [`.env.example`](.env.example) to `.env.local`. All server-side; none are
 | `VLLM_MAX_MODEL_LEN` | `16384` | Context window. |
 | `SGLANG_BASE_URL` | — | SGLang endpoint (e.g. `http://sglang:30000/v1`). Unset to disable. |
 | `SGLANG_IMAGE` | `lmsysorg/sglang:latest` | Image for "Deploy SGLang". GB10 (CUDA 13): a `cu13` tag such as `lmsysorg/sglang:dev-cu13-qwen38-27b-dflash2`. |
+| `ADAPTER_RECONCILE_INTERVAL_S` | `60` | How often the app re-attaches runtime adapters an engine lost in a restart (`0` = only on boot). |
 | `SGLANG_MAX_LORA_RANK` | `16` | Largest rank of an adapter attached while SGLang runs (raise it for bigger adapters; costs KV cache). |
 | `APP_PASSWORD` | — | Access gate. **Required in production** (fails closed). |
 | `AUTH_SECRET` | — | Per-deployment session secret. **Required in production.** |

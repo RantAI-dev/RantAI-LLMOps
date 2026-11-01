@@ -53,7 +53,7 @@ function EngineCard({ e }: { e: LiveEngine }) {
               <span>KV cache in use</span>
               <span className="tabular-nums">{fmtPct(kv)}</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-surface-soft">
+            <div className="h-1.5 overflow-hidden rounded-full bg-border">
               <div
                 className={cn("h-full rounded-full", kv !== null && kv > 0.9 ? "bg-warning" : "bg-primary")}
                 style={{ width: `${Math.min(100, Math.max(0, (kv ?? 0) * 100))}%` }}

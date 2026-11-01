@@ -24,6 +24,7 @@ export function AdapterManager({ engine = "vllm" }: { engine?: "vllm" | "sglang"
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [showAll, setShowAll] = useState(false);
 
   // Ollama-only deployments never see this — nothing to manage.
   if (!loading && !configured) return null;
@@ -50,6 +51,13 @@ export function AdapterManager({ engine = "vllm" }: { engine?: "vllm" | "sglang"
   // trained on, so one trained on a DIFFERENT base than the engine currently serves will
   // misbehave if attached. Compare by base-model basename.
   const servedBaseName = baseModel?.split("/").pop()?.toLowerCase() ?? null;
+  const isMismatch = (a: AvailableAdapter) => {
+    const aBase = a.base?.split("/").pop()?.toLowerCase();
+    return Boolean(servedBaseName && aBase && servedBaseName !== aBase);
+  };
+  // Adapters for the served base first; the rest (often dozens) behind a toggle.
+  const matching = available.filter((a) => !isMismatch(a));
+  const others = available.filter(isMismatch);
 
   const doAttach = async () => {
     const nm = name.trim();
@@ -196,11 +204,12 @@ export function AdapterManager({ engine = "vllm" }: { engine?: "vllm" | "sglang"
 
             {available.length > 0 && (
               <div className="mt-2.5">
-                <div className="mb-1 text-[11px] text-ink-faint">Trained adapters on disk — click to fill the path:</div>
+                <div className="mb-1 text-[11px] text-ink-faint">
+                  Trained adapters on disk{servedBaseName ? ` for ${baseModel?.split("/").pop()}` : ""} — click to fill the path:
+                </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {available.map((a) => {
-                    const aBase = a.base?.split("/").pop()?.toLowerCase();
-                    const mismatch = Boolean(servedBaseName && aBase && servedBaseName !== aBase);
+                  {(showAll ? [...matching, ...others] : matching).map((a) => {
+                    const mismatch = isMismatch(a);
                     return (
                       <button
                         key={a.path}
@@ -222,7 +231,19 @@ export function AdapterManager({ engine = "vllm" }: { engine?: "vllm" | "sglang"
                       </button>
                     );
                   })}
+                  {matching.length === 0 && !showAll && (
+                    <span className="text-[11px] text-ink-faint">None trained on this base yet.</span>
+                  )}
                 </div>
+                {others.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAll((v) => !v)}
+                    className="mt-1.5 text-[11px] text-ink-soft underline-offset-2 hover:underline"
+                  >
+                    {showAll ? "Hide adapters for other bases" : `Show ${others.length} adapters trained on other bases`}
+                  </button>
+                )}
               </div>
             )}
           </div>

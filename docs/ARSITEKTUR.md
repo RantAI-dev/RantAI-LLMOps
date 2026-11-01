@@ -314,7 +314,11 @@ ditangani:
    itu dinaikkan. Menaikkannya memakan KV cache: di GB10 dengan SEA-LION 8B, 16 → 32
    mengurangi KV cache dari ±28,7 ribu menjadi ±19,3 ribu token. Adapter yang dipasang dicatat di
    `adapter-manifest-sglang.json` dan dipasang ulang otomatis setelah SGLang restart,
-   sama seperti vLLM.
+   sama seperti vLLM: saat frontend start dan tiap `ADAPTER_RECONCILE_INTERVAL_S`
+   detik (60; `src/instrumentation.ts`). Selama jeda itu, permintaan ke adapter yang
+   hilang dijawab 404, bukan model dasar. Diuji di box: restart `rantai-sglang-8b`
+   (±140 detik) → tiga adapter bawaan kembali sendiri, adapter tambahan pulih lewat
+   reconcile.
 
 `--mem-fraction-static` dihitung dari memori GPU yang **bebas** saat container mulai,
 bukan dari total. Di GB10 dengan SEA-LION 8B, 0,38 ≈ 24 GB (bobot 17,7 GB + KV cache
