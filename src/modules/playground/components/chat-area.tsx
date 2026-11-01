@@ -31,7 +31,7 @@ export function ChatArea({
   const [input, setInput] = useState("");
   const [model, setModel] = useState("");
   // Which engine serves this chat. Ollama by default; the picker only appears
-  // when a second engine (vLLM) is configured.
+  // when a second engine (vLLM, SGLang) is configured.
   const [engine, setEngine] = useState<EngineInfo | null>(null);
   const isOllama = !engine || engine.id === "ollama";
   // vLLM serves a base + its LoRA adapters (base / ask / learn / practice); the
@@ -182,7 +182,7 @@ export function ChatArea({
         {isOllama ? (
           <ModelPicker value={model} onChange={setModel} />
         ) : (
-          // vLLM: pick the base or one of its LoRA adapters (defaults to `ask`).
+          // vLLM / SGLang: pick the base or one of its LoRA adapters (defaults to `ask`).
           <VllmModelPicker value={effectiveVllmModel} onChange={setVllmModel} models={vllmModels} />
         )}
         <EnginePicker value={engine?.id ?? "ollama"} onChange={setEngine} />

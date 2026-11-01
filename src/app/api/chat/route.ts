@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 
 import { DEMO_MODE } from "@/lib/demo";
 import { INFERENCE_STREAM } from "@/lib/inference";
-import { resolveChatModel, resolveEngine } from "@/lib/inference-engines";
+import { engineRequestModel, engineUrlVar, resolveChatModel, resolveEngine } from "@/lib/inference-engines";
 import { logInference } from "@/lib/inference-log-store";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ const DEFAULT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS) || 4096;
 type ChatBody = {
   messages?: Array<{ role: string; content: string }>;
   model?: string;
-  /** Which engine to serve from ("ollama" | "vllm"); defaults to Ollama. */
+  /** Which engine to serve from ("ollama" | "vllm" | "sglang"); defaults to Ollama. */
   engine?: string;
   temperature?: number;
   max_tokens?: number;
@@ -31,9 +31,9 @@ type ChatBody = {
  * `/v1/chat/completions` and pipe the SSE stream straight back to the browser.
  *
  * v0.40.0 note: Transformer Lab no longer serves inference itself (no `/v1`), so
- * inference goes to an external engine — Ollama (default) or vLLM. Both speak
- * `/v1`, so only the base URL, headers, and model resolution differ; the stream
- * tap below is engine-agnostic.
+ * inference goes to an external engine — Ollama (default), vLLM or SGLang. All
+ * speak `/v1`, so only the base URL, headers, and model resolution differ; the
+ * stream tap below is engine-agnostic.
  */
 export async function POST(req: NextRequest) {
   let body: ChatBody;
@@ -67,11 +67,14 @@ export async function POST(req: NextRequest) {
   const engine = resolveEngine(body.engine);
   if (!engine.configured) {
     return Response.json(
-      { error: `Engine ${engine.label} is not configured yet (VLLM_BASE_URL is not set).` },
+      { error: `Engine ${engine.label} is not configured yet (${engineUrlVar(engine.id)} is not set).` },
       { status: 400 }
     );
   }
   const model = await resolveChatModel(engine, body.model);
+  // SGLang answers an unknown name with its base model, so refuse it here.
+  const wire = await engineRequestModel(engine, model);
+  if (wire.error) return Response.json({ error: wire.error }, { status: 404 });
   // Request-send time — the anchor for time-to-first-token.
   const t0 = Date.now();
   let upstream: Response;
@@ -80,7 +83,7 @@ export async function POST(req: NextRequest) {
       method: "POST",
       headers: engine.headers,
       body: JSON.stringify({
-        model,
+        model: wire.model,
         messages,
         stream: INFERENCE_STREAM,
         // Ask the engine for token usage on the final chunk (per-response metrics).

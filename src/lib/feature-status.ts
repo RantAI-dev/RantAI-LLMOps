@@ -24,6 +24,9 @@ export const FEATURE_STATUS = {
   // unconfigured (VLLM_BASE_URL unset) — a true probe result, not a mock.
   "serve.engines": "live",
   "serve.vllmDeploy": "live",
+  // SGLang (third engine, 2026-11-01): chat + adapter routing live when
+  // SGLANG_BASE_URL is set; its deploy card needs the Docker socket launcher.
+  "serve.sglang": "live",
   "serve.adapters": "live",
   "serve.gatewayKeys": "live",
 

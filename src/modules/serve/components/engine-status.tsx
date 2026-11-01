@@ -10,6 +10,14 @@ import { cn } from "@/lib/utils";
 const ENGINE_BLURB: Record<string, string> = {
   ollama: "Fast & simple. Serves every downloaded GGUF model at once.",
   vllm: "Full precision (safetensors) & high concurrency. Serves a base model, plus LoRA adapters routed to per request.",
+  sglang:
+    "Like vLLM (safetensors, a base model plus LoRA adapters per request), and faster with many users at once. Adapters can be loaded without a restart.",
+};
+
+/** The env vars that point the app at each engine and attach its adapters. */
+const ENGINE_ENV: Record<string, { url: string; example: string; adapters: string }> = {
+  vllm: { url: "VLLM_BASE_URL", example: "http://host:8001/v1", adapters: "VLLM_LORA_MODULES" },
+  sglang: { url: "SGLANG_BASE_URL", example: "http://host:30000/v1", adapters: "--lora-paths" },
 };
 
 type Status = { label: string; tone: "ok" | "off" | "warn"; icon: typeof CheckCircle2 };
@@ -62,9 +70,9 @@ function EngineCard({ engine }: { engine: EngineInfo }) {
         </dl>
       ) : null}
 
-      {/* vLLM either serves a single fixed model, or a base + LoRA adapters the
-          client routes to by `model` name. Show whichever is live. */}
-      {engine.configured && engine.id === "vllm" ? (
+      {/* vLLM / SGLang either serve a single fixed model, or a base + LoRA
+          adapters the client routes to by `model` name. Show whichever is live. */}
+      {engine.configured && ENGINE_ENV[engine.id] ? (
         engine.models.length > 1 ? (
           <div className="mt-2">
             <p className="text-[11px] leading-4 text-ink-faint">
@@ -90,16 +98,17 @@ function EngineCard({ engine }: { engine: EngineInfo }) {
         ) : (
           <p className="mt-2 text-[11px] leading-4 text-ink-faint">
             Serving one model. Attach LoRA adapters with{" "}
-            <span className="font-mono">VLLM_LORA_MODULES</span> (base + adapters, routed per
-            request), or change it via <span className="font-mono">VLLM_MODEL</span>, then redeploy.
+            <span className="font-mono">{ENGINE_ENV[engine.id].adapters}</span> (base + adapters, routed
+            per request), then redeploy.
           </p>
         )
       ) : null}
 
-      {!engine.configured ? (
+      {!engine.configured && ENGINE_ENV[engine.id] ? (
         <p className="mt-3 rounded-md bg-surface-2 px-2.5 py-1.5 text-[11px] text-ink-soft">
-          Set <span className="font-mono">VLLM_BASE_URL</span> to the vLLM endpoint (e.g.
-          <span className="font-mono"> http://host:8001/v1</span>) to enable it, then redeploy.
+          Set <span className="font-mono">{ENGINE_ENV[engine.id].url}</span> to the {engine.label} endpoint
+          (e.g.<span className="font-mono"> {ENGINE_ENV[engine.id].example}</span>) to enable it, then
+          redeploy.
         </p>
       ) : null}
     </div>
@@ -113,7 +122,7 @@ export function EngineStatus() {
   return (
     <div>
       <h2 className="mb-2 text-sm font-semibold text-primary">Inference engines</h2>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={cn("grid gap-3", engines.length >= 3 ? "md:grid-cols-3" : "sm:grid-cols-2")}>
         {engines.map((e) => (
           <EngineCard key={e.id} engine={e} />
         ))}

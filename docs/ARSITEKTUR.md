@@ -285,6 +285,27 @@ model tidak pernah diteruskan, jadi memegang key tidak berarti bisa mengubah ser
 Ada dua instans terpisah dengan daftar key masing-masing: satu di depan Ollama, satu
 di depan vLLM.
 
+### SGLang
+
+Engine ketiga (`SGLANG_BASE_URL`), bentuknya sama dengan vLLM: satu model dasar plus
+adapter LoRA, dipilih per permintaan. Dua perbedaan yang gagal diam-diam kalau tidak
+ditangani:
+
+1. **Cara memilih adapter.** SGLang memakai `model: "base:ask"`. Nama lain apa pun —
+   `ask` saja, salah ketik, adapter yang sudah dilepas — dijawab model dasar dengan
+   status 200. `sglangRequestModel` (`src/lib/inference-engines.ts`) menerjemahkan
+   nama yang dipakai klien dan menolak sisanya dengan 404. Gateway belum menerjemahkan,
+   jadi jangan pasang gateway langsung di depan SGLang untuk klien yang memakai adapter.
+2. **`target_modules` milik Unsloth.** Unsloth menyimpannya sebagai regex; SGLang hanya
+   menerima `all` atau daftar modul. Entrypoint "Deploy SGLang"
+   (`src/lib/serve-sglang-container.ts`) menyalin adapter ke `/tmp/loras` di dalam
+   container lalu menulis daftar modul dari isi bobotnya. Berkas adapter asli tidak
+   diubah karena vLLM membaca berkas yang sama.
+
+`--mem-fraction-static` dihitung dari memori GPU yang **bebas** saat container mulai,
+bukan dari total. Di GB10 dengan SEA-LION 8B, 0,38 ≈ 24 GB (bobot 17,7 GB + KV cache
+26 ribu token).
+
 ### Adapter dipatri, bukan ditempel
 
 Adapter yang dimuat saat berjalan **hilang begitu engine dimuat ulang**. Setelah

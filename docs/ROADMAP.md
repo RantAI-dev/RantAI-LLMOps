@@ -80,6 +80,11 @@ Tiga proses lokal, engine training & inference terpisah:
 - **Eval keputusan** — tab Decision di Evals: akurasi, Macro-F1, ECE, Brier, log loss, diagram reliability, kurva otomasi; riwayat run dan perbandingan dua run di test set yang sama.
 - **Trace gateway** — gateway bisa mencatat permintaan API ke Traces (opsional, `GATEWAY_TRACE_FILE`).
 
+**SGLang — November 2026:**
+- **Engine ketiga** — SGLang di samping Ollama dan vLLM (`SGLANG_BASE_URL`): kartu di Deployments, pilihan engine dan adapter di Playground. Klien tetap memakai nama `base`/`ask`/…; LLMOps menerjemahkannya ke bentuk `base:ask` milik SGLang dan menolak nama yang tidak dilayani.
+- **Deploy dari UI** — kartu "Deploy SGLang" (container terkelola, perlu Docker socket; `NEXT_PUBLIC_ENABLE_DEPLOY_SGLANG=true`). Entrypoint-nya menyalin adapter Unsloth dan menulis `target_modules` sebagai daftar.
+- **Diuji di GB10** — SEA-LION 8B + adapter ask/learn/practice: jawaban setara vLLM, 8 permintaan paralel 64,5 vs 43,3 tok/s.
+
 ---
 
 ## ⏳ Fitur yang BELUM ada
@@ -97,12 +102,13 @@ Tiga proses lokal, engine training & inference terpisah:
 
 ## 🚀 Fase berikutnya (opsional)
 
-**Dari mentor (belum dimulai):**
-- **TTS dan OCR** — dukungan model suara dan pembaca dokumen.
-- **LLMOps CPU/Edge** — fine-tune di GPU, deploy ke CPU/edge (GGUF lewat llama-server), dan benchmark tok/s.
-- **Port Rust** — bagian keamanan lebih dulu.
-- **Performa backend.**
-- **UI/UX oleh desainer.**
+**Roadmap (belum dimulai), urut prioritas:**
+1. **Engine — SGLang lanjutan:** pasang/lepas adapter tanpa restart (`/load_lora_adapter`), metrik `/metrics` ke Monitoring, gateway yang menerjemahkan nama adapter.
+2. **Vision — VLM:** dataset bergambar, input gambar di Playground dan Evals, serving dengan gambar (fine-tune base VL text-only sudah jalan).
+3. **Engine — CPU/Edge:** fine-tune di GPU, deploy ke CPU/edge (GGUF lewat llama-server, termasuk model keputusan), dan benchmark tok/s.
+4. **Speech — ASR lalu TTS:** fondasi audio bersama (dataset, trainer, serving, perekam/pemutar di Playground); ASR dulu karena WER/CER bisa dihitung otomatis.
+5. **Vision — OCR:** setelah VLM dievaluasi, putuskan perlu jalur terpisah atau cukup VLM.
+6. **Platform:** port Rust (bagian keamanan lebih dulu), performa backend, UI/UX oleh desainer.
 
 **Lainnya:**
 

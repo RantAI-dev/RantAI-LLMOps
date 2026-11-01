@@ -22,7 +22,7 @@ const MAX_READ = 5000;
 export type InferenceEvent = {
   ts: number;
   model: string;
-  /** Which engine served it ("ollama" | "vllm"). Optional: older log lines
+  /** Which engine served it ("ollama" | "vllm" | "sglang" | "gateway"). Optional: older log lines
    *  (written before per-request tracing) simply omit it. */
   engine?: string;
   status: "ok" | "error";

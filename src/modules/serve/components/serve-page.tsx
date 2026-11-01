@@ -20,6 +20,8 @@ export function ServePage() {
   // card is non-functional there. Set NEXT_PUBLIC_ENABLE_DEPLOY_VLLM=true to show
   // it where a working launcher exists.
   const showDeployVllm = process.env.NEXT_PUBLIC_ENABLE_DEPLOY_VLLM === "true";
+  // SGLang only has the container launcher, so it is gated the same way.
+  const showDeploySglang = process.env.NEXT_PUBLIC_ENABLE_DEPLOY_SGLANG === "true";
   return (
     <div className="mx-auto w-full max-w-3xl space-y-5">
       <div className="flex items-center gap-1.5">
@@ -33,6 +35,7 @@ export function ServePage() {
 
       <EngineStatus />
       {showDeployVllm && <VllmDeploy />}
+      {showDeploySglang && <VllmDeploy engine="sglang" />}
       <AdapterManager />
       <DecisionDeploy />
       <GatewayAccess />

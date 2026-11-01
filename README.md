@@ -156,6 +156,13 @@ treat it as the diff baseline.
 
 ## Serving
 
+Three engines sit behind the same chat proxy: **Ollama** (GGUF, every pulled model),
+**vLLM** and **SGLang** (safetensors, one base plus LoRA adapters). SGLang selects an
+adapter with `model: "base:ask"` and silently answers any unknown name with the base
+model, so the app maps the plain names (`base`, `ask`, …) and refuses names SGLang does
+not serve. Its deploy card copies each Unsloth adapter and rewrites the regex
+`target_modules` Unsloth saves into the module list SGLang accepts.
+
 vLLM serves **several LoRA adapters on one base model**, with attach and detach at
 runtime through `/api/adapters`. Because an adapter is tens of megabytes and the base
 weights are shared, one GPU can serve many fine-tuned models at once — a large cost
@@ -201,6 +208,8 @@ Copy [`.env.example`](.env.example) to `.env.local`. All server-side; none are
 | `VLLM_MODEL` | `aisingapore/Qwen-SEA-LION-v4-8B-VL` | Model vLLM serves (HF id or merged path). |
 | `VLLM_GPU_UTIL` | `0.22` | GPU memory fraction — low because training is co-resident. |
 | `VLLM_MAX_MODEL_LEN` | `16384` | Context window. |
+| `SGLANG_BASE_URL` | — | SGLang endpoint (e.g. `http://sglang:30000/v1`). Unset to disable. |
+| `SGLANG_IMAGE` | `lmsysorg/sglang:latest` | Image for "Deploy SGLang". GB10 (CUDA 13): a `cu13` tag such as `lmsysorg/sglang:dev-cu13-qwen38-27b-dflash2`. |
 | `APP_PASSWORD` | — | Access gate. **Required in production** (fails closed). |
 | `AUTH_SECRET` | — | Per-deployment session secret. **Required in production.** |
 

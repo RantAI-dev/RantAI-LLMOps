@@ -29,8 +29,9 @@ export type DeployBody = {
   port?: number;
 };
 
-/** Poll + control the single vLLM serving deployment (via /api/serve/vllm). */
-export function useVllmDeploy() {
+/** Poll + control the single serving deployment of one engine (via /api/serve/vllm
+ *  or /api/serve/sglang — both share this shape). */
+export function useVllmDeploy(route = "/api/serve/vllm") {
   const [data, setData] = useState<VllmStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -38,14 +39,14 @@ export function useVllmDeploy() {
 
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch("/api/serve/vllm", { cache: "no-store" });
+      const r = await fetch(route, { cache: "no-store" });
       setData((await r.json()) as VllmStatus);
     } catch {
       /* keep last */
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [route]);
 
   useEffect(() => {
     refresh();
@@ -58,7 +59,7 @@ export function useVllmDeploy() {
       setBusy(true);
       setError(null);
       try {
-        const r = await fetch("/api/serve/vllm", {
+        const r = await fetch(route, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -74,18 +75,18 @@ export function useVllmDeploy() {
         setBusy(false);
       }
     },
-    [refresh]
+    [refresh, route]
   );
 
   const stop = useCallback(async (): Promise<void> => {
     setBusy(true);
     try {
-      await fetch("/api/serve/vllm/stop", { method: "POST" });
+      await fetch(`${route}/stop`, { method: "POST" });
       await refresh();
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [refresh, route]);
 
   return { data, loading, busy, error, setError, deploy, stop, refresh };
 }

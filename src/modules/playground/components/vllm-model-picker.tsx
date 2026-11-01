@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
 /**
- * Compact picker for vLLM's served names. Unlike Ollama (which serves every
+ * Compact picker for vLLM's (and SGLang's) served names. Unlike Ollama (which serves every
  * pulled model), vLLM serves one base + its attached LoRA adapters (base / ask /
  * learn / practice), and the client selects one per request via the `model`
  * field. The list comes straight from the engine's `/v1/models`.
@@ -45,7 +45,7 @@ export function VllmModelPicker({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="inline-flex max-w-[320px] items-center gap-1.5 rounded-md px-2 py-1 text-sm font-semibold text-primary outline-none hover:bg-surface-2"
-        title="vLLM served model / adapter"
+        title="Served model / adapter"
       >
         <span className="truncate">{value || "base"}</span>
         <ChevronDown className="size-4 shrink-0 text-ink-soft" aria-hidden />

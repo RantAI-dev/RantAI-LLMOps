@@ -24,11 +24,13 @@ const SERVE_PORT = 8000;
 
 /** Entrypoint that assembles `vllm serve …`, adding LoRA flags only when adapters
  *  are present — the same script the box's production vLLM container uses. */
-const ENTRYPOINT_SCRIPT = [
+export const ENTRYPOINT_SCRIPT = [
   "set -eu",
-  'set -- "$VLLM_MODEL" --served-model-name "$VLLM_SERVED_NAME"',
-  ' --gpu-memory-utilization "$VLLM_GPU_UTIL" --max-model-len "$VLLM_MAX_MODEL_LEN"',
-  " --enforce-eager --max-num-seqs 16 --trust-remote-code",
+  // Continued lines need the trailing backslash: joined with a bare newline, the
+  // flags ran as a separate command and `set -e` stopped the container.
+  'set -- "$VLLM_MODEL" --served-model-name "$VLLM_SERVED_NAME" \\',
+  '  --gpu-memory-utilization "$VLLM_GPU_UTIL" --max-model-len "$VLLM_MAX_MODEL_LEN" \\',
+  "  --enforce-eager --max-num-seqs 16 --trust-remote-code",
   'if [ -n "${VLLM_QUANT:-}" ]; then set -- "$@" --quantization "$VLLM_QUANT"; fi',
   'if [ -n "${VLLM_LORA_MODULES:-}" ]; then set -- "$@" --enable-lora --max-loras "${VLLM_MAX_LORAS:-4}" --max-lora-rank "${VLLM_MAX_LORA_RANK:-16}" --lora-modules $VLLM_LORA_MODULES; fi',
   'exec vllm serve "$@"',

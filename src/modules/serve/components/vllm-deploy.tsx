@@ -8,20 +8,43 @@ import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/ui/tooltip";
 import { useVllmDeploy, type VllmAdapter } from "@/modules/serve/hooks/use-vllm-deploy";
 
+/** What differs between the engines this card deploys; the form is shared. */
+const ENGINES = {
+  vllm: {
+    label: "vLLM",
+    route: "/api/serve/vllm",
+    memLabel: "GPU util",
+    memDefault: "0.30",
+    showPort: true,
+    about:
+      "Serve a base model + LoRA adapters over vLLM, launched through the platform's compute provider — portable (no Docker socket), the same way training runs. One serving at a time.",
+  },
+  sglang: {
+    label: "SGLang",
+    route: "/api/serve/sglang",
+    memLabel: "GPU mem (free)",
+    memDefault: "0.38",
+    showPort: false,
+    about:
+      "Serve a base model + LoRA adapters over SGLang in a managed container (needs the Docker socket). Faster than vLLM with many users at once. The GPU memory share is taken from the memory that is free when it starts. One serving at a time.",
+  },
+} as const;
+
 /**
- * Deploy vLLM — pick a base model + LoRA adapters and serve them, from the UI.
- * Launched through TL's compute provider (portable: no Portainer / docker.sock),
- * so it works wherever TL runs. One deployment at a time (MVP).
+ * Deploy vLLM / SGLang — pick a base model + LoRA adapters and serve them, from
+ * the UI. vLLM launches through TL's compute provider (portable) or a container;
+ * SGLang always runs as a managed container. One deployment per engine (MVP).
  */
-export function VllmDeploy() {
-  const { data, loading, busy, error, setError, deploy, stop } = useVllmDeploy();
+export function VllmDeploy({ engine = "vllm" }: { engine?: keyof typeof ENGINES }) {
+  const cfg = ENGINES[engine];
+  const { data, loading, busy, error, setError, deploy, stop } = useVllmDeploy(cfg.route);
 
   const [baseModel, setBaseModel] = useState("");
   const [servedName, setServedName] = useState("base");
   const [adapters, setAdapters] = useState<VllmAdapter[]>([]);
   const [aName, setAName] = useState("");
   const [aPath, setAPath] = useState("");
-  const [gpuUtil, setGpuUtil] = useState("0.30");
+  const [gpuUtil, setGpuUtil] = useState<string>(cfg.memDefault);
   const [maxLen, setMaxLen] = useState("8192");
   const [quant, setQuant] = useState("");
   const [port, setPort] = useState("8001");
@@ -67,12 +90,12 @@ export function VllmDeploy() {
       quant: quant.trim(),
       port: Number(port) || 8001,
     });
-    if (ok) toast.success("vLLM deployment launched — starting up…");
+    if (ok) toast.success(`${cfg.label} deployment launched — starting up…`);
   };
 
   const doStop = async () => {
     await stop();
-    toast.success("vLLM deployment stopped");
+    toast.success(`${cfg.label} deployment stopped`);
   };
 
   const dot =
@@ -88,11 +111,8 @@ export function VllmDeploy() {
     <section className="rounded-xl border bg-surface p-5">
       <div className="mb-3 flex items-center gap-1.5">
         <Server className="size-4 text-primary" />
-        <h2 className="text-sm font-semibold text-ink">Deploy vLLM</h2>
-        <InfoTip label="About Deploy vLLM">
-          Serve a base model + LoRA adapters over vLLM, launched through the platform&apos;s compute
-          provider — portable (no Docker socket), the same way training runs. One serving at a time.
-        </InfoTip>
+        <h2 className="text-sm font-semibold text-ink">Deploy {cfg.label}</h2>
+        <InfoTip label={`About Deploy ${cfg.label}`}>{cfg.about}</InfoTip>
       </div>
 
       {loading ? (
@@ -147,11 +167,11 @@ export function VllmDeploy() {
             <input
               value={baseModel}
               onChange={(e) => setBaseModel(e.target.value)}
-              list="vllm-base-models"
+              list={`${engine}-base-models`}
               placeholder="HF id or local path (e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL)"
               className="w-full rounded-lg border px-3 py-2 font-mono text-[12px] outline-none focus:border-primary"
             />
-            <datalist id="vllm-base-models">
+            <datalist id={`${engine}-base-models`}>
               {downloaded.map((m) => (
                 <option key={m} value={m} />
               ))}
@@ -201,15 +221,15 @@ export function VllmDeploy() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Field label="GPU util" value={gpuUtil} onChange={setGpuUtil} placeholder="0.30" />
+            <Field label={cfg.memLabel} value={gpuUtil} onChange={setGpuUtil} placeholder={cfg.memDefault} />
             <Field label="Max ctx" value={maxLen} onChange={setMaxLen} placeholder="8192" />
             <Field label="Quant" value={quant} onChange={setQuant} placeholder="(none)" />
-            <Field label="Port" value={port} onChange={setPort} placeholder="8001" />
+            {cfg.showPort && <Field label="Port" value={port} onChange={setPort} placeholder="8001" />}
           </div>
 
           <Button onClick={doDeploy} disabled={busy || !baseModel.trim()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Rocket className="size-4" />}
-            Deploy vLLM
+            Deploy {cfg.label}
           </Button>
         </div>
       )}
