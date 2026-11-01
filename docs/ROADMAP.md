@@ -73,6 +73,15 @@ Tiga proses lokal, engine training & inference terpisah:
 
 ---
 
+**Model keputusan (System One) — Oktober–November 2026:**
+- **Fine-tune model keputusan** — metode `decision` (Unsloth `FastDecisionModel`): model bahasa + kepala klasifikasi, dilatih dari dataset `{state, questions, gold}`. Trainer di `trainers/unsloth-decision-train/`.
+- **Serve** — server PyTorch `docker/decision/server.py` (`/v1/systemone`) di belakang gateway ber-API-key; kartu "Decision models" di Deployments untuk memuat, mencoba, dan membongkar model.
+- **Tambah dataset (dialog)** — satu dialog untuk Datasets dan Fine-tune: file, tempel, atau Hugging Face; ditinjau dulu sebelum disimpan; unggahan sampai 100 MB ke workspace atau S3.
+- **Eval keputusan** — tab Decision di Evals: akurasi, Macro-F1, ECE, Brier, log loss, diagram reliability, kurva otomasi; riwayat run dan perbandingan dua run di test set yang sama.
+- **Trace gateway** — gateway bisa mencatat permintaan API ke Traces (opsional, `GATEWAY_TRACE_FILE`).
+
+---
+
 ## ⏳ Fitur yang BELUM ada
 
 | Fitur | Alasan |
@@ -87,6 +96,15 @@ Tiga proses lokal, engine training & inference terpisah:
 ---
 
 ## 🚀 Fase berikutnya (opsional)
+
+**Dari mentor (belum dimulai):**
+- **TTS dan OCR** — dukungan model suara dan pembaca dokumen.
+- **LLMOps CPU/Edge** — fine-tune di GPU, deploy ke CPU/edge (GGUF lewat llama-server), dan benchmark tok/s.
+- **Port Rust** — bagian keamanan lebih dulu.
+- **Performa backend.**
+- **UI/UX oleh desainer.**
+
+**Lainnya:**
 
 1. **Multi-user auth penuh** (TL `fastapi-users`) — untuk benar-benar team-ready.
 2. **Persist job logs** — simpan riwayat log saat job selesai.

@@ -11,6 +11,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type { Prompt, PromptSummary, PromptVersion } from "@/modules/prompts/types";
+import { atomicWrite } from "@/lib/json-dir-store";
 
 const DATA_DIR = process.env.RANTAI_DATA_DIR ?? path.join(process.cwd(), ".rantai-data");
 const PROMPTS_DIR = path.join(DATA_DIR, "prompts");
@@ -20,15 +21,6 @@ function promptFile(id: string): string {
   // refuse anything that could escape the directory.
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error(`Invalid prompt id: ${JSON.stringify(id)}`);
   return path.join(PROMPTS_DIR, `${id}.json`);
-}
-
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  // pid alone collides when two writes to the same id race inside one process; a
-  // random suffix keeps each write's tmp path unique.
-  const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await fs.writeFile(tmp, data, "utf8");
-  await fs.rename(tmp, file);
 }
 
 /** Drop the heavy `versions[]` body for cheap listing. */

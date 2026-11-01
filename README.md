@@ -35,6 +35,20 @@ working one.
 
 That table is enforced, not aspirational: the registry is what renders the badges.
 
+### System One (decision models)
+
+Besides LLMs, LLMOps fine-tunes and serves **decision models** (a language model with a
+classification head that answers typed questions with probabilities):
+
+- **Fine-tune → Decision** trains one (Unsloth); **Deployments → Decision models** loads it behind
+  an API-key gateway (`/v1/systemone`).
+- **Add dataset** (Datasets and Fine-tune) takes a file, pasted text or a Hugging Face dataset,
+  shows a review before saving, and accepts up to 100 MB (workspace or S3).
+- **Evals → Decision** grades a served decision model on a labelled test set: accuracy, Macro-F1,
+  calibration (ECE, Brier, log loss), a reliability diagram and how many decisions could be
+  automated at 95% accuracy. Two runs on the same test set can be compared.
+- The API gateway can log requests to **Traces** (`GATEWAY_TRACE_FILE`, off by default).
+
 ## Quick start
 
 ```bash

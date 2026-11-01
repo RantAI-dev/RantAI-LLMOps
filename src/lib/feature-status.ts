@@ -45,6 +45,8 @@ export const FEATURE_STATUS = {
   "dataset.list": "live",
   "dataset.preview": "live",
   "dataset.upload": "live",
+  // "Add dataset" dialog (file / paste / Hugging Face, review before saving) via `/api/datasets/upload`.
+  "dataset.add": "live",
 
   // Interact — real chat playground: the UI streams from an OpenAI-compatible
   // engine (Ollama / llama.cpp / vLLM) via our `/api/chat` BFF.
@@ -57,6 +59,9 @@ export const FEATURE_STATUS = {
   // Evals — real benchmark accuracy via the EleutherAI LM-Eval-Harness plugin.
   // Through `/api/evals/*`.
   "eval.run": "live",
+  // Decision eval — grades a served System One model on a test set (accuracy, calibration,
+  // automation curve). Through `/api/evals/decision*`.
+  "eval.decision": "live",
 
   // Prompt Registry — versioned prompt management (versions, aliases, tags,
   // diff, export) backed by a server-side file store. Through `/api/prompts/*`.

@@ -9,6 +9,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type { ClassCase, ClassificationReport } from "@/lib/classification-eval";
+import { atomicWrite } from "@/lib/json-dir-store";
 
 export type ClassEvalStatus = "running" | "done" | "error" | "interrupted";
 
@@ -42,13 +43,6 @@ const KEEP_RUNS = 30;
 function runFile(id: string): string {
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error(`Invalid run id: ${JSON.stringify(id)}`);
   return path.join(RUNS_DIR, `${id}.json`);
-}
-
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await fs.writeFile(tmp, data, "utf8");
-  await fs.rename(tmp, file);
 }
 
 function withDerivedStatus(run: ClassEvalRun): ClassEvalRun {

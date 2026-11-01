@@ -13,6 +13,7 @@
 import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { atomicWrite } from "@/lib/json-dir-store";
 
 export type ApiKey = { id: string; name: string; key: string; createdAt: number };
 export type GatewayStore = { deployedModels: string[]; apiKeys: ApiKey[] };
@@ -49,13 +50,6 @@ export async function readGatewayStore(): Promise<GatewayStore> {
     }
     return EMPTY;
   }
-}
-
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  await fs.writeFile(tmp, data, "utf8");
-  await fs.rename(tmp, file);
 }
 
 export async function writeGatewayStore(store: GatewayStore): Promise<GatewayStore> {

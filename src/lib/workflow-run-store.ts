@@ -3,9 +3,9 @@
  * `$RANTAI_DATA_DIR/workflow-runs/`. Moved off browser localStorage so history
  * is team-visible and survives a cache clear — mirrors eval-run-store.
  */
-import crypto from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { atomicWrite } from "@/lib/json-dir-store";
 
 /**
  * Structural copy of the client `WorkflowRun` (kept server-local so this file
@@ -45,13 +45,6 @@ function runFile(id: string): string {
   // anything that could escape the directory.
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error(`Invalid run id: ${JSON.stringify(id)}`);
   return path.join(RUNS_DIR, `${id}.json`);
-}
-
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await fs.writeFile(tmp, data, "utf8");
-  await fs.rename(tmp, file);
 }
 
 /** All runs, newest first (by ISO `startedAt`, which sorts lexicographically). */

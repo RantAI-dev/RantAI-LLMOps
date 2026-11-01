@@ -17,6 +17,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import type { GroundingReport, ScoredCase } from "@/lib/grounding-eval";
+import { atomicWrite } from "@/lib/json-dir-store";
 
 export type EvalRunStatus = "running" | "done" | "error" | "interrupted";
 
@@ -56,15 +57,6 @@ function runFile(id: string): string {
   // refuse anything that could escape the directory.
   if (!/^[A-Za-z0-9-]+$/.test(id)) throw new Error(`Invalid run id: ${JSON.stringify(id)}`);
   return path.join(RUNS_DIR, `${id}.json`);
-}
-
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  // pid alone collides when two writes to the same run id race inside one
-  // process; a random suffix keeps each write's tmp path unique.
-  const tmp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  await fs.writeFile(tmp, data, "utf8");
-  await fs.rename(tmp, file);
 }
 
 /** Surface a stalled run as interrupted rather than perpetually "running". */

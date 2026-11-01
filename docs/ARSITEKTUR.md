@@ -294,6 +294,45 @@ lama. Karena itu setiap adapter dipatri di konfigurasi serving.
 Nama yang dilayani adalah **peran, bukan versi**. Menaikkan versi cukup memindahkan
 penunjuknya; kode klien tidak berubah.
 
+### Model keputusan (System One)
+
+Selain LLM, LLMOps melatih dan menyajikan **model keputusan**: satu model bahasa dengan
+kepala klasifikasi yang menjawab beberapa pertanyaan bertipe (pilihan, ya/tidak/tidak
+tahu, skor) beserta probabilitasnya. vLLM, Ollama, dan llama.cpp tidak bisa melayaninya,
+jadi ada server tersendiri.
+
+```
+Klien ──► gateway-decision (API key) ──► rantai-decision (PyTorch, /v1/systemone) ──► GPU
+                                          ▲
+Fine-tune (metode "decision") ─ adaptor ──┘  dimuat lewat Deployments → Decision models
+```
+
+- **Trainer:** `trainers/unsloth-decision-train/`, dijalankan sebagai job TL subtipe
+  `DECISION` (bukan `TRAIN`). Dataset: JSONL/JSON `{state, questions, gold}`, divalidasi
+  oleh pemeriksa TypeScript dan Python yang berbagi satu fixture uji.
+- **Server:** `docker/decision/server.py`. Muat/bongkar model lewat rute admin
+  (token terpisah); rute admin **tidak pernah** diteruskan gateway.
+- **Eval:** tab Decision di Evals mengirim tiap baris test set ke model yang *sedang
+  disajikan* lewat jalur yang sama dengan klien, lalu menghitung metrik. Run berjalan di
+  server (boleh ditutup halamannya) dan disimpan satu file per run.
+- **Test set** berasal dari file test sebuah dataset (terdaftar otomatis, tidak pernah
+  menimpa set yang sudah ada), unggahan di Evals, atau split Hugging Face.
+
+### Menambah dataset
+
+Satu pintu: dialog "Add dataset" (Datasets dan Fine-tune) → `POST /api/datasets/upload`
+→ `ingestDataset` di `src/lib/finetune.ts`. Browser meninjau 1 MB pertama memakai
+parser yang sama dengan server, tetapi **server memvalidasi ulang seluruh berkas** dan
+tidak menyimpan apa pun kalau ditolak. Batas 100 MB; tujuan workspace atau S3.
+
+### Jejak permintaan dari gateway
+
+Gateway dapat menulis satu baris metadata per permintaan (model, status, token, latensi —
+**tanpa teks prompt maupun jawaban**) ke `inference-log.jsonl` yang dibaca halaman
+Traces. Aktifkan dengan `GATEWAY_TRACE_FILE=/data/inference-log.jsonl` dan pasang volume
+data aplikasi ke gateway. Mati secara bawaan; kegagalan menulis tidak pernah mengganggu
+permintaan.
+
 ---
 
 ## 7. Status fitur
@@ -403,6 +442,13 @@ menerbitkan ulang kunci.
 ## 9. Jebakan yang sudah pernah menggigit
 
 Daftar ini bukan teori. Semuanya sudah pernah terjadi dan memakan waktu.
+
+### Next.js diam-diam memotong body di atas 10 MB
+
+Next 16 membatasi body permintaan yang melewati proxy sebesar 10 MB dan **memotongnya
+tanpa error**: unggahan 15 MB tampak sukses dengan baris yang hilang. Batasnya dinaikkan
+lewat `experimental.proxyClientMaxBodySize` (110 MB, di atas batas dataset 100 MB).
+Verifikasi dengan berkas besar sungguhan, bukan hanya yang kecil.
 
 ### `guided_json` diterima lalu diabaikan
 
