@@ -28,7 +28,7 @@ import {
 type Kind = "text" | "decision";
 type Source = "file" | "paste" | "hf";
 type S3Config = { configured: boolean; buckets: string[]; defaultBucket: string; defaultPrefix: string };
-type AddResponse = { id?: string; ref?: string; error?: string; evalSetId?: string };
+type AddResponse = { id?: string; ref?: string; error?: string; evalSetId?: string; evalSetError?: string };
 
 const MAX_MB = MAX_DATASET_BYTES / 1024 / 1024;
 
@@ -344,7 +344,8 @@ function AddDatasetBody({
         ({ status, body } = await postForm("/api/datasets/upload", form, setPct));
       }
       if (status < 200 || status >= 300 || !body.id) throw new Error(body.error || `Could not add the dataset (${status})`);
-      toast.success(`Dataset "${body.id}" added${body.evalSetId ? " (its test file is also a test set in Evals)" : ""}.`);
+      toast.success(`Dataset "${body.id}" added${body.evalSetId ? ` (its test file is also the test set "${body.evalSetId}" in Evals)` : ""}.`);
+      if (body.evalSetError) toast.warning(`The test file was not registered as a test set: ${body.evalSetError}`);
       onAdded(body.ref ?? body.id, body.id);
       onClose();
     } catch (err) {

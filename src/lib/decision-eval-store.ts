@@ -37,7 +37,7 @@ export type DecisionEvalRun = {
 export type DecisionEvalRunSummary = Omit<DecisionEvalRun, "cases">;
 
 /** Per-row detail is large (probabilities for every option), so only the newest runs are kept. */
-const STALE_MS = 5 * 60 * 1000;
+const STALE_MS = 10 * 60 * 1000;
 const KEEP_RUNS = 30;
 
 const store = createJsonDirStore<DecisionEvalRun>({

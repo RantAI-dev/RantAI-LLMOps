@@ -216,3 +216,23 @@ describe("buildDecisionReport", () => {
     expect(r.questions).toEqual([]);
   });
 });
+
+describe("an unanswered question", () => {
+  const meta: Record<string, QuestionMeta> = {
+    team: { type: "choice", options: ["billing", "technical"] },
+    refund: { type: "noul", options: ["false", "true"] },
+  };
+  it("keeps the row from counting as fully right", () => {
+    const p = parseDecisionEvalSet(
+      JSON.stringify({
+        state: "s",
+        questions: { team: { type: "choice", criteria: { billing: "b", technical: "t" } }, refund: { type: "noul" } },
+        gold: { team: "billing", refund: true },
+      })
+    );
+    // team is answered and right; refund has no usable answer
+    const c = scoreDecisionCase(0, p.rows[0]!, { team: { type: "choice", choice: "billing", probabilities: { billing: 0.9, technical: 0.1 } } }, meta);
+    expect(c.unanswered).toBe(1);
+    expect(buildDecisionReport([c], meta, 1).recordAccuracy).toBe(0);
+  });
+});

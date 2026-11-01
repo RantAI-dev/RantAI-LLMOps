@@ -179,10 +179,20 @@ describe("ingestDataset: decision", () => {
     expect(s3.puts.map((p) => p.key)).toEqual(["decision/s3-tickets/train.jsonl", "decision/s3-tickets/eval.jsonl"]);
   });
 
-  it("does not fail the dataset when the test set cannot be registered", async () => {
-    const long = "a".repeat(120); // a slug longer than an eval set id allows
+  it("registers the test file of a dataset with a very long name under a shortened id", async () => {
+    const long = "a".repeat(120);
     const r = await ingestDataset({ name: long, kind: "decision", content: decisionRows(30), evalContent: decisionRows(10) });
     expect(r.id).toBe(long);
-    expect(r.evalSetId).toBeUndefined();
+    expect(r.evalSetId).toBeDefined();
+    expect(r.evalSetId!.length).toBeLessThanOrEqual(81);
+    expect(r.evalSetError).toBeUndefined();
+  });
+
+  it("never replaces an existing test set with the same id", async () => {
+    const { addDecisionEvalSet, readDecisionEvalSet } = await import("@/lib/decision-eval-set-store");
+    await addDecisionEvalSet({ name: "Clash", content: decisionRows(7), source: "upload" });
+    const r = await ingestDataset({ name: "clash", kind: "decision", content: decisionRows(30), evalContent: decisionRows(10) });
+    expect(r.evalSetId).toBe("clash-test");
+    expect((await readDecisionEvalSet("clash"))!.meta.rows).toBe(7);
   });
 });

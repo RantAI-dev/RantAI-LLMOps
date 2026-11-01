@@ -22,7 +22,7 @@ import { logServerError } from "@/lib/log";
 
 /** The decision server answers one request per model at a time; a few in flight keep it busy without piling up. */
 const CONCURRENCY = 3;
-const PROGRESS_EVERY = 5;
+const PROGRESS_EVERY = 1;
 
 /** Questions as the server expects them: the row's own, so options and instructions are exactly what the model was trained on. */
 export type Predict = (row: EvalRow) => Promise<Record<string, unknown>>;

@@ -113,7 +113,7 @@ export function detectFormat(filename: string, text: string): SourceFormat {
   if (ext === "csv") return "csv";
   if (ext === "jsonl" || ext === "ndjson") return "jsonl";
   const head = text.trimStart();
-  if (head.startsWith("[")) return "json";
+  if (/^\[\s*(\{|\])/.test(head)) return "json";
   if (head.startsWith("{")) return "jsonl";
   if (ext === "json") return "json";
   return /^[^\n{]*\|/.test(head) ? "pairs" : "jsonl";

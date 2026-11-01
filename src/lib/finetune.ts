@@ -40,7 +40,7 @@ import {
   type TextReport,
   type TextSchema,
 } from "@/lib/dataset-ingest";
-import { saveDecisionEvalSet, type DecisionEvalSetSource } from "@/lib/decision-eval-set-store";
+import { decisionEvalSetExists, saveDecisionEvalSet, type DecisionEvalSetSource } from "@/lib/decision-eval-set-store";
 import {
   decisionDatasetProblem,
   validDecisionJsonl,
@@ -406,6 +406,8 @@ export type IngestResult = {
   eval?: DecisionDatasetReport;
   /** Decision datasets: the id the test file was registered under in Evals → Decision. */
   evalSetId?: string;
+  /** The dataset was stored, but its test file could not be registered as a test set. */
+  evalSetError?: string;
 };
 
 const s3Key = (prefix: string | undefined, id: string, file: string): string => {
@@ -500,14 +502,18 @@ async function registerEvalSet(
   prep: PreparedDecision,
   name: string,
   source: DecisionEvalSetSource
-): Promise<string | undefined> {
-  if (!prep.evalJsonl) return undefined;
+): Promise<{ id?: string; error?: string }> {
+  if (!prep.evalJsonl) return {};
   try {
-    await saveDecisionEvalSet({ id: prep.id, name: name.trim() || prep.id, jsonl: prep.evalJsonl, source });
-    return prep.id;
+    // Never replace a test set that already exists: earlier runs are only comparable on the same rows.
+    const base = prep.id.slice(0, 70);
+    let id = base;
+    for (let n = 1; await decisionEvalSetExists(id); n++) id = n === 1 ? `${base}-test` : `${base}-test-${n}`;
+    await saveDecisionEvalSet({ id, name: name.trim() || prep.id, jsonl: prep.evalJsonl, source });
+    return { id };
   } catch (err) {
     logServerError("registerEvalSet", err);
-    return undefined;
+    return { error: err instanceof Error ? err.message : "The test file could not be registered" };
   }
 }
 
@@ -546,8 +552,16 @@ export async function ingestDataset(input: {
     } else {
       await createLocalTlDataset(id, prep.files);
     }
-    const evalSetId = await registerEvalSet(prep, input.name, input.evalSource ?? "dataset");
-    return { id, ref, kind: "decision", report: prep.train, ...(prep.eval ? { eval: prep.eval } : {}), ...(evalSetId ? { evalSetId } : {}) };
+    const reg = await registerEvalSet(prep, input.name, input.evalSource ?? "dataset");
+    return {
+      id,
+      ref,
+      kind: "decision",
+      report: prep.train,
+      ...(prep.eval ? { eval: prep.eval } : {}),
+      ...(reg.id ? { evalSetId: reg.id } : {}),
+      ...(reg.error ? { evalSetError: reg.error } : {}),
+    };
   }
 
   const { jsonl, format } = toJsonl(input.content, input.filename ?? "");

@@ -256,7 +256,7 @@ function Report({ run }: { run: DecisionEvalRun }) {
       {run.errorCount > 0 ? (
         <div role="alert" className="rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-[12px] text-warning">
           {run.errorCount} of {run.total} rows could not be answered and are not counted
-          {run.errorSample ? ` (${run.errorSample})` : ""}. The numbers cover the other {r.rows} rows.
+          {run.errorSample ? ` (${run.errorSample})` : ""}. The numbers cover the other {r.scoredRows} rows.
         </div>
       ) : null}
 

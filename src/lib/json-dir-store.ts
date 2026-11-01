@@ -60,7 +60,13 @@ export function createJsonDirStore<T extends StoredRecord>(opts: {
         return null;
       }
     },
+    /** Updates an existing record only: a record deleted meanwhile (a run still going) must not reappear. */
     async save(rec: T): Promise<void> {
+      try {
+        await fs.access(file(rec.id));
+      } catch {
+        return;
+      }
       await atomicWrite(file(rec.id), JSON.stringify({ ...rec, updatedAt: Date.now() }));
     },
     /** Records without their heavy fields, newest first. */
@@ -90,7 +96,8 @@ export function createJsonDirStore<T extends StoredRecord>(opts: {
     async prune(): Promise<void> {
       try {
         const all = await this.list();
-        await Promise.all(all.slice(opts.keep).map((r) => this.remove(r.id)));
+        // A run still going is never pruned (list() already reports a dead one as interrupted).
+        await Promise.all(all.filter((r) => r.status !== "running").slice(opts.keep).map((r) => this.remove(r.id)));
       } catch (err) {
         console.error(`[${opts.dirName}] prune failed:`, err);
       }

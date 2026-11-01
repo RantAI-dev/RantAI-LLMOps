@@ -94,3 +94,11 @@ describe("buildTextReport (the review step)", () => {
     expect(r.schema.id).toBe("prompt-completion");
   });
 });
+
+describe("detectFormat on pasted text", () => {
+  it("treats only an array of objects as JSON", () => {
+    expect(detectFormat("", '[{"prompt":"a","completion":"b"}]')).toBe("json");
+    expect(detectFormat("", "[\n  {")).toBe("json");
+    expect(detectFormat("", "[INST] capital of Indonesia? | Jakarta")).toBe("pairs");
+  });
+});

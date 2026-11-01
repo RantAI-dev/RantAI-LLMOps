@@ -122,7 +122,7 @@ describe("runDecisionEval", () => {
     const { saveDecisionEvalRun } = await import("@/lib/decision-eval-store");
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await saveDecisionEvalRun(old); // save stamps updatedAt = now: rewind the clock the store sees
-    vi.setSystemTime(Date.now() + 10 * 60 * 1000);
+    vi.setSystemTime(Date.now() + 11 * 60 * 1000);
     const read = await readDecisionEvalRun(run.id);
     vi.useRealTimers();
     expect(read!.status).toBe("interrupted");

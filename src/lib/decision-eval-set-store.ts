@@ -50,7 +50,7 @@ export async function saveDecisionEvalSet(input: {
 }): Promise<DecisionEvalSet> {
   checkId(input.id);
   if (Buffer.byteLength(input.jsonl, "utf8") > MAX_EVAL_SET_BYTES) {
-    throw new Error(`The test set is larger than ${MAX_EVAL_SET_BYTES / 1024 / 1024} MB`);
+    throw new DatasetInputError(`The test set is larger than ${MAX_EVAL_SET_BYTES / 1024 / 1024} MB`);
   }
   const lines = input.jsonl.split("\n").filter(Boolean);
   const names = new Set<string>();

@@ -56,3 +56,11 @@ describe("reviewDecision", () => {
     expect(reviewDecision("[{", "big.json", true).blocked).toBeNull(); // cannot preview a cut JSON array
   });
 });
+
+describe("reviewText on a JSON array cut off at the review limit", () => {
+  it("does not block the upload (the server checks the whole file)", () => {
+    const cut = '[{"prompt":"a","completion":"b"},{"prompt":"c","comple';
+    expect(reviewText(cut, "big.json", true).blocked).toBeNull();
+    expect(reviewText(cut, "big.json", false).blocked).not.toBeNull();
+  });
+});

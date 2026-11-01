@@ -54,6 +54,8 @@ export type DecisionCase = {
   /** The state, shortened for the case table. */
   state: string;
   results: Record<string, DecisionResult>;
+  /** Labelled questions the model gave no usable answer for: the row cannot count as fully right. */
+  unanswered?: number;
   /** The request failed: the row is not scored and is counted in `errorCount`. */
   error?: string;
 };
@@ -237,13 +239,18 @@ export function scoreDecisionCase(
   meta: Record<string, QuestionMeta>
 ): DecisionCase {
   const results: Record<string, DecisionResult> = {};
+  let unanswered = 0;
   for (const [name, rawGold] of Object.entries(row.gold)) {
     const q = row.questions[name];
     const m = meta[name];
     if (!q || !m || q.type !== m.type) continue;
     const gold = goldLabel(q.type, m.options, rawGold);
     const pred = extractPrediction(q.type, m.options, answers[name]);
-    if (gold === null || pred === null) continue;
+    if (gold === null) continue;
+    if (pred === null) {
+      unanswered++;
+      continue;
+    }
     results[name] = {
       gold,
       pred: pred.label,
@@ -253,7 +260,7 @@ export function scoreDecisionCase(
       correct: pred.label === gold,
     };
   }
-  return { i, state: stateText(row.state), results };
+  return { i, state: stateText(row.state), results, ...(unanswered ? { unanswered } : {}) };
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -376,7 +383,7 @@ export function buildDecisionReport(cases: DecisionCase[], meta: Record<string, 
     decisions: all.length,
     accuracy: mean(all.map((p) => (p.correct ? 1 : 0))),
     macroAccuracy: mean(questions.map((q) => q.accuracy)),
-    recordAccuracy: mean(scored.map((c) => (Object.values(c.results).every((r) => r.correct) ? 1 : 0))),
+    recordAccuracy: mean(scored.map((c) => (!c.unanswered && Object.values(c.results).every((r) => r.correct) ? 1 : 0))),
     ece,
     brier: brierOf(all),
     logLoss: logLossOf(all),

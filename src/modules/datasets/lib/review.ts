@@ -37,7 +37,10 @@ const EMPTY: DecisionDatasetReport = { total: 0, valid: 0, invalid: 0, errors: [
 export function reviewText(text: string, filename: string, partial: boolean): TextReview {
   const report = buildTextReport(text, filename, partial);
   let blocked: string | null = null;
-  if (report.rows === 0) {
+  if (partial && report.format === "json" && report.rows === 0) {
+    // A JSON array cut off at the review limit cannot be parsed here; the server checks the whole file.
+    blocked = null;
+  } else if (report.rows === 0) {
     blocked = report.errors[0] ?? "No rows found in this file";
   } else if (report.invalid > 0) {
     // The server refuses a text dataset with any line it cannot read, so say so here, before the upload.

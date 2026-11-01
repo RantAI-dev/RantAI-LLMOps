@@ -27,7 +27,12 @@ export async function POST(req: NextRequest) {
   const type = req.headers.get("content-type") ?? "";
   try {
     if (type.includes("application/json")) {
-      const body = (await req.json()) as Record<string, unknown>;
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+      }
       const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string).trim() : "");
       const name = str("name");
       const dataset = str("dataset");
@@ -53,6 +58,9 @@ export async function POST(req: NextRequest) {
       content = await file.text();
       filename = file.name;
     } else if (typeof pasted === "string" && pasted.trim()) {
+      if (pasted.length > MAX_EVAL_SET_BYTES) {
+        return Response.json({ error: `A test set can be at most ${MAX_EVAL_SET_BYTES / 1024 / 1024} MB` }, { status: 413 });
+      }
       content = pasted;
     } else {
       return Response.json({ error: "A file or pasted text is required" }, { status: 400 });
