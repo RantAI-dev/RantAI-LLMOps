@@ -333,6 +333,12 @@ Traces. Aktifkan dengan `GATEWAY_TRACE_FILE=/data/inference-log.jsonl` dan pasan
 data aplikasi ke gateway. Mati secara bawaan; kegagalan menulis tidak pernah mengganggu
 permintaan.
 
+> **Catatan keamanan:** gateway yang menerima trace harus memasang seluruh volume data
+> aplikasi (`/data`, yang juga memuat konfigurasi gateway dan pengaturan) dengan hak tulis.
+> Kodenya hanya menambahkan satu baris ke log, tetapi gateway menghadap jaringan; aktifkan
+> hanya di gateway yang memang perlu tercatat. Di UGM baru `rantai-gateway-decision` yang
+> aktif; tiga gateway lain (memakai image backend) belum.
+
 ---
 
 ## 7. Status fitur
