@@ -24,6 +24,11 @@ writes it, so access changes live with no restart):
                           volume). When set, every proxied request appends one metadata line (model,
                           status, tokens, latency; never the prompt or the reply) so API traffic shows
                           up in the LLMOps Traces view. Off by default.
+  GATEWAY_ENGINE          set to `sglang` when the upstream is SGLang. SGLang picks a LoRA adapter with
+                          `model: "<base>:<adapter>"` and answers ANY other name (a bare adapter name, a
+                          typo, an unloaded adapter) with the base model and HTTP 200. In this mode the
+                          gateway maps the names clients use (`ask`, or `base:ask`) to that form from the
+                          upstream's /v1/models, and refuses names it does not serve with 404.
 
 Stdlib only — no extra deps.
 """
@@ -133,6 +138,54 @@ def _trace(model, status, started, first_byte, captured, streamed):
             f.write(json.dumps(event) + "\n")
     except Exception as e:  # noqa: BLE001
         print(f"[rantai-gateway] trace write failed: {e}", flush=True)
+
+
+ENGINE = os.environ.get("GATEWAY_ENGINE", "").strip().lower()
+_SGLANG_TTL = 5.0
+_sglang_cache = {"at": 0.0, "base": None, "adapters": frozenset()}
+
+
+def _sglang_served(force=False):
+    """(base, adapters) from SGLang's /v1/models: the base is the entry without `parent`, the adapters
+    are the entries whose `parent` is that base. Cached for a few seconds; (None, empty) if unreachable."""
+    now = time.time()
+    if not force and _sglang_cache["base"] and now - _sglang_cache["at"] < _SGLANG_TTL:
+        return _sglang_cache["base"], _sglang_cache["adapters"]
+    try:
+        with urllib.request.urlopen(UPSTREAM + "/v1/models", timeout=10) as r:
+            data = json.loads(r.read()).get("data") or []
+    except Exception:  # noqa: BLE001
+        return None, frozenset()
+    base = next((m.get("id") for m in data if isinstance(m, dict) and m.get("id") and not m.get("parent")), None)
+    adapters = frozenset(m["id"] for m in data if isinstance(m, dict) and m.get("id") and base and m.get("parent") == base)
+    _sglang_cache.update(at=now, base=base, adapters=adapters)
+    return base, adapters
+
+
+def client_model_name(model):
+    """The name a client means: `base:ask` and `ask` are the same adapter in SGLang mode. Used for the
+    allowlist and the trace, so both spellings are treated alike."""
+    if ENGINE == "sglang" and isinstance(model, str) and ":" in model:
+        base, _ = _sglang_served()
+        if base and model.startswith(base + ":"):
+            return model[len(base) + 1:]
+    return model
+
+
+def sglang_upstream_model(model):
+    """SGLang's `<base>:<adapter>` for a client's name, the base for the base, or None if not served."""
+    if not isinstance(model, str) or not model:
+        return None
+    for force in (False, True):  # a miss re-reads /v1/models once: the adapter may have just been loaded
+        base, adapters = _sglang_served(force=force)
+        if not base:
+            continue
+        if model == base:
+            return base
+        name = model[len(base) + 1:] if model.startswith(base + ":") else model
+        if name in adapters:
+            return f"{base}:{name}"
+    return None
 
 
 def _split_env(name):
@@ -281,15 +334,25 @@ class Handler(BaseHTTPRequestHandler):
         if body is None:
             return
         streamed = False
+        parsed = None
         try:
             parsed = json.loads(body or b"{}") or {}
             model = parsed.get("model", "")
             streamed = parsed.get("stream") is True
         except Exception:
             model = ""
+        model = client_model_name(model)
         if models and model not in models:
             self._json(403, {"error": {"message": f"model '{model}' is not deployed", "type": "model_not_allowed"}})
             return
+        if ENGINE == "sglang" and isinstance(parsed, dict) and "model" in parsed:
+            upstream_model = sglang_upstream_model(model)
+            if upstream_model is None:
+                self._json(404, {"error": {"message": f"model '{model}' is not served", "type": "model_not_found"}})
+                return
+            if upstream_model != parsed.get("model"):
+                parsed["model"] = upstream_model
+                body = json.dumps(parsed).encode("utf-8")
         self._proxy("POST", body, model=model if isinstance(model, str) else "", streamed=streamed)
 
     def _list_models(self, allowed):
@@ -307,5 +370,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"[rantai-gateway] listening on :{PORT} -> {UPSTREAM}", flush=True)
+    print(f"[rantai-gateway] listening on :{PORT} -> {UPSTREAM}" + (f" ({ENGINE} names)" if ENGINE else ""), flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

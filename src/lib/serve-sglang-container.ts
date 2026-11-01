@@ -12,6 +12,9 @@
  *   reads the same files).
  * - `--mem-fraction-static` is a share of the GPU memory that is FREE when the
  *   container starts, not of the total.
+ * - The LoRA memory pool is sized at start: `--max-lora-rank` is at least
+ *   SGLANG_MAX_LORA_RANK (16), so adapters attached later from the Deployments
+ *   page (src/lib/engine-lora.ts) still fit.
  * Clients pick an adapter by name as with vLLM; inference-engines.ts rewrites it
  * to SGLang's `<base>:<adapter>` form.
  */
@@ -40,6 +43,8 @@ const ADAPTER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** Rewrites a regex-string `target_modules` into the module list its weights hold. */
 const PREPARE_ADAPTERS = [
   "import json, os, shutil",
+  "rank = int(os.environ.get('SGLANG_MAX_LORA_RANK') or 16)",
+  "os.makedirs('/tmp/loras', exist_ok=True)",
   "for spec in os.environ.get('SGLANG_LORA_MODULES', '').split():",
   "    name, src = spec.split('=', 1)",
   "    dst = '/tmp/loras/' + name",
@@ -52,21 +57,105 @@ const PREPARE_ADAPTERS = [
   "        keys = safe_open(os.path.join(dst, 'adapter_model.safetensors'), 'pt').keys()",
   "        cfg['target_modules'] = sorted({k.split('.lora_')[0].rsplit('.', 1)[-1] for k in keys if '.lora_' in k})",
   "        json.dump(cfg, open(cfg_path, 'w'))",
+  "    rank = max([rank, int(cfg.get('r') or 0)] + [int(v) for v in (cfg.get('rank_pattern') or {}).values()])",
   "    print('adapter', name, 'target_modules', cfg.get('target_modules'), flush=True)",
+  // Adapters attached later must fit this rank, so it is never below SGLANG_MAX_LORA_RANK (16, the trainer's default r).
+  "open('/tmp/loras/.max_rank', 'w').write(str(rank))",
 ].join("\n");
 
-/** The container's entrypoint: prepare the adapters, then `sglang.launch_server`. */
+/**
+ * A helper next to the server (internal port 30001, never published), so the
+ * Deployments page can attach adapters while SGLang runs (src/lib/engine-lora.ts):
+ *   POST /prepare {name, path} -> {path}: the dir to pass to /load_lora_adapter.
+ *     A regex target_modules gets a copy in /tmp/loras-hot/<name> (symlinks + a
+ *     config listing the modules); any other adapter is used as is.
+ *   GET /adapters -> {adapters: [{path, base}]}: trained adapters on the TL volume.
+ * Only paths under /root/.transformerlab are accepted.
+ */
+export const SGLANG_LORA_HELPER = `import glob, json, os, re, shutil, struct
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ROOT = "/root/.transformerlab/"
+NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+def prepare(name, src):
+    cfg = json.load(open(os.path.join(src, "adapter_config.json")))
+    tm = cfg.get("target_modules")
+    if not isinstance(tm, str) or tm in ("all", "all-linear"):
+        return src
+    with open(os.path.join(src, "adapter_model.safetensors"), "rb") as f:
+        keys = json.loads(f.read(struct.unpack("<Q", f.read(8))[0])).keys()
+    mods = sorted({k.split(".lora_")[0].rsplit(".", 1)[-1] for k in keys if ".lora_" in k})
+    if not mods:
+        raise ValueError("no LoRA weights found in " + src)
+    dst = "/tmp/loras-hot/" + name
+    shutil.rmtree(dst, ignore_errors=True)
+    os.makedirs(dst)
+    for f in os.listdir(src):
+        p = os.path.join(src, f)
+        if f != "adapter_config.json" and os.path.isfile(p):
+            os.symlink(p, os.path.join(dst, f))
+    cfg["target_modules"] = mods
+    json.dump(cfg, open(os.path.join(dst, "adapter_config.json"), "w"))
+    return dst
+
+def listing():
+    out = []
+    for c in sorted(glob.glob(ROOT + "orgs/*/workspace/experiments/*/jobs/*/models/*/adapter_config.json")):
+        try:
+            base = json.load(open(c)).get("base_model_name_or_path") or ""
+        except Exception:
+            base = ""
+        out.append({"path": os.path.dirname(c), "base": base})
+    return out
+
+class H(BaseHTTPRequestHandler):
+    def send(self, code, obj):
+        b = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(b)))
+        self.end_headers()
+        self.wfile.write(b)
+
+    def do_GET(self):
+        if self.path == "/adapters":
+            self.send(200, {"adapters": listing()})
+        else:
+            self.send(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path != "/prepare":
+            return self.send(404, {"error": "not found"})
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            name, src = str(body.get("name", "")), str(body.get("path", "")).rstrip("/")
+            if not NAME.match(name) or not src.startswith(ROOT) or ".." in src:
+                return self.send(400, {"error": "invalid adapter name or path"})
+            self.send(200, {"path": prepare(name, src)})
+        except Exception as e:
+            self.send(400, {"error": str(e)})
+
+    def log_message(self, *args):
+        pass
+
+ThreadingHTTPServer(("0.0.0.0", 30001), H).serve_forever()`;
+
+/** The container's entrypoint: prepare the adapters, start the helper, then `sglang.launch_server`. */
 export const SGLANG_ENTRYPOINT = [
   "set -eu",
   "python3 - <<'PY'",
   PREPARE_ADAPTERS,
   "PY",
+  "cat > /tmp/lora_helper.py <<'PY'",
+  SGLANG_LORA_HELPER,
+  "PY",
+  "python3 /tmp/lora_helper.py &",
   'set -- --model-path "$SGLANG_MODEL" --served-model-name "$SGLANG_SERVED_NAME" --host 0.0.0.0 --port 30000 \\',
   '  --mem-fraction-static "$SGLANG_MEM_FRACTION" --context-length "$SGLANG_CONTEXT_LENGTH" \\',
   "  --max-running-requests 8 --trust-remote-code --enable-metrics",
   'if [ -n "${SGLANG_QUANT:-}" ]; then set -- "$@" --quantization "$SGLANG_QUANT"; fi',
   'if [ -n "${SGLANG_LORA_MODULES:-}" ]; then',
-  '  set -- "$@" --enable-lora --lora-paths',
+  '  set -- "$@" --enable-lora --max-lora-rank "$(cat /tmp/loras/.max_rank 2>/dev/null || echo "${SGLANG_MAX_LORA_RANK:-16}")" --lora-paths',
   '  for spec in $SGLANG_LORA_MODULES; do set -- "$@" "${spec%%=*}=/tmp/loras/${spec%%=*}"; done',
   "fi",
   'exec python3 -m sglang.launch_server "$@"',

@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { EngineLoad } from "@/modules/traces/components/engine-load";
 import { useTraces } from "@/modules/traces/hooks/use-traces";
 import type { TraceEvent } from "@/modules/traces/services/traces-service";
 import { cn } from "@/lib/utils";
@@ -125,6 +126,8 @@ export function TracesPage() {
           Refresh
         </Button>
       </div>
+
+      <EngineLoad />
 
       {stats ? (
         <SummaryCardGrid

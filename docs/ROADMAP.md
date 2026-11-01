@@ -84,6 +84,9 @@ Tiga proses lokal, engine training & inference terpisah:
 - **Engine ketiga** — SGLang di samping Ollama dan vLLM (`SGLANG_BASE_URL`): kartu di Deployments, pilihan engine dan adapter di Playground. Klien tetap memakai nama `base`/`ask`/…; LLMOps menerjemahkannya ke bentuk `base:ask` milik SGLang dan menolak nama yang tidak dilayani.
 - **Deploy dari UI** — kartu "Deploy SGLang" (container terkelola, perlu Docker socket; `NEXT_PUBLIC_ENABLE_DEPLOY_SGLANG=true`). Entrypoint-nya menyalin adapter Unsloth dan menulis `target_modules` sebagai daftar.
 - **Diuji di GB10** — SEA-LION 8B + adapter ask/learn/practice: jawaban setara vLLM, 8 permintaan paralel 64,5 vs 43,3 tok/s.
+- **Adapter tanpa restart** — kartu "SGLang LoRA adapters" di Deployments: pasang/lepas adapter saat SGLang berjalan, daftar adapter di disk, pemulihan otomatis setelah restart. Adapter Unsloth disiapkan oleh helper di container SGLang.
+- **Beban engine** — panel "Engine load" di Traces dari `/metrics` vLLM dan SGLang (antrean, KV cache, tok/s, TTFT, cache hit, slot LoRA).
+- **Gateway SGLang** — `GATEWAY_ENGINE=sglang`: gateway menerjemahkan `ask` ke `base:ask` dan menolak nama yang tidak dilayani (layanan `rantai-gateway-sglang`, port 11440, profil `sglang`).
 
 ---
 
@@ -103,12 +106,11 @@ Tiga proses lokal, engine training & inference terpisah:
 ## 🚀 Fase berikutnya (opsional)
 
 **Roadmap (belum dimulai), urut prioritas:**
-1. **Engine — SGLang lanjutan:** pasang/lepas adapter tanpa restart (`/load_lora_adapter`), metrik `/metrics` ke Monitoring, gateway yang menerjemahkan nama adapter.
-2. **Vision — VLM:** dataset bergambar, input gambar di Playground dan Evals, serving dengan gambar (fine-tune base VL text-only sudah jalan).
-3. **Engine — CPU/Edge:** fine-tune di GPU, deploy ke CPU/edge (GGUF lewat llama-server, termasuk model keputusan), dan benchmark tok/s.
-4. **Speech — ASR lalu TTS:** fondasi audio bersama (dataset, trainer, serving, perekam/pemutar di Playground); ASR dulu karena WER/CER bisa dihitung otomatis.
-5. **Vision — OCR:** setelah VLM dievaluasi, putuskan perlu jalur terpisah atau cukup VLM.
-6. **Platform:** port Rust (bagian keamanan lebih dulu), performa backend, UI/UX oleh desainer.
+1. **Vision — VLM:** dataset bergambar, input gambar di Playground dan Evals, serving dengan gambar (fine-tune base VL text-only sudah jalan).
+2. **Engine — CPU/Edge:** fine-tune di GPU, deploy ke CPU/edge (GGUF lewat llama-server, termasuk model keputusan), dan benchmark tok/s.
+3. **Speech — ASR lalu TTS:** fondasi audio bersama (dataset, trainer, serving, perekam/pemutar di Playground); ASR dulu karena WER/CER bisa dihitung otomatis.
+4. **Vision — OCR:** setelah VLM dievaluasi, putuskan perlu jalur terpisah atau cukup VLM.
+5. **Platform:** port Rust (bagian keamanan lebih dulu), performa backend, UI/UX oleh desainer.
 
 **Lainnya:**
 

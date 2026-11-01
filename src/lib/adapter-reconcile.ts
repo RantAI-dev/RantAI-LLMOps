@@ -1,31 +1,32 @@
 /**
- * Adapter reconciler (Phase 2): make the running vLLM match the desired-state
- * manifest. Additive by design — it LOADS every remembered adapter that isn't
- * live, but never unloads anything. That keeps it safe next to the launch-time
- * adapters (ask/learn/practice) it doesn't own: it can't nuke production.
+ * Adapter reconciler: make a running engine (vLLM or SGLang) match its
+ * desired-state manifest. Additive by design — it LOADS every remembered adapter
+ * that isn't live, but never unloads anything. That keeps it safe next to the
+ * launch-time adapters (ask/learn/practice) it doesn't own.
  *
- * The headline use is self-healing: after a vLLM restart, runtime-attached
+ * The headline use is self-healing: after an engine restart, runtime-attached
  * adapters are gone from `/v1/models` but still in the manifest — reconcile
- * re-attaches them. Callable on demand (a UI "Sync" button) or on page load.
+ * re-attaches them. Runs on boot (src/instrumentation.ts) and from the "Sync now"
+ * button on the Deployments page.
  */
 import { readManifest, type ManifestAdapter } from "@/lib/adapter-manifest-store";
+import { attachAdapter, type LoraEngineId } from "@/lib/engine-lora";
 import { listOpenAIModels, resolveEngine } from "@/lib/inference-engines";
-import { loadLoraAdapter } from "@/lib/vllm-lora";
 
 export type AdapterDrift = {
-  /** vLLM is configured (has a base URL). */
+  /** The engine is configured (has a base URL). */
   configured: boolean;
   /** Adapter names the manifest remembers. */
   remembered: string[];
-  /** Remembered adapters missing from the live vLLM (need re-loading). */
+  /** Remembered adapters missing from the live engine (need re-loading). */
   missing: ManifestAdapter[];
 };
 
-/** Compare the manifest (desired) with vLLM's live `/v1/models` (actual). */
-export async function computeAdapterDrift(): Promise<AdapterDrift> {
-  const engine = resolveEngine("vllm");
+/** Compare the manifest (desired) with the engine's live `/v1/models` (actual). */
+export async function computeAdapterDrift(engineId: LoraEngineId = "vllm"): Promise<AdapterDrift> {
+  const engine = resolveEngine(engineId);
   if (!engine.configured) return { configured: false, remembered: [], missing: [] };
-  const manifest = await readManifest();
+  const manifest = await readManifest(engineId);
   if (manifest.length === 0) return { configured: true, remembered: [], missing: [] };
   const live = await listOpenAIModels(engine.v1BaseUrl, engine.headers);
   const liveNames = new Set(live.map((m) => m.id));
@@ -42,20 +43,20 @@ export type ReconcileResult = {
   alreadyLoaded: number;
   /** Adapter names loaded by this run. */
   loaded: string[];
-  /** Adapters that failed to load, with vLLM's message. */
+  /** Adapters that failed to load, with the engine's message. */
   failed: { name: string; error: string }[];
 };
 
-/** Load every remembered-but-missing adapter into the running vLLM. */
-export async function reconcileAdapters(): Promise<ReconcileResult> {
-  const engine = resolveEngine("vllm");
+/** Load every remembered-but-missing adapter into the running engine. */
+export async function reconcileAdapters(engineId: LoraEngineId = "vllm"): Promise<ReconcileResult> {
+  const engine = resolveEngine(engineId);
   if (!engine.configured) return { configured: false, alreadyLoaded: 0, loaded: [], failed: [] };
 
-  const { remembered, missing } = await computeAdapterDrift();
+  const { remembered, missing } = await computeAdapterDrift(engineId);
   const loaded: string[] = [];
   const failed: { name: string; error: string }[] = [];
   for (const a of missing) {
-    const res = await loadLoraAdapter(engine, a.name, a.path);
+    const res = await attachAdapter(engineId, engine, a.name, a.path);
     if (res.ok) loaded.push(a.name);
     else failed.push({ name: a.name, error: res.message });
   }

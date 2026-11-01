@@ -5,9 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 export type AvailableAdapter = { jobId: string; path: string; base: string };
 
 export type AdapterState = {
-  /** vLLM has a base URL (engine is opt-in via env). */
+  /** The engine has a base URL (vLLM and SGLang are opt-in via env). */
   configured: boolean;
-  /** vLLM answered — its models (base + adapters) are live. */
+  /** The engine answered — its models (base + adapters) are live. */
   reachable: boolean;
   /** The served base model id / alias (adapters attach on top of it). */
   base: string | null;
@@ -35,13 +35,13 @@ const EMPTY: AdapterState = {
 };
 
 /**
- * The vLLM base + its LoRA adapters, with attach/detach actions.
+ * An engine's base + its LoRA adapters (vLLM or SGLang), with attach/detach actions.
  *
- * Reads `/api/adapters` (served + on-disk). `busy` holds the name currently being
+ * Reads `/api/adapters?engine=` (served + on-disk). `busy` holds the name currently being
  * acted on (or "__form__" for the attach form) so the UI can disable just that row;
- * `error` carries vLLM's own message on failure. Every action reloads on success.
+ * `error` carries the engine's own message on failure. Every action reloads on success.
  */
-export function useAdapters() {
+export function useAdapters(engine: "vllm" | "sglang" = "vllm") {
   const [state, setState] = useState<AdapterState>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -49,7 +49,7 @@ export function useAdapters() {
 
   const reload = useCallback(async () => {
     try {
-      const res = await fetch("/api/adapters", { cache: "no-store" });
+      const res = await fetch(`/api/adapters?engine=${engine}`, { cache: "no-store" });
       const d = (await res.json()) as Partial<AdapterState>;
       setState({
         configured: Boolean(d.configured),
@@ -66,7 +66,7 @@ export function useAdapters() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [engine]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot load on mount
@@ -81,7 +81,7 @@ export function useAdapters() {
         const res = await fetch("/api/adapters", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action, name, path }),
+          body: JSON.stringify({ engine, action, name, path }),
         });
         const d = (await res.json()) as { error?: string };
         if (!res.ok) {
@@ -97,7 +97,7 @@ export function useAdapters() {
         setBusy(null);
       }
     },
-    [reload]
+    [engine, reload]
   );
 
   const attach = useCallback((name: string, path: string) => act("load", name, path, "__form__"), [act]);
@@ -109,7 +109,7 @@ export function useAdapters() {
     setBusy("__reconcile__");
     setError(null);
     try {
-      const res = await fetch("/api/adapters/reconcile", { method: "POST" });
+      const res = await fetch(`/api/adapters/reconcile?engine=${engine}`, { method: "POST" });
       const d = (await res.json()) as { loaded?: string[]; failed?: unknown[]; error?: string };
       if (!res.ok) {
         setError(d.error ?? "Could not reconcile adapters.");
@@ -123,7 +123,7 @@ export function useAdapters() {
     } finally {
       setBusy(null);
     }
-  }, [reload]);
+  }, [engine, reload]);
 
   return { ...state, loading, busy, error, clearError, reload, attach, detach, reconcile };
 }

@@ -1,20 +1,24 @@
-import { runHostScript } from "@/lib/host-runner";
-import { listEngines, resolveEngine } from "@/lib/inference-engines";
-import {
-  ADAPTER_NAME_RE,
-  isSafeAdapterPath,
-  loadLoraAdapter,
-  unloadLoraAdapter,
-} from "@/lib/vllm-lora";
 import { addToManifest, readManifest, removeFromManifest } from "@/lib/adapter-manifest-store";
+import {
+  attachAdapter,
+  detachAdapter,
+  ENGINE_LABEL,
+  isLoraEngine,
+  listSglangDiskAdapters,
+  type LoraEngineId,
+} from "@/lib/engine-lora";
+import { runHostScript } from "@/lib/host-runner";
+import { engineUrlVar, listEngines, listOpenAIModels, resolveEngine } from "@/lib/inference-engines";
+import { ADAPTER_NAME_RE, isSafeAdapterPath } from "@/lib/vllm-lora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * LoRA adapter management for the vLLM engine.
+ * LoRA adapter management for vLLM and SGLang (`engine` query/body field,
+ * default vllm; src/lib/engine-lora.ts does the engine-specific calls).
  *
- * vLLM serves one base model and can hot-load LoRA adapters that the client then
+ * Both serve one base model and can hot-load LoRA adapters that the client then
  * routes to per request via the `model` field (base / asklearn / practice …).
  * This route is the UI's control plane for that:
  *   GET  — the base, the adapters currently served, the trained (unmerged)
@@ -30,6 +34,8 @@ export const dynamic = "force-dynamic";
  * Requires the vLLM service to be launched with --enable-lora and
  * VLLM_ALLOW_RUNTIME_LORA_UPDATING=True (see docker-compose.portainer.yml). If it
  * wasn't, vLLM answers the load/unload endpoints with 404 — surfaced as an error.
+ * SGLang needs --enable-lora (the managed container sets it when it starts with
+ * at least one adapter).
  */
 
 type Available = { jobId: string; path: string; base: string };
@@ -65,10 +71,19 @@ async function listAvailable(): Promise<Available[]> {
   }
 }
 
-export async function GET() {
-  const vllm = (await listEngines()).find((e) => e.id === "vllm");
-  if (!vllm?.configured) {
+/** `engine` from the query (GET) or the body (POST); defaults to vLLM. */
+function pickEngine(raw: unknown): LoraEngineId | null {
+  if (raw === undefined || raw === null || raw === "") return "vllm";
+  return isLoraEngine(raw) ? raw : null;
+}
+
+export async function GET(req: Request) {
+  const id = pickEngine(new URL(req.url).searchParams.get("engine"));
+  if (!id) return Response.json({ error: 'engine must be "vllm" or "sglang".' }, { status: 400 });
+  const info = (await listEngines()).find((e) => e.id === id);
+  if (!info?.configured) {
     return Response.json({
+      engine: id,
       configured: false,
       reachable: false,
       base: null,
@@ -78,37 +93,49 @@ export async function GET() {
       drift: [],
     });
   }
-  const ids = vllm.models.map((m) => m.id);
-  // Desired-state (Phase 2): which remembered adapters are missing from the live
-  // engine. Computed from the models we already fetched — no extra vLLM call.
-  const manifest = await readManifest();
+  // Both engines list the base first, then each LoRA adapter (SGLang's info puts the base first).
+  const ids = info.models.map((m) => m.id);
+  // Desired state: which remembered adapters are missing from the live engine.
+  // Computed from the models we already fetched — no extra engine call.
+  const manifest = await readManifest(id);
   const live = new Set(ids);
   const drift = manifest.filter((a) => !live.has(a.name)).map((a) => a.name);
+  let available: Available[] = [];
+  if (info.available) {
+    // SGLang's container lists the adapters it can see; otherwise ask the backend runner.
+    available = id === "sglang" ? await listSglangDiskAdapters(info.v1BaseUrl) : [];
+    if (available.length === 0) available = await listAvailable();
+  }
   return Response.json({
+    engine: id,
     configured: true,
-    reachable: vllm.available,
-    base: ids[0] ?? null, // vLLM lists the base first, then each LoRA adapter
+    reachable: info.available,
+    base: ids[0] ?? null,
     // The REAL model behind the served-name alias (e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL),
     // so the UI can show what's actually loaded + flag base-incompatible adapters.
-    baseModel: vllm.baseModel ?? null,
+    baseModel: info.baseModel ?? null,
     served: ids.slice(1),
-    available: vllm.available ? await listAvailable() : [],
+    available,
     remembered: manifest.map((a) => a.name),
     drift,
   });
 }
 
 export async function POST(req: Request) {
-  const engine = resolveEngine("vllm");
-  if (!engine.configured) {
-    return Response.json({ error: "vLLM isn't configured. Set VLLM_BASE_URL, then redeploy." }, { status: 400 });
-  }
-
-  let body: { action?: string; name?: string; path?: string };
+  let body: { action?: string; name?: string; path?: string; engine?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
+  }
+  const id = pickEngine(body.engine);
+  if (!id) return Response.json({ error: 'engine must be "vllm" or "sglang".' }, { status: 400 });
+  const engine = resolveEngine(id);
+  if (!engine.configured) {
+    return Response.json(
+      { error: `${ENGINE_LABEL[id]} isn't configured. Set ${engineUrlVar(id)}, then redeploy.` },
+      { status: 400 }
+    );
   }
 
   const name = (body.name ?? "").trim();
@@ -127,17 +154,25 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
-    const res = await loadLoraAdapter(engine, name, path);
+    if (id === "sglang") {
+      // SGLang answers a duplicate load with an error, but a name that is already
+      // served (or is the base) is easier to explain here.
+      const served = await listOpenAIModels(engine.v1BaseUrl, engine.headers);
+      if (served.some((m) => m.id === name)) {
+        return Response.json({ error: `"${name}" is already served. Detach it first, or pick another name.` }, { status: 409 });
+      }
+    }
+    const res = await attachAdapter(id, engine, name, path);
     if (!res.ok) return Response.json({ error: res.message }, { status: 502 });
-    // Remember it so the reconciler can restore it after a vLLM restart.
-    await addToManifest({ name, path });
+    // Remember it so the reconciler can restore it after an engine restart.
+    await addToManifest({ name, path }, id);
     return Response.json({ ok: true, message: res.message });
   }
 
   if (body.action === "unload") {
-    const res = await unloadLoraAdapter(engine, name);
+    const res = await detachAdapter(id, engine, name);
     if (!res.ok) return Response.json({ error: res.message }, { status: 502 });
-    await removeFromManifest(name);
+    await removeFromManifest(name, id);
     return Response.json({ ok: true, message: res.message });
   }
 

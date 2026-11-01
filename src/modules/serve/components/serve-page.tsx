@@ -37,6 +37,7 @@ export function ServePage() {
       {showDeployVllm && <VllmDeploy />}
       {showDeploySglang && <VllmDeploy engine="sglang" />}
       <AdapterManager />
+      <AdapterManager engine="sglang" />
       <DecisionDeploy />
       <GatewayAccess />
     </div>

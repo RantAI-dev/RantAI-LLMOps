@@ -392,6 +392,32 @@ services:
     networks:
       - llmops
 
+  # Fourth instance of gateway.py, in front of SGLang (base + LoRA adapters, network alias
+  # `sglang8b`). GATEWAY_ENGINE=sglang makes the gateway map the names clients use (`ask`) to
+  # SGLang's `base:ask` and refuse unknown names with 404 — SGLang itself would silently answer
+  # them with the base model. Behind a profile:  docker compose --profile sglang up -d rantai-gateway-sglang
+  rantai-gateway-sglang:
+    build:
+      context: .
+      dockerfile: docker/gateway/Dockerfile
+    image: ${GATEWAY_IMAGE:-rantai-gateway:latest}
+    container_name: rantai-gateway-sglang
+    profiles: ["sglang"]
+    environment:
+      - GATEWAY_UPSTREAM=${GATEWAY_SGLANG_UPSTREAM:-http://sglang8b:30000}
+      - GATEWAY_PORT=8080
+      - GATEWAY_ENGINE=sglang
+      - GATEWAY_API_KEYS=${GATEWAY_SGLANG_API_KEYS:-}
+      # Client names (`base`, `ask`, …). Empty = everything SGLang serves.
+      - GATEWAY_ALLOWED_MODELS=${GATEWAY_SGLANG_ALLOWED_MODELS:-}
+      # To show API traffic in Traces, set GATEWAY_TRACE_FILE=/uidata/inference-log.jsonl and
+      # mount ui_data:/uidata read-write (off by default, like the other gateways).
+    ports:
+      - "${GATEWAY_SGLANG_HOST_PORT:-11440}:8080"
+    restart: unless-stopped
+    networks:
+      - llmops
+
   # ─── Frontend (Next.js) ──────────────────────────────────────────────────────
   frontend:
     # Override to test a locally built image: FRONTEND_IMAGE=rantai-llmops-fe:test

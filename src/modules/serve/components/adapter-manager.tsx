@@ -8,16 +8,19 @@ import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/ui/tooltip";
 import { useAdapters, type AvailableAdapter } from "@/modules/serve/hooks/use-adapters";
 
+const LABEL = { vllm: "vLLM", sglang: "SGLang" } as const;
+
 /**
- * Attach / detach LoRA adapters on the vLLM base, on the Deployments page.
+ * Attach / detach LoRA adapters on the vLLM or SGLang base, on the Deployments page.
  *
  * One base model + many swappable adapters, each routed to per request via the
- * `model` field. Backed by /api/adapters -> vLLM's runtime LoRA API, so changes
- * are live (no redeploy). Hidden entirely unless vLLM is the configured engine.
+ * `model` field. Backed by /api/adapters -> the engine's runtime LoRA API, so
+ * changes are live (no redeploy). Hidden entirely unless that engine is configured.
  */
-export function AdapterManager() {
+export function AdapterManager({ engine = "vllm" }: { engine?: "vllm" | "sglang" }) {
   const { configured, reachable, base, baseModel, served, available, drift, loading, busy, error, clearError, reload, attach, detach, reconcile } =
-    useAdapters();
+    useAdapters(engine);
+  const label = LABEL[engine];
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -44,7 +47,7 @@ export function AdapterManager() {
 
   const canAttach = name.trim().length > 0 && path.trim().length > 0 && busy !== "__form__";
   // For flagging base-incompatible adapters: an adapter is tied to the base it was
-  // trained on, so one trained on a DIFFERENT base than vLLM currently serves will
+  // trained on, so one trained on a DIFFERENT base than the engine currently serves will
   // misbehave if attached. Compare by base-model basename.
   const servedBaseName = baseModel?.split("/").pop()?.toLowerCase() ?? null;
 
@@ -66,11 +69,13 @@ export function AdapterManager() {
     <section className="rounded-xl border bg-surface p-5">
       <div className="mb-3 flex items-center gap-1.5">
         <Layers className="size-4 text-primary" />
-        <h2 className="text-sm font-semibold text-ink">vLLM LoRA adapters</h2>
+        <h2 className="text-sm font-semibold text-ink">{label} LoRA adapters</h2>
         <InfoTip label="About LoRA adapters">
           One base model, many swappable adapters. Clients route to one per request via the OpenAI
           <span className="font-mono"> model </span>
           field (e.g. base / asklearn / practice). Attach and detach are live — no redeploy.
+          {engine === "sglang" &&
+            " For SGLang, LLMOps prepares a copy of each Unsloth adapter the server accepts; the trained files stay untouched."}
         </InfoTip>
         {reachable && (
           <button
@@ -90,18 +95,24 @@ export function AdapterManager() {
           <Loader2 className="size-4 animate-spin" /> Loading…
         </div>
       ) : !reachable ? (
-        <p className="text-[13px] leading-5 text-ink-soft">
-          vLLM is configured but not reachable. Launch it with <span className="font-mono">--enable-lora</span> and{" "}
-          <span className="font-mono">VLLM_ALLOW_RUNTIME_LORA_UPDATING=True</span> (see the compose stack), then
-          redeploy.
-        </p>
+        engine === "sglang" ? (
+          <p className="text-[13px] leading-5 text-ink-soft">
+            SGLang is configured but not reachable. It may still be loading its model; refresh in a minute.
+          </p>
+        ) : (
+          <p className="text-[13px] leading-5 text-ink-soft">
+            vLLM is configured but not reachable. Launch it with <span className="font-mono">--enable-lora</span> and{" "}
+            <span className="font-mono">VLLM_ALLOW_RUNTIME_LORA_UPDATING=True</span> (see the compose stack), then
+            redeploy.
+          </p>
+        )
       ) : (
         <div className="space-y-5">
           {drift.length > 0 && (
             <div className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-[12px] text-ink sm:flex-row sm:items-center">
               <span className="flex-1">
                 {drift.length} remembered adapter{drift.length > 1 ? "s" : ""} not loaded
-                <span className="text-ink-soft"> ({drift.join(", ")})</span> — likely a vLLM restart.
+                <span className="text-ink-soft"> ({drift.join(", ")})</span> — likely a {label} restart.
               </span>
               <Button onClick={doReconcile} disabled={busy === "__reconcile__"} size="sm" variant="outline">
                 {busy === "__reconcile__" ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
@@ -197,7 +208,7 @@ export function AdapterManager() {
                         onClick={() => pickAvailable(a)}
                         title={
                           mismatch
-                            ? `⚠ Base beda — adapter ini dilatih di ${a.base}, tapi vLLM serve ${baseModel}. Kemungkinan tidak kompatibel.`
+                            ? `⚠ Base beda — adapter ini dilatih di ${a.base}, tapi ${label} serve ${baseModel}. Kemungkinan tidak kompatibel.`
                             : `${a.path}\nbase: ${a.base}`
                         }
                         className={`rounded-full border px-2 py-0.5 font-mono text-[11px] ${

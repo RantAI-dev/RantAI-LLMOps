@@ -161,7 +161,11 @@ Three engines sit behind the same chat proxy: **Ollama** (GGUF, every pulled mod
 adapter with `model: "base:ask"` and silently answers any unknown name with the base
 model, so the app maps the plain names (`base`, `ask`, …) and refuses names SGLang does
 not serve. Its deploy card copies each Unsloth adapter and rewrites the regex
-`target_modules` Unsloth saves into the module list SGLang accepts.
+`target_modules` Unsloth saves into the module list SGLang accepts. Adapters can be
+attached and detached while SGLang runs (a helper in the managed container prepares
+them), and a gateway with `GATEWAY_ENGINE=sglang` maps adapter names the same way for
+external clients. The Traces page shows the live load of vLLM and SGLang from their
+`/metrics`.
 
 vLLM serves **several LoRA adapters on one base model**, with attach and detach at
 runtime through `/api/adapters`. Because an adapter is tens of megabytes and the base
@@ -210,6 +214,7 @@ Copy [`.env.example`](.env.example) to `.env.local`. All server-side; none are
 | `VLLM_MAX_MODEL_LEN` | `16384` | Context window. |
 | `SGLANG_BASE_URL` | — | SGLang endpoint (e.g. `http://sglang:30000/v1`). Unset to disable. |
 | `SGLANG_IMAGE` | `lmsysorg/sglang:latest` | Image for "Deploy SGLang". GB10 (CUDA 13): a `cu13` tag such as `lmsysorg/sglang:dev-cu13-qwen38-27b-dflash2`. |
+| `SGLANG_MAX_LORA_RANK` | `16` | Largest rank of an adapter attached while SGLang runs (raise it for bigger adapters; costs KV cache). |
 | `APP_PASSWORD` | — | Access gate. **Required in production** (fails closed). |
 | `AUTH_SECRET` | — | Per-deployment session secret. **Required in production.** |
 

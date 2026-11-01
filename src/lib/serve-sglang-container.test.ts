@@ -60,7 +60,7 @@ describe("entrypoint argv", () => {
     const args = launchArgs(SGLANG_ENTRYPOINT, "set -- --model-path", /exec python3 -m sglang\.launch_server/, env);
     expect(args.slice(0, 4)).toEqual(["--model-path", "org/m", "--served-model-name", "base"]);
     expect(args).toEqual(expect.arrayContaining(["--mem-fraction-static", "0.38", "--context-length", "8192", "--enable-metrics"]));
-    expect(args.slice(-4)).toEqual(["--enable-lora", "--lora-paths", "ask=/tmp/loras/ask", "learn=/tmp/loras/learn"]);
+    expect(args.slice(-6)).toEqual(["--enable-lora", "--max-lora-rank", "16", "--lora-paths", "ask=/tmp/loras/ask", "learn=/tmp/loras/learn"]);
   });
 
   it("vLLM gets every flag", () => {

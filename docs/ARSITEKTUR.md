@@ -294,17 +294,37 @@ ditangani:
 1. **Cara memilih adapter.** SGLang memakai `model: "base:ask"`. Nama lain apa pun —
    `ask` saja, salah ketik, adapter yang sudah dilepas — dijawab model dasar dengan
    status 200. `sglangRequestModel` (`src/lib/inference-engines.ts`) menerjemahkan
-   nama yang dipakai klien dan menolak sisanya dengan 404. Gateway belum menerjemahkan,
-   jadi jangan pasang gateway langsung di depan SGLang untuk klien yang memakai adapter.
+   nama yang dipakai klien dan menolak sisanya dengan 404. Gateway melakukan hal yang
+   sama bila `GATEWAY_ENGINE=sglang` (`docker/backend/gateway.py`, layanan
+   `rantai-gateway-sglang`, port 11440): `ask` atau `base:ask` diteruskan sebagai
+   `base:ask`, nama yang tidak dilayani dijawab 404 tanpa diteruskan ke SGLang.
 2. **`target_modules` milik Unsloth.** Unsloth menyimpannya sebagai regex; SGLang hanya
    menerima `all` atau daftar modul. Entrypoint "Deploy SGLang"
    (`src/lib/serve-sglang-container.ts`) menyalin adapter ke `/tmp/loras` di dalam
    container lalu menulis daftar modul dari isi bobotnya. Berkas adapter asli tidak
    diubah karena vLLM membaca berkas yang sama.
+3. **Pasang/lepas adapter tanpa restart.** Kartu "SGLang LoRA adapters" di Deployments
+   memanggil `/load_lora_adapter` dan `/unload_lora_adapter` (`src/lib/engine-lora.ts`).
+   Adapter Unsloth perlu disiapkan dulu, jadi entrypoint menjalankan helper kecil di
+   port internal 30001: `POST /prepare` membuat salinan di `/tmp/loras-hot/<nama>`
+   (symlink ke berkas asli + config berisi daftar modul), `GET /adapters` mendaftar
+   adapter hasil training di volume TL. Pool memori LoRA ditetapkan saat start, jadi
+   entrypoint memasang `--max-lora-rank` minimal 16 (`SGLANG_MAX_LORA_RANK`, rank
+   bawaan trainer); adapter dengan rank lebih besar harus ikut saat deploy atau nilai
+   itu dinaikkan. Menaikkannya memakan KV cache: di GB10 dengan SEA-LION 8B, 16 → 32
+   mengurangi KV cache dari ±28,7 ribu menjadi ±19,3 ribu token. Adapter yang dipasang dicatat di
+   `adapter-manifest-sglang.json` dan dipasang ulang otomatis setelah SGLang restart,
+   sama seperti vLLM.
 
 `--mem-fraction-static` dihitung dari memori GPU yang **bebas** saat container mulai,
 bukan dari total. Di GB10 dengan SEA-LION 8B, 0,38 ≈ 24 GB (bobot 17,7 GB + KV cache
 26 ribu token).
+
+**Beban engine.** Halaman Traces menampilkan panel "Engine load" dari `/metrics`
+Prometheus milik vLLM dan SGLang (`src/lib/engine-metrics.ts`, `/api/serve/metrics`,
+diperbarui tiap 5 detik): permintaan berjalan dan antre, pemakaian KV cache, token
+keluaran per detik, rata-rata TTFT dan latensi, cache hit prefix, dan slot LoRA SGLang.
+Angka kumulatif dihitung sejak engine start, termasuk lalu lintas yang tidak lewat LLMOps.
 
 ### Adapter dipatri, bukan ditempel
 

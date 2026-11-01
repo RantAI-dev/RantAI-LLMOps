@@ -45,7 +45,7 @@ def start(handler, port=0):
 
 
 def load_gateway(upstream_port, **env):
-    for k in ("GATEWAY_POST_PATHS", "GATEWAY_ALLOWED_MODELS", "GATEWAY_API_KEYS", "GATEWAY_CONFIG_FILE"):
+    for k in ("GATEWAY_POST_PATHS", "GATEWAY_ALLOWED_MODELS", "GATEWAY_API_KEYS", "GATEWAY_CONFIG_FILE", "GATEWAY_ENGINE"):
         os.environ.pop(k, None)
     os.environ.update({"GATEWAY_UPSTREAM": f"http://127.0.0.1:{upstream_port}", "GATEWAY_API_KEYS": "k-test-123456789012", **env})
     import gateway
@@ -137,6 +137,52 @@ def test_upstream_json_errors_pass_through_with_their_type():
     _, gw = load_gateway(up.server_address[1], GATEWAY_POST_PATHS="/v1/systemone")
     status, body = call(gw.server_address[1], "POST", "/v1/systemone", {"model": "x", "state": "s"})
     assert status == 503 and body == {"error": {"message": "model 'x' is busy", "type": "busy"}}
+
+
+class SglangUpstream(Upstream):
+    """SGLang's /v1/models: the base, then adapters carrying `parent`."""
+    served = ["ask"]
+
+    def do_GET(self):
+        self._reply({"object": "list", "data": [{"id": "base"}] + [{"id": a, "parent": "base"} for a in SglangUpstream.served]})
+
+
+def test_sglang_names_are_mapped_and_unknown_names_refused():
+    up = start(SglangUpstream)
+    SglangUpstream.served = ["ask"]
+    Upstream.seen.clear()
+    _, gw = load_gateway(up.server_address[1], GATEWAY_ENGINE="sglang")
+    port = gw.server_address[1]
+    for sent, upstream in (("ask", "base:ask"), ("base:ask", "base:ask"), ("base", "base")):
+        assert call(port, "POST", "/v1/chat/completions", {"model": sent, "messages": []})[0] == 200
+        assert Upstream.seen[-1][1]["model"] == upstream, (sent, Upstream.seen[-1])
+    n = len(Upstream.seen)
+    for bad in ("nope", "base:nope", "learn"):
+        status, body = call(port, "POST", "/v1/chat/completions", {"model": bad})
+        assert status == 404 and body["error"]["type"] == "model_not_found", (bad, status, body)
+    assert len(Upstream.seen) == n  # refused names never reach SGLang (it would answer with the base)
+    # An adapter loaded after the cache was filled is found by the forced re-read.
+    SglangUpstream.served = ["ask", "learn"]
+    assert call(port, "POST", "/v1/chat/completions", {"model": "learn"})[0] == 200
+    assert Upstream.seen[-1][1]["model"] == "base:learn"
+
+
+def test_sglang_allowlist_uses_the_client_name():
+    up = start(SglangUpstream)
+    SglangUpstream.served = ["ask", "learn"]
+    _, gw = load_gateway(up.server_address[1], GATEWAY_ENGINE="sglang", GATEWAY_ALLOWED_MODELS="base,ask")
+    port = gw.server_address[1]
+    assert call(port, "POST", "/v1/chat/completions", {"model": "base:ask"})[0] == 200
+    assert call(port, "POST", "/v1/chat/completions", {"model": "learn"})[0] == 403
+    assert call(port, "POST", "/v1/chat/completions", {"model": "base:learn"})[0] == 403
+
+
+def test_other_engines_pass_names_through():
+    up = start(SglangUpstream)
+    Upstream.seen.clear()
+    _, gw = load_gateway(up.server_address[1])
+    assert call(gw.server_address[1], "POST", "/v1/chat/completions", {"model": "ask"})[0] == 200
+    assert Upstream.seen[-1][1]["model"] == "ask"
 
 
 if __name__ == "__main__":
