@@ -29,6 +29,22 @@ export async function listConversations(): Promise<unknown[]> {
   }
 }
 
+/**
+ * Like `listConversations`, but a failure is `null` instead of `[]`. For callers that must tell "no
+ * conversations" from "could not ask" (the chat-image prune deletes files nobody refers to).
+ */
+export async function listConversationsStrict(): Promise<unknown[] | null> {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") return null;
+  try {
+    const res = await fetch(convUrl(), { headers: inferenceHeaders(), signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function saveConversation(conversation: unknown): Promise<boolean> {
   try {
     const res = await fetch(convUrl(), {

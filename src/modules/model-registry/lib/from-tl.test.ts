@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { paramSizeFromName } from "@/modules/model-registry/lib/from-tl";
+import { paramSizeFromName, tlToRegistryModel } from "@/modules/model-registry/lib/from-tl";
 
 describe("paramSizeFromName", () => {
   it("reads the parameter size from clean HF model names", () => {
@@ -19,5 +19,14 @@ describe("paramSizeFromName", () => {
 
   it("returns '—' when no size token is present", () => {
     expect(paramSizeFromName("some-model-name")).toBe("—");
+  });
+});
+
+describe("tlToRegistryModel task", () => {
+  const base = { id: "m", name: "m", architecture: "X", sizeMb: 1, isGguf: false, downloaded: true };
+  it("marks a vision model Vision-Language and anything else Chat", () => {
+    expect(tlToRegistryModel({ ...base, vision: true }, "2026-11-06").task).toBe("Vision-Language");
+    expect(tlToRegistryModel({ ...base, vision: false }, "2026-11-06").task).toBe("Chat");
+    expect(tlToRegistryModel(base, "2026-11-06").task).toBe("Chat");
   });
 });

@@ -23,6 +23,7 @@
  * already use (base / ask / …) and refuses the rest.
  */
 import { INFERENCE_MODEL } from "@/lib/inference";
+import { visionFromModelName, visionFromOllama } from "@/lib/model-capabilities";
 import { OLLAMA_V1, listOllamaModels, loadedOllamaModel, ollamaUp } from "@/lib/ollama";
 
 export type EngineId = "ollama" | "vllm" | "sglang";
@@ -31,7 +32,27 @@ export type EngineId = "ollama" | "vllm" | "sglang";
  *  exposes behind a served-name alias: for the base it's the real model
  *  (e.g. aisingapore/Gemma-SEA-LION-v4-4B-VL), for a LoRA adapter its on-disk dir.
  *  `parent` is set by SGLang on LoRA adapters: the served name of their base. */
-export type ServedModel = { id: string; name: string; isGguf: boolean; root?: string; parent?: string };
+export type ServedModel = {
+  id: string;
+  name: string;
+  isGguf: boolean;
+  root?: string;
+  parent?: string;
+  /** Takes images. `true` = known to; `false` = known text-only (Ollama reports capabilities);
+   *  absent = unknown (vLLM / SGLang do not say, and a name that does not look like a VL model proves nothing). */
+  vision?: boolean;
+};
+
+/**
+ * Mark vLLM / SGLang models whose HF repo id looks like a VL model. Both engines serve one base plus
+ * LoRA adapters trained on it, so the adapters take images exactly when the base does.
+ */
+export function withNameVision(models: ServedModel[], baseRepo?: string | null): ServedModel[] {
+  const base = models.find((m) => !m.parent) ?? models[0];
+  if (!base) return models;
+  const vl = [baseRepo, base.root, base.id].some((n) => !!n && visionFromModelName(n));
+  return vl ? models.map((m) => ({ ...m, vision: true })) : models;
+}
 
 /** What an engine can report about itself for the Serve UI. */
 export type EngineInfo = {
@@ -110,7 +131,13 @@ async function ollamaInfo(): Promise<EngineInfo> {
     available,
     loaded,
     baseModel: loaded, // Ollama's served id is already the real model name.
-    models: models.map((m) => ({ id: m.id, name: m.name, isGguf: true })),
+    models: models.map((m) => ({
+      id: m.id,
+      name: m.name,
+      isGguf: true,
+      // Older Ollama builds report no capabilities at all: unknown, not "text only".
+      ...(m.capabilities.length ? { vision: visionFromOllama(m.capabilities) } : {}),
+    })),
   };
 }
 
@@ -127,7 +154,7 @@ async function vllmInfo(): Promise<EngineInfo> {
       models: [],
     };
   }
-  const models = await listOpenAIModels(VLLM_BASE_URL, engineHeaders("vllm"));
+  const models = withNameVision(await listOpenAIModels(VLLM_BASE_URL, engineHeaders("vllm")));
   return {
     id: "vllm",
     label: "vLLM",
@@ -146,8 +173,8 @@ async function vllmInfo(): Promise<EngineInfo> {
 async function sglangInfo(): Promise<EngineInfo> {
   const off = { id: "sglang" as const, label: "SGLang", v1BaseUrl: SGLANG_BASE_URL, loaded: null, baseModel: null, models: [] };
   if (!SGLANG_BASE_URL) return { ...off, configured: false, available: false };
-  const models = await listOpenAIModels(SGLANG_BASE_URL, engineHeaders("sglang"));
-  const base = models.find((m) => !m.parent) ?? models[0];
+  const listed = await listOpenAIModels(SGLANG_BASE_URL, engineHeaders("sglang"));
+  const base = listed.find((m) => !m.parent) ?? listed[0];
   // SGLang's /v1/models reports the served name as the base's root, so the real
   // model comes from its native /model_info.
   let baseModel: string | null = null;
@@ -162,6 +189,8 @@ async function sglangInfo(): Promise<EngineInfo> {
       /* the alias is still shown */
     }
   }
+  const models = withNameVision(listed, baseModel);
+  const first = models.find((m) => !m.parent) ?? models[0];
   return {
     ...off,
     configured: true,
@@ -169,8 +198,20 @@ async function sglangInfo(): Promise<EngineInfo> {
     loaded: base?.id ?? null,
     baseModel,
     // Base first, like vLLM, so the Serve and Playground lists read the same.
-    models: base ? [base, ...models.filter((m) => m !== base)] : [],
+    models: first ? [first, ...models.filter((m) => m !== first)] : [],
   };
+}
+
+/**
+ * True only when the engine KNOWS the model cannot take images: Ollama lists capabilities, and a
+ * model that lists some but not `vision` is text-only. Unknown (vLLM, SGLang, an unlisted model, an
+ * old Ollama without capabilities) is false, so those requests are let through.
+ */
+export async function modelKnownTextOnly(engine: ResolvedEngine, model: string): Promise<boolean> {
+  if (engine.id !== "ollama") return false;
+  const bare = (s: string) => s.replace(/:latest$/, "");
+  const m = (await listOllamaModels()).find((x) => bare(x.id) === bare(model));
+  return !!m && m.capabilities.length > 0 && !visionFromOllama(m.capabilities);
 }
 
 /**

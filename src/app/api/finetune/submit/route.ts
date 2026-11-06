@@ -5,6 +5,7 @@ import { DatasetInputError, fetchLocalDatasets, submitFinetune, type SubmitFinet
 import { ensureHfDecisionDataset, isHfDatasetId } from "@/lib/decision-hf";
 import { getGpuStatus } from "@/lib/gpu-metrics";
 import { getHfToken } from "@/lib/settings-store";
+import { visionBaseProblem, visionDatasetRefProblem, visionParamProblems } from "@/lib/vision-base";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   // to sail through here and only blow up minutes later, deep inside SFTConfig,
   // with a message that never mentioned the real cause — a whole GPU run wasted.
   // An unknown method used to fall through to SFT silently, so a typo trained the wrong thing.
-  const METHODS = ["sft", "grpo", "tts", "decision"] as const;
+  const METHODS = ["sft", "grpo", "tts", "decision", "vision"] as const;
   if (body.method !== undefined && !(METHODS as readonly string[]).includes(body.method)) {
     return Response.json(
       { error: `\`method\` must be one of ${METHODS.join(", ")}, got ${JSON.stringify(body.method)}` },
@@ -55,6 +56,9 @@ export async function POST(req: NextRequest) {
     "headWarmupSteps",
     "holdoutFraction",
     "gradientAccumulationSteps",
+    // vision method
+    "maxPixels",
+    "maxImagesPerSample",
   ] as const;
   for (const key of NUMERIC) {
     const raw = (body as Record<string, unknown>)[key];
@@ -122,6 +126,29 @@ export async function POST(req: NextRequest) {
         if (!local.some((d) => d.dataset_id === ref)) {
           return Response.json(
             { error: `Dataset "${ref}" was not found on this server. Upload or import it first.` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+    if (body.method === "vision") {
+      const problems = visionParamProblems(body);
+      if (problems.length > 0) {
+        return Response.json({ error: `Invalid settings: ${problems.join("; ")}` }, { status: 400 });
+      }
+      // The base must be able to see: a text-only model would fail minutes into the job's setup.
+      const baseProblem = await visionBaseProblem(String(body.baseModel), { token: body.hfToken });
+      if (baseProblem) return Response.json({ error: baseProblem }, { status: 400 });
+      const ref = String(body.dataset).trim();
+      const refProblem = visionDatasetRefProblem(ref);
+      if (refProblem) return Response.json({ error: refProblem }, { status: 400 });
+      // A Hugging Face id (loaded by the trainer), an s3:// prefix or an absolute path need no check here;
+      // a bare dataset name must exist on this server, or the job would fail after its setup.
+      if (!/^(s3):\/\//.test(ref) && !ref.startsWith("/") && !isHfDatasetId(ref)) {
+        const local = await fetchLocalDatasets();
+        if (!local.some((d) => d.dataset_id === ref)) {
+          return Response.json(
+            { error: `Dataset "${ref}" was not found on this server. Upload it in Datasets first.` },
             { status: 400 }
           );
         }

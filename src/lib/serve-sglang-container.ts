@@ -21,6 +21,7 @@
 import { dockerAvailable, dockerConnectNetwork, dockerCreate, dockerInspect, dockerPull, dockerRemove, dockerStart, dockerStop } from "@/lib/docker-client";
 import { getHfToken } from "@/lib/settings-store";
 import { createDeploymentStore, type VllmDeployment } from "@/lib/vllm-deployment-store";
+import { mmLimitEnv, mmLimits } from "@/lib/serve-mm-limits";
 import type { DeployVllmParams, VllmDeploymentStatus } from "@/lib/serve-vllm";
 
 // GB10 (CUDA 13 driver, aarch64) needs a cu130 release, e.g.
@@ -40,9 +41,28 @@ export const readSglangDeployment = store.read;
 /** Adapter names become directory names and the `<base>:<name>` model suffix. */
 const ADAPTER_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
+/**
+ * Python source shared by the entrypoint and the helper: names the LoRA tensors of an adapter that sit in
+ * the vision tower or projector. SGLang applies LoRA to the language model only (a tower LoRA fails with
+ * "get_hidden_dim not implemented"), so such an adapter is refused with a message instead of half-served.
+ * Reads the safetensors header with struct, so it needs no extra package.
+ */
+export const VISION_LORA_PY = [
+  "VISION_MARKS = ('visual.', 'vision_tower', 'vision_model', 'multi_modal_projector', 'embed_vision', 'mm_projector')",
+  "def lora_keys(weights_path):",
+  "    import json, struct",
+  "    with open(weights_path, 'rb') as f:",
+  "        return [k for k in json.loads(f.read(struct.unpack('<Q', f.read(8))[0])) if '.lora_' in k]",
+  "def refuse_vision(name, keys):",
+  "    bad = [k for k in keys if any(m in k for m in VISION_MARKS)]",
+  "    if bad:",
+  "        raise ValueError('adapter %s changes the vision tower or projector (%d tensors, e.g. %s). SGLang can only serve language-model LoRA: serve it on vLLM with --enable-tower-connector-lora, or retrain with vision layers off.' % (name, len(bad), bad[0]))",
+].join("\n");
+
 /** Rewrites a regex-string `target_modules` into the module list its weights hold. */
 const PREPARE_ADAPTERS = [
   "import json, os, shutil",
+  VISION_LORA_PY,
   "rank = int(os.environ.get('SGLANG_MAX_LORA_RANK') or 16)",
   "os.makedirs('/tmp/loras', exist_ok=True)",
   "for spec in os.environ.get('SGLANG_LORA_MODULES', '').split():",
@@ -52,10 +72,10 @@ const PREPARE_ADAPTERS = [
   "    cfg_path = os.path.join(dst, 'adapter_config.json')",
   "    cfg = json.load(open(cfg_path))",
   "    tm = cfg.get('target_modules')",
+  "    keys = lora_keys(os.path.join(dst, 'adapter_model.safetensors'))",
+  "    refuse_vision(name, keys)",
   "    if isinstance(tm, str) and tm not in ('all', 'all-linear'):",
-  "        from safetensors import safe_open",
-  "        keys = safe_open(os.path.join(dst, 'adapter_model.safetensors'), 'pt').keys()",
-  "        cfg['target_modules'] = sorted({k.split('.lora_')[0].rsplit('.', 1)[-1] for k in keys if '.lora_' in k})",
+  "        cfg['target_modules'] = sorted({k.split('.lora_')[0].rsplit('.', 1)[-1] for k in keys})",
   "        json.dump(cfg, open(cfg_path, 'w'))",
   "    rank = max([rank, int(cfg.get('r') or 0)] + [int(v) for v in (cfg.get('rank_pattern') or {}).values()])",
   "    print('adapter', name, 'target_modules', cfg.get('target_modules'), flush=True)",
@@ -77,14 +97,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = "/root/.transformerlab/"
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
+${VISION_LORA_PY}
+
 def prepare(name, src):
     cfg = json.load(open(os.path.join(src, "adapter_config.json")))
     tm = cfg.get("target_modules")
+    keys = lora_keys(os.path.join(src, "adapter_model.safetensors"))
+    refuse_vision(name, keys)
     if not isinstance(tm, str) or tm in ("all", "all-linear"):
         return src
-    with open(os.path.join(src, "adapter_model.safetensors"), "rb") as f:
-        keys = json.loads(f.read(struct.unpack("<Q", f.read(8))[0])).keys()
-    mods = sorted({k.split(".lora_")[0].rsplit(".", 1)[-1] for k in keys if ".lora_" in k})
+    mods = sorted({k.split(".lora_")[0].rsplit(".", 1)[-1] for k in keys})
     if not mods:
         raise ValueError("no LoRA weights found in " + src)
     dst = "/tmp/loras-hot/" + name
@@ -154,6 +176,9 @@ export const SGLANG_ENTRYPOINT = [
   '  --mem-fraction-static "$SGLANG_MEM_FRACTION" --context-length "$SGLANG_CONTEXT_LENGTH" \\',
   "  --max-running-requests 8 --trust-remote-code --enable-metrics",
   'if [ -n "${SGLANG_QUANT:-}" ]; then set -- "$@" --quantization "$SGLANG_QUANT"; fi',
+  // Multimodal limits (vision bases only): numbers in env, wrapped in JSON here so no JSON crosses a shell.
+  'if [ -n "${SGLANG_LIMIT_MM_IMAGES:-}" ]; then set -- "$@" --limit-mm-data-per-request "{\\"image\\":$SGLANG_LIMIT_MM_IMAGES}"; fi',
+  'if [ -n "${SGLANG_MAX_IMAGE_PIXELS:-}" ]; then set -- "$@" --mm-process-config "{\\"image\\":{\\"max_pixels\\":$SGLANG_MAX_IMAGE_PIXELS}}"; fi',
   'if [ -n "${SGLANG_LORA_MODULES:-}" ]; then',
   '  set -- "$@" --enable-lora --max-lora-rank "$(cat /tmp/loras/.max_rank 2>/dev/null || echo "${SGLANG_MAX_LORA_RANK:-16}")" --lora-paths',
   '  for spec in $SGLANG_LORA_MODULES; do set -- "$@" "${spec%%=*}=/tmp/loras/${spec%%=*}"; done',
@@ -175,6 +200,7 @@ export function sglangEnv(p: DeployVllmParams): string[] {
     `SGLANG_CONTEXT_LENGTH=${p.maxModelLen || "8192"}`,
     `SGLANG_QUANT=${p.quant || ""}`,
     `SGLANG_LORA_MODULES=${adapters.map((a) => `${a.name}=${a.path}`).join(" ")}`,
+    ...mmLimitEnv(p, "SGLANG"),
   ];
 }
 
@@ -190,6 +216,7 @@ export async function deploySglang(p: DeployVllmParams): Promise<VllmDeployment>
   const servedName = p.servedName || "base";
   if (servedName.includes(":")) throw new Error("The served name cannot contain ':'.");
   const env = sglangEnv(p);
+  const mm = mmLimits(p);
   const hf = await getHfToken();
   if (hf) env.push(`HF_TOKEN=${hf}`);
 
@@ -236,6 +263,8 @@ export async function deploySglang(p: DeployVllmParams): Promise<VllmDeployment>
     quant: p.quant || "",
     adapters: p.adapters ?? [],
     deployedAt: Date.now(),
+    ...(mm.images !== undefined ? { limitMmImages: mm.images } : {}),
+    ...(mm.pixels !== undefined ? { maxImagePixels: mm.pixels } : {}),
   };
   await store.write(dep);
   return dep;

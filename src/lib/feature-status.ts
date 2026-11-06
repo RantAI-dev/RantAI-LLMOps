@@ -73,6 +73,24 @@ export const FEATURE_STATUS = {
   // Traces — per-request record of chat inference (model, engine, tokens,
   // latency), read from the real inference log. Through `/api/traces`.
   "observability.traces": "live",
+
+  // VLM (image + text) — see docs/RENCANA-VLM.md. Each key flips to "live" when its phase passes
+  // the gate on the box. "planned" = the engines can already do it, the UI/BFF is not built yet.
+  // Playground image input; stored chat images. Through `/api/chat`, `/api/chat-images`.
+  "playground.imageInput": "live",
+  // Image datasets (ZIP of JSONL + images). Through `/api/datasets/vision/*`.
+  "datasets.vision": "live",
+  // Vision fine-tune method (trainers/unsloth-vision-train). Through `/api/finetune/submit`.
+  "finetune.vision": "live",
+  // Multimodal limits when deploying vLLM/SGLang. Through `/api/serve/*`.
+  "serve.vlmLimits": "live",
+  // Own-test-set VLM eval (answer vs key, base vs fine-tune). Through `/api/evals/vlm*`.
+  "eval.vlmTestSet": "live",
+  // Standard VLM benchmarks (ChartQA, DocVQA, MMMU) via lmms-eval. Through `/api/evals`.
+  "eval.vlmBenchmark": "planned",
+  // GGUF export of a VL model with its mmproj. Script only (scripts/serve/rantai_export_gguf.sh has a VL branch:
+  // the merge is verified on the box, the llama.cpp conversion is not) — no UI yet.
+  "export.ggufVision": "planned",
 } as const satisfies Record<string, FeatureStatus>;
 
 

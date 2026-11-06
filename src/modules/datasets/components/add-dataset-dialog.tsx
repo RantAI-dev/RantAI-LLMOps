@@ -17,20 +17,29 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { MAX_DATASET_BYTES, PREVIEW_BYTES } from "@/lib/dataset-ingest";
-import { DecisionReviewView, TextReviewView } from "@/modules/datasets/components/dataset-review";
+import { DEFAULT_VISION_DATASET_MAX_BYTES } from "@/lib/vision-limits";
+import { DecisionReviewView, TextReviewView, VisionReviewView } from "@/modules/datasets/components/dataset-review";
 import {
   reviewDecision,
   reviewText,
+  reviewVision,
   type DecisionReview,
   type Review,
+  type VisionReview,
 } from "@/modules/datasets/lib/review";
+import { VisionClientError, uploadVisionDataset } from "@/modules/datasets/lib/vision-upload";
+import { extractZip, imageDataUrl, listZip, normalizeZipListing, type VisionZipLayout } from "@/modules/datasets/lib/vision-zip";
 
-type Kind = "text" | "decision";
+type Kind = "text" | "decision" | "vision";
 type Source = "file" | "paste" | "hf";
 type S3Config = { configured: boolean; buckets: string[]; defaultBucket: string; defaultPrefix: string };
 type AddResponse = { id?: string; ref?: string; error?: string; evalSetId?: string; evalSetError?: string };
 
 const MAX_MB = MAX_DATASET_BYTES / 1024 / 1024;
+const VISION_MAX_GB = DEFAULT_VISION_DATASET_MAX_BYTES / 1024 / 1024 / 1024;
+
+/** A ZIP that has been opened in the browser: kept so the upload can read the images out of it, batch by batch. */
+type OpenZip = { bytes: Uint8Array; layout: VisionZipLayout; trainText: string; evalText: string | null };
 
 /** POST a form and report the upload progress (fetch cannot), so a 100 MB file does not look frozen. */
 function postForm(url: string, form: FormData, onProgress: (pct: number) => void): Promise<{ status: number; body: AddResponse }> {
@@ -156,8 +165,10 @@ const slugFromFile = (filename: string): string =>
  * training will use, a few rows; for decision data the same checks the trainer runs), then add it. The
  * server validates the whole file again and stores nothing when it refuses.
  *
- * Two kinds: "Text" (SFT / GRPO: JSONL, CSV, JSON, or `prompt | completion` lines) and "Decision"
- * (System One: JSONL rows of {state, questions, gold}, with an optional separate test file).
+ * Three kinds: "Text" (SFT / GRPO: JSONL, CSV, JSON, or `prompt | completion` lines), "Decision"
+ * (System One: JSONL rows of {state, questions, gold}, with an optional separate test file) and "Vision"
+ * (a ZIP of train.jsonl, optional eval.jsonl and images/: opened and validated here in the browser, the images
+ * uploaded in batches, every row validated again by the server).
  */
 export function AddDatasetDialog({
   open,
@@ -204,8 +215,15 @@ function AddDatasetBody({
   const [file, setFile] = useState<File | null>(null);
   const [evalFile, setEvalFile] = useState<File | null>(null);
   const [pasted, setPasted] = useState("");
-  const [review, setReview] = useState<Review | null>(null);
+  const [review, setReview] = useState<Exclude<Review, VisionReview> | null>(null);
   const [evalReview, setEvalReview] = useState<DecisionReview | null>(null);
+  const [visionReview, setVisionReview] = useState<VisionReview | null>(null);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [readingZip, setReadingZip] = useState(false);
+  const [zipError, setZipError] = useState<string | null>(null);
+  const [zip, setZip] = useState<OpenZip | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [phase, setPhase] = useState("");
   const [busy, setBusy] = useState(false);
   const [pct, setPct] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,7 +264,8 @@ function AddDatasetBody({
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the previous review before the async re-check
     setReview(null);
-    const run = async (): Promise<Review | null> => {
+    const run = async (): Promise<Exclude<Review, VisionReview> | null> => {
+      if (kind === "vision") return null; // a ZIP is read by the effect below
       let text: string;
       let filename = "";
       let partial = false;
@@ -267,6 +286,55 @@ function AddDatasetBody({
       cancelled = true;
     };
   }, [kind, source, file, pasted]);
+
+  // Open the ZIP of an image dataset: list it, read train.jsonl / eval.jsonl, validate every row against the ZIP's own
+  // image list, and decode a few thumbnails for the review. Nothing is uploaded here.
+  useEffect(() => {
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the previous ZIP before reading the next
+    setZip(null);
+    setVisionReview(null);
+    setThumbs({});
+    setZipError(null);
+    if (kind !== "vision" || !file) return;
+    setReadingZip(true);
+    (async () => {
+      if (file.size > DEFAULT_VISION_DATASET_MAX_BYTES) throw new Error(`That ZIP is over the ${VISION_MAX_GB} GB limit.`);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let layout: VisionZipLayout;
+      try {
+        layout = normalizeZipListing(listZip(bytes));
+      } catch {
+        throw new Error("That file is not a readable ZIP archive.");
+      }
+      const wanted = [layout.train?.name, layout.eval?.name].filter((n): n is string => !!n);
+      const files = extractZip(bytes, wanted);
+      const decoder = new TextDecoder();
+      const trainText = layout.train ? decoder.decode(files[layout.train.name]) : null;
+      const evalText = layout.eval ? decoder.decode(files[layout.eval.name]) : null;
+      const rev = reviewVision({ layout, trainText, evalText, zipBytes: file.size });
+      // Thumbnails for the rows shown (at most 12 small images), as data: URLs: the CSP has no blob: for images.
+      const byPath = new Map(layout.images.map((i) => [i.path, i]));
+      const want = [...new Set(rev.sample.flatMap((r) => r.images.map((p) => p.replace(/^(\.\/)+/, ""))))]
+        .filter((p) => (byPath.get(p)?.size ?? Infinity) <= 1.5 * 1024 * 1024)
+        .slice(0, 12);
+      const raw = extractZip(bytes, want.map((p) => byPath.get(p)!.zipName));
+      const urls: Record<string, string> = {};
+      for (const p of want) {
+        const data = raw[byPath.get(p)!.zipName];
+        if (data) urls[p] = imageDataUrl(p, data);
+      }
+      if (cancelled) return;
+      setZip(trainText === null ? null : { bytes, layout, trainText, evalText });
+      setVisionReview(rev);
+      setThumbs(urls);
+    })()
+      .catch((err) => !cancelled && setZipError(err instanceof Error ? err.message : "The ZIP could not be read."))
+      .finally(() => !cancelled && setReadingZip(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, file]);
 
   useEffect(() => {
     let cancelled = false;
@@ -290,24 +358,80 @@ function AddDatasetBody({
     if (f && !nameTouched.current) setName(slugFromFile(f.name));
   };
 
-  const hf = source === "hf";
-  const tooBig = (file && file.size > MAX_DATASET_BYTES) || (evalFile && evalFile.size > MAX_DATASET_BYTES);
-  const reviewOk = review !== null && !review.blocked && !(kind === "decision" && evalFile && (!evalReview || evalReview.blocked));
-  const hasInput = hf ? hfId.trim().length > 0 : source === "file" ? file !== null : pasted.trim().length > 0;
+  const vision = kind === "vision";
+  const hf = source === "hf" && !vision;
+  const tooBig = vision
+    ? !!file && file.size > DEFAULT_VISION_DATASET_MAX_BYTES
+    : (file && file.size > MAX_DATASET_BYTES) || (evalFile && evalFile.size > MAX_DATASET_BYTES);
+  const reviewOk = vision
+    ? visionReview !== null && !visionReview.blocked && zip !== null
+    : review !== null && !review.blocked && !(kind === "decision" && evalFile && (!evalReview || evalReview.blocked));
+  const hasInput = hf ? hfId.trim().length > 0 : vision ? file !== null : source === "file" ? file !== null : pasted.trim().length > 0;
   const canSubmit =
-    !busy && name.trim().length > 0 && hasInput && !tooBig && (hf || reviewOk) && !(dest === "s3" && !hf && !bucket.trim());
+    !busy && !readingZip && name.trim().length > 0 && hasInput && !tooBig && (hf || reviewOk) && !(dest === "s3" && !hf && !bucket.trim());
 
   const switchKind = (k: Kind) => {
     setKind(k);
     setError(null);
+    // The picked file belongs to one kind (a ZIP is not a JSONL): start the other kind with an empty picker.
+    if ((k === "vision") !== vision) setFile(null);
+    if (k === "vision") {
+      setSource("file");
+      setEvalFile(null);
+    }
     if (k === "text") {
       setEvalFile(null);
       if (source === "hf") setSource("file");
     }
   };
 
+  const submitVision = async () => {
+    if (!zip) return;
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    setBusyBoth(true);
+    setError(null);
+    setPct(0);
+    setPhase("Starting…");
+    try {
+      const byPath = new Map(zip.layout.images.map((i) => [i.path, i]));
+      const result = await uploadVisionDataset({
+        name: name.trim(),
+        destination: dest === "s3" ? { kind: "s3", bucket: bucket.trim(), prefix: prefix.trim() } : { kind: "workspace" },
+        images: zip.layout.images.map((i) => ({ path: i.path, size: i.size })),
+        readImages: (paths) => {
+          const raw = extractZip(zip.bytes, paths.map((p) => byPath.get(p)!.zipName));
+          return Object.fromEntries(paths.map((p) => [p, raw[byPath.get(p)!.zipName]!]));
+        },
+        trainText: zip.trainText,
+        evalText: zip.evalText,
+        signal: ctl.signal,
+        onProgress: (p) => {
+          setPct(p.pct);
+          setPhase(
+            p.phase === "init"
+              ? "Starting…"
+              : p.phase === "images"
+                ? `Uploading images… ${p.pct}%`
+                : "Validating every row against the stored images…"
+          );
+        },
+      });
+      toast.success(`Dataset "${result.id}" added (${visionReview?.train?.valid.toLocaleString() ?? ""} rows, ${result.images?.stored.toLocaleString() ?? visionReview?.imageCount} images).`);
+      onAdded(result.ref, result.id);
+      onClose();
+    } catch (err) {
+      setError(err instanceof VisionClientError || err instanceof Error ? err.message : "Could not add the dataset");
+      setBusyBoth(false);
+      setPct(null);
+    } finally {
+      abortRef.current = null;
+    }
+  };
+
   const submit = async () => {
     if (!canSubmit) return;
+    if (vision) return submitVision();
     setBusyBoth(true);
     setError(null);
     setPct(hf ? null : 0);
@@ -366,7 +490,13 @@ function AddDatasetBody({
       <DialogHeader>
         <DialogTitle className="text-primary">Add dataset</DialogTitle>
         <DialogDescription>
-          {kind === "decision" ? (
+          {vision ? (
+            <>
+              A ZIP with <code>train.jsonl</code> (required), <code>eval.jsonl</code> (optional) and an <code>images/</code> folder. Each
+              row is <code>{`{"messages": [...]}`}</code> with <code>{`{"type": "image", "image": "images/x.jpg"}`}</code> parts. It is checked
+              here, before anything is uploaded.
+            </>
+          ) : kind === "decision" ? (
             <>
               Rows of <code>{`{"state", "questions", "gold"}`}</code>: each question is <code>noul</code> (yes/no),{" "}
               <code>choice</code> or <code>score</code>. A separate test file also becomes a test set in Evals.
@@ -402,10 +532,12 @@ function AddDatasetBody({
             options={[
               { id: "text", label: "Text (SFT / GRPO)" },
               { id: "decision", label: "Decision (System One)" },
+              { id: "vision", label: "Vision (images)" },
             ]}
           />
         </div>
 
+        {vision ? null : (
         <Segmented
           label="Source"
           value={source}
@@ -420,20 +552,21 @@ function AddDatasetBody({
             ...(kind === "decision" ? [{ id: "hf" as const, label: "Hugging Face" }] : []),
           ]}
         />
+        )}
 
         {source === "file" ? (
           <>
             <FileDrop
               id="dataset-file"
               file={file}
-              accept={kind === "decision" ? ".jsonl,.ndjson,.json" : ".jsonl,.ndjson,.json,.csv"}
-              hint={`${kind === "decision" ? ".jsonl or .json" : ".jsonl, .json or .csv"} · up to ${MAX_MB} MB`}
+              accept={vision ? ".zip,application/zip" : kind === "decision" ? ".jsonl,.ndjson,.json" : ".jsonl,.ndjson,.json,.csv"}
+              hint={vision ? `.zip · up to ${VISION_MAX_GB} GB` : `${kind === "decision" ? ".jsonl or .json" : ".jsonl, .json or .csv"} · up to ${MAX_MB} MB`}
               disabled={busy}
               onFile={chooseFile}
             />
             {tooBig ? (
               <p role="alert" className="text-[12px] text-danger">
-                That file is over the {MAX_MB} MB limit.
+                That file is over the {vision ? `${VISION_MAX_GB} GB` : `${MAX_MB} MB`} limit.
               </p>
             ) : null}
             {kind === "decision" ? (
@@ -505,12 +638,19 @@ function AddDatasetBody({
           </div>
         )}
 
+        {vision && readingZip ? <p className="text-[11px] text-ink-soft">Reading the ZIP and checking every row…</p> : null}
+        {vision && zipError ? (
+          <p role="alert" className="rounded-md border border-danger-border bg-danger-soft px-3 py-2 text-[12px] leading-4 text-danger">
+            {zipError}
+          </p>
+        ) : null}
+        {vision && visionReview ? <VisionReviewView review={visionReview} thumbs={thumbs} /> : null}
         {!hf && review ? (
           review.kind === "text" ? (
             <TextReviewView review={review} />
-          ) : (
+          ) : review.kind === "decision" ? (
             <DecisionReviewView review={review} label="Train" />
-          )
+          ) : null
         ) : null}
         {!hf && evalFile ? (
           evalReview ? (
@@ -557,7 +697,7 @@ function AddDatasetBody({
           <div role="status" className="space-y-1">
             <Progress value={pct} className="h-1.5" />
             <p className="text-[11px] text-ink-soft">
-              {pct < 100 ? `Uploading… ${pct}%` : "Validating every row and saving…"}
+              {vision ? phase : pct < 100 ? `Uploading… ${pct}%` : "Validating every row and saving…"}
             </p>
           </div>
         ) : null}
@@ -575,9 +715,15 @@ function AddDatasetBody({
       </div>
 
       <DialogFooter>
-        <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
-          Cancel
-        </Button>
+        {busy && vision ? (
+          <Button type="button" variant="outline" onClick={() => abortRef.current?.abort()}>
+            Cancel upload
+          </Button>
+        ) : (
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+        )}
         <Button type="button" onClick={submit} disabled={!canSubmit}>
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Plus className="size-4" aria-hidden />}
           {busy ? (hf ? "Importing…" : "Adding…") : hf ? "Import" : "Add dataset"}

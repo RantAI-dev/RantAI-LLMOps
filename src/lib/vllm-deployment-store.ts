@@ -28,6 +28,9 @@ export type VllmDeployment = {
   quant: string;
   adapters: VllmAdapter[];
   deployedAt: number;
+  /** Multimodal limits the engine was started with (vision bases only); absent = engine defaults. */
+  limitMmImages?: number;
+  maxImagePixels?: number;
 };
 
 /** A one-deployment JSON store per engine (vLLM and SGLang keep separate files). */

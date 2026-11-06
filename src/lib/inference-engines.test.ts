@@ -13,12 +13,15 @@ vi.mock("@/lib/ollama", () => ({
 
 import {
   engineRequestModel,
+  modelKnownTextOnly,
   resolveChatModel,
   resolveEngine,
   sglangRequestModel,
   type ResolvedEngine,
   type ServedModel,
+  withNameVision,
 } from "@/lib/inference-engines";
+import { listOllamaModels } from "@/lib/ollama";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -153,5 +156,47 @@ describe("engineRequestModel", () => {
     const spy = vi.spyOn(globalThis, "fetch");
     expect(await engineRequestModel(resolveEngine("vllm"), "ask")).toEqual({ model: "ask" });
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe("withNameVision", () => {
+  const served = (...ids: Array<[string, string?]>): ServedModel[] =>
+    ids.map(([id, root]) => ({ id, name: id, isGguf: false, root }));
+
+  it("marks a vLLM base and its adapters from the base's HF repo id", () => {
+    const out = withNameVision(served(["base", "aisingapore/Qwen-SEA-LION-v4-8B-VL"], ["ask", "/adapters/ask"]));
+    expect(out.map((m) => m.vision)).toEqual([true, true]);
+  });
+  it("leaves a text-looking base as unknown, not false", () => {
+    const out = withNameVision(served(["base", "aisingapore/Llama-SEA-LION-v3.5-8B-R"], ["ask", "/adapters/ask"]));
+    expect(out.every((m) => m.vision === undefined)).toBe(true);
+  });
+  it("uses the real model path for SGLang, whose root is the served name", () => {
+    const out = withNameVision(served(["base", "base"]), "aisingapore/Gemma-SEA-LION-v4-4B-VL");
+    expect(out[0].vision).toBe(true);
+  });
+  it("handles an empty list", () => {
+    expect(withNameVision([])).toEqual([]);
+  });
+});
+
+describe("modelKnownTextOnly", () => {
+  const ollama = resolveEngine("ollama");
+  it("is true only for an Ollama model that lists capabilities without vision", async () => {
+    expect(await modelKnownTextOnly(ollama, "qwen2.5:0.5b")).toBe(true);
+    expect(await modelKnownTextOnly(ollama, "qwen2.5:0.5b:latest")).toBe(true); // `:latest` is implied
+  });
+  it("is false for a vision model, an unlisted one, and one with no capability list", async () => {
+    vi.mocked(listOllamaModels).mockResolvedValue([
+      { id: "llava:7b", name: "llava:7b", sizeMb: 1, capabilities: ["completion", "vision"] },
+      { id: "old:1b", name: "old:1b", sizeMb: 1, capabilities: [] },
+    ]);
+    expect(await modelKnownTextOnly(ollama, "llava:7b")).toBe(false);
+    expect(await modelKnownTextOnly(ollama, "old:1b")).toBe(false);
+    expect(await modelKnownTextOnly(ollama, "ghost")).toBe(false);
+  });
+  it("never refuses vLLM or SGLang, which do not report capabilities", async () => {
+    expect(await modelKnownTextOnly({ ...ollama, id: "vllm" }, "base")).toBe(false);
+    expect(await modelKnownTextOnly({ ...ollama, id: "sglang" }, "base")).toBe(false);
   });
 });

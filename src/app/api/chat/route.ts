@@ -1,8 +1,16 @@
 import type { NextRequest } from "next/server";
 
+import { chatLimits, hasImages, textOf, validateMessages, type MessageContent } from "@/lib/chat-content";
+import { resolveImageRefs } from "@/lib/chat-image-store";
 import { DEMO_MODE } from "@/lib/demo";
 import { INFERENCE_STREAM } from "@/lib/inference";
-import { engineRequestModel, engineUrlVar, resolveChatModel, resolveEngine } from "@/lib/inference-engines";
+import {
+  engineRequestModel,
+  engineUrlVar,
+  modelKnownTextOnly,
+  resolveChatModel,
+  resolveEngine,
+} from "@/lib/inference-engines";
 import { logInference } from "@/lib/inference-log-store";
 
 export const runtime = "nodejs";
@@ -15,7 +23,7 @@ export const dynamic = "force-dynamic";
 const DEFAULT_MAX_TOKENS = Number(process.env.CHAT_MAX_TOKENS) || 4096;
 
 type ChatBody = {
-  messages?: Array<{ role: string; content: string }>;
+  messages?: Array<{ role: string; content: MessageContent }>;
   model?: string;
   /** Which engine to serve from ("ollama" | "vllm" | "sglang"); defaults to Ollama. */
   engine?: string;
@@ -36,6 +44,10 @@ type ChatBody = {
  * stream tap below is engine-agnostic.
  */
 export async function POST(req: NextRequest) {
+  // Images make bodies big: refuse an oversized one before buffering it (the gateway's own cap is 32 MB).
+  if (Number(req.headers.get("content-length") ?? 0) > chatLimits().maxBodyBytes) {
+    return Response.json({ error: "Request body is too large" }, { status: 413 });
+  }
   let body: ChatBody;
   try {
     body = await req.json();
@@ -47,12 +59,14 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(messages) || messages.length === 0) {
     return Response.json({ error: "`messages` array is required" }, { status: 400 });
   }
+  const valid = validateMessages(messages);
+  if (!valid.ok) return Response.json({ error: valid.error }, { status: valid.status });
 
   // DEMO_MODE: no inference engine — stream a canned assistant reply in the same
   // SSE format the client already renders, so the Playground looks fully live.
   if (DEMO_MODE) {
     const lastUser = [...messages].reverse().find((m) => (m as { role?: string })?.role === "user");
-    const q = String((lastUser as { content?: string })?.content ?? "").slice(0, 240);
+    const q = textOf((lastUser as { content?: MessageContent })?.content).slice(0, 240);
     const reply =
       "Halo! Ini **mode demo** LLMOps — respons contoh tanpa backend inferensi live.\n\n" +
       (q ? `Pertanyaanmu: _${q}_\n\n` : "") +
@@ -72,9 +86,27 @@ export async function POST(req: NextRequest) {
     );
   }
   const model = await resolveChatModel(engine, body.model);
+  const withImages = messages.some((m) => hasImages(m.content));
+  // A model that is KNOWN to be text-only (Ollama lists capabilities) would fail or ignore the image.
+  // vLLM / SGLang do not say, so for them the request goes through and the engine decides.
+  if (withImages && (await modelKnownTextOnly(engine, model))) {
+    return Response.json({ error: `Model ${model} does not accept images` }, { status: 400 });
+  }
   // SGLang answers an unknown name with its base model, so refuse it here.
   const wire = await engineRequestModel(engine, model);
   if (wire.error) return Response.json({ error: wire.error }, { status: 404 });
+  // Stored images travel as `/api/chat-images/<sha>`; the engine needs the pixels.
+  let wireMessages: typeof messages = messages;
+  if (withImages) {
+    wireMessages = [];
+    for (const m of messages) {
+      const r = await resolveImageRefs(m.content);
+      if (!r.ok) {
+        return Response.json({ error: `Image ${r.missing.slice(0, 12)} is no longer stored; attach it again` }, { status: 400 });
+      }
+      wireMessages.push({ ...m, content: r.content });
+    }
+  }
   // Request-send time — the anchor for time-to-first-token.
   const t0 = Date.now();
   let upstream: Response;
@@ -84,7 +116,7 @@ export async function POST(req: NextRequest) {
       headers: engine.headers,
       body: JSON.stringify({
         model: wire.model,
-        messages,
+        messages: wireMessages,
         stream: INFERENCE_STREAM,
         // Ask the engine for token usage on the final chunk (per-response metrics).
         stream_options: { include_usage: true },

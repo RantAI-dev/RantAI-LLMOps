@@ -139,7 +139,7 @@ export function DatasetDetailView({
               Loading dataset rows…
             </p>
           ) : previewState === "ready" ? (
-            <RealPreviewTable columns={preview.columns} rows={filteredRows} />
+            <RealPreviewTable datasetId={dataset.id} columns={preview.columns} rows={filteredRows} vision={preview.vision === true} />
           ) : (
             <p className="rounded-lg border border-dashed border-hairline px-4 py-8 text-center text-[13px] text-ink-soft">
               No preview available for this dataset.
@@ -188,13 +188,54 @@ function MetaGrid({ rows }: { rows: [string, string][] }) {
   );
 }
 
+const isImageCell = (v: string | undefined): boolean => typeof v === "string" && /^data:image\/(png|jpe?g|webp|gif);base64,/.test(v);
+
+/**
+ * One cell of the preview. Image cells show the picture: a `data:image/...` value (an image column of a Hugging
+ * Face dataset, as Transformer Lab serialises it), or, for an image dataset, the paths in its "image" column,
+ * served by /api/datasets/vision/<id>/image. Everything else is text.
+ */
+function PreviewCell({ id, column, value, vision }: { id: string; column: string; value: string; vision: boolean }) {
+  if (isImageCell(value)) {
+    // eslint-disable-next-line @next/next/no-img-element -- a data: URL cell; next/image cannot optimise it
+    return <img src={value} alt={column} loading="lazy" className="max-h-16 max-w-[16rem] rounded border border-hairline bg-white object-contain" />;
+  }
+  if (vision && column === "image" && value) {
+    return (
+      <div className="flex flex-wrap gap-1">
+        {value.split("\n").map((path, i) =>
+          path.startsWith("images/") ? (
+            // eslint-disable-next-line @next/next/no-img-element -- served by our own thumbnail route
+            <img
+              key={i}
+              src={`/api/datasets/vision/${encodeURIComponent(id)}/image?path=${encodeURIComponent(path)}`}
+              alt={path}
+              loading="lazy"
+              className="max-h-16 max-w-[16rem] rounded border border-hairline bg-white object-contain"
+            />
+          ) : (
+            <code key={i} className="break-all text-[11px] text-ink-soft">
+              {path}
+            </code>
+          )
+        )}
+      </div>
+    );
+  }
+  return <>{value || "—"}</>;
+}
+
 /** Renders real TL rows with whatever columns the dataset actually has. */
 function RealPreviewTable({
+  datasetId,
   columns,
   rows,
+  vision,
 }: {
+  datasetId: string;
   columns: string[];
   rows: Array<Record<string, string>>;
+  vision: boolean;
 }) {
   if (rows.length === 0) {
     return (
@@ -218,11 +259,14 @@ function RealPreviewTable({
         <TableBody>
           {rows.map((row, i) => (
             <TableRow key={i}>
-              {columns.map((c) => (
-                <TableCell key={c} className="max-w-[280px] truncate align-top" title={row[c]}>
-                  {row[c] || "—"}
-                </TableCell>
-              ))}
+              {columns.map((c) => {
+                const picture = isImageCell(row[c]) || (vision && c === "image");
+                return (
+                  <TableCell key={c} className={picture ? "align-top" : "max-w-[280px] truncate align-top"} title={picture ? undefined : row[c]}>
+                    <PreviewCell id={datasetId} column={c} value={row[c] ?? ""} vision={vision} />
+                  </TableCell>
+                );
+              })}
             </TableRow>
           ))}
         </TableBody>

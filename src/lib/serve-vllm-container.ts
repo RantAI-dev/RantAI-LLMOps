@@ -11,6 +11,7 @@
 import { dockerAvailable, dockerConnectNetwork, dockerCreate, dockerInspect, dockerPull, dockerRemove, dockerStart, dockerStop } from "@/lib/docker-client";
 import { getHfToken } from "@/lib/settings-store";
 import { clearVllmDeployment, readVllmDeployment, writeVllmDeployment, type VllmDeployment } from "@/lib/vllm-deployment-store";
+import { mmLimitEnv, mmLimits } from "@/lib/serve-mm-limits";
 import type { DeployVllmParams, VllmDeploymentStatus } from "@/lib/serve-vllm";
 
 const IMAGE = process.env.VLLM_IMAGE ?? "vllm/vllm-openai:cu130-nightly";
@@ -32,9 +33,29 @@ export const ENTRYPOINT_SCRIPT = [
   '  --gpu-memory-utilization "$VLLM_GPU_UTIL" --max-model-len "$VLLM_MAX_MODEL_LEN" \\',
   "  --enforce-eager --max-num-seqs 16 --trust-remote-code",
   'if [ -n "${VLLM_QUANT:-}" ]; then set -- "$@" --quantization "$VLLM_QUANT"; fi',
+  // Multimodal limits (vision bases only): numbers in env, wrapped in JSON here so no JSON crosses a shell.
+  'if [ -n "${VLLM_LIMIT_MM_IMAGES:-}" ]; then set -- "$@" --limit-mm-per-prompt "{\\"image\\":$VLLM_LIMIT_MM_IMAGES}"; fi',
+  'if [ -n "${VLLM_MAX_IMAGE_PIXELS:-}" ]; then set -- "$@" --mm-processor-kwargs "{\\"max_pixels\\":$VLLM_MAX_IMAGE_PIXELS}"; fi',
   'if [ -n "${VLLM_LORA_MODULES:-}" ]; then set -- "$@" --enable-lora --max-loras "${VLLM_MAX_LORAS:-4}" --max-lora-rank "${VLLM_MAX_LORA_RANK:-16}" --lora-modules $VLLM_LORA_MODULES; fi',
   'exec vllm serve "$@"',
 ].join("\n");
+
+/** The container env for a deployment (pure, so it is testable). */
+export function vllmEnv(p: DeployVllmParams): string[] {
+  const adapters = p.adapters ?? [];
+  return [
+    `VLLM_MODEL=${p.baseModel}`,
+    `VLLM_SERVED_NAME=${p.servedName || "base"}`,
+    `VLLM_GPU_UTIL=${p.gpuUtil || "0.30"}`,
+    `VLLM_MAX_MODEL_LEN=${p.maxModelLen || "8192"}`,
+    `VLLM_QUANT=${p.quant || ""}`,
+    `VLLM_LORA_MODULES=${adapters.map((a) => `${a.name}=${a.path}`).join(" ")}`,
+    `VLLM_MAX_LORAS=4`,
+    `VLLM_MAX_LORA_RANK=16`,
+    `VLLM_ALLOW_RUNTIME_LORA_UPDATING=True`,
+    ...mmLimitEnv(p, "VLLM"),
+  ];
+}
 
 export function containerLauncherAvailable(): boolean {
   return dockerAvailable();
@@ -47,17 +68,8 @@ export async function deployVllmContainer(p: DeployVllmParams): Promise<VllmDepl
   if (!p.baseModel) throw new Error("baseModel is required");
   const servedName = p.servedName || "base";
   const adapters = p.adapters ?? [];
-  const env = [
-    `VLLM_MODEL=${p.baseModel}`,
-    `VLLM_SERVED_NAME=${servedName}`,
-    `VLLM_GPU_UTIL=${p.gpuUtil || "0.30"}`,
-    `VLLM_MAX_MODEL_LEN=${p.maxModelLen || "8192"}`,
-    `VLLM_QUANT=${p.quant || ""}`,
-    `VLLM_LORA_MODULES=${adapters.map((a) => `${a.name}=${a.path}`).join(" ")}`,
-    `VLLM_MAX_LORAS=4`,
-    `VLLM_MAX_LORA_RANK=16`,
-    `VLLM_ALLOW_RUNTIME_LORA_UPDATING=True`,
-  ];
+  const env = vllmEnv(p);
+  const mm = mmLimits(p);
   const hf = await getHfToken();
   if (hf) env.push(`HF_TOKEN=${hf}`);
 
@@ -107,6 +119,8 @@ export async function deployVllmContainer(p: DeployVllmParams): Promise<VllmDepl
     quant: p.quant || "",
     adapters,
     deployedAt: Date.now(),
+    ...(mm.images !== undefined ? { limitMmImages: mm.images } : {}),
+    ...(mm.pixels !== undefined ? { maxImagePixels: mm.pixels } : {}),
   };
   await writeVllmDeployment(dep);
   return dep;

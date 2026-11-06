@@ -186,6 +186,16 @@ dengan area lain bila timnya berbeda.
 
 ### 1. Vision — VLM (Vision-Language Model)
 
+> Rencana eksekusi rinci (fase 0–8, berkas, tes, gerbang): [RENCANA-VLM.md](RENCANA-VLM.md).
+>
+> **Status 6 November 2026: dibangun dan diuji di box, belum dirilis.** Playground bergambar, dataset bergambar
+> (ZIP), trainer vision, batas gambar di vLLM/SGLang, penolakan adapter vision di SGLang dan Evals → Vision sudah
+> jalan end-to-end di frontend uji (:3010); demo LaTeX_OCR: exact match 0,7% → 15,0% dan CER 0,417 → 0,224 pada
+> 300 soal uji, ChartQA tidak turun (57,7% → 59,3%). Hasil lengkap: [UJI-END-TO-END.md](UJI-END-TO-END.md) §9.
+> **Sisa:** commit + push kode (job TL meng-clone trainer dari GitHub), satu kali Fine-tune → Vision dari UI,
+> rilis frontend, konversi GGUF/mmproj (Fase 7), benchmark lmms-eval (Fase 6.2), keputusan menyalakan batas gambar
+> di vLLM produksi.
+
 **Apa itu.** Model yang menerima **gambar + teks** dan menjawab dengan teks, misalnya
 menjelaskan foto, membaca grafik, menjawab soal bergambar, atau memeriksa dokumen
 foto. Contoh base: Qwen-VL, Gemma-3 (varian vision), SEA-LION VL.

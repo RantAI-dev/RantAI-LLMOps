@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { InfoTip } from "@/components/ui/tooltip";
+import { visionFromModelName } from "@/lib/model-capabilities";
 import { useVllmDeploy, type VllmAdapter } from "@/modules/serve/hooks/use-vllm-deploy";
 
 /** What differs between the engines this card deploys; the form is shared. */
@@ -49,17 +50,24 @@ export function VllmDeploy({ engine = "vllm" }: { engine?: keyof typeof ENGINES 
   const [quant, setQuant] = useState("");
   const [port, setPort] = useState("8001");
   const [downloaded, setDownloaded] = useState<string[]>([]);
+  // Which downloaded models the catalog knows take images (from their architecture).
+  const [visionIds, setVisionIds] = useState<Set<string>>(new Set());
+  // Vision bases only: both optional, empty = the engine's own defaults.
+  const [limitImages, setLimitImages] = useState("");
+  const [maxPixels, setMaxPixels] = useState("");
 
   // Populate a base-model datalist from the models the backend already has.
   useEffect(() => {
     fetch("/api/models/catalog", { cache: "no-store" })
       .then((r) => r.json())
-      .then((c: { downloaded?: { id: string }[] }) =>
-        setDownloaded((c.downloaded ?? []).map((m) => m.id).filter(Boolean))
-      )
+      .then((c: { downloaded?: { id: string; vision?: boolean }[] }) => {
+        setDownloaded((c.downloaded ?? []).map((m) => m.id).filter(Boolean));
+        setVisionIds(new Set((c.downloaded ?? []).filter((m) => m.vision).map((m) => m.id)));
+      })
       .catch(() => {});
   }, []);
 
+  const isVl = visionIds.has(baseModel.trim()) || visionFromModelName(baseModel);
   const dep = data?.deployment ?? null;
   const status = data?.status ?? "NONE";
 
@@ -89,6 +97,9 @@ export function VllmDeploy({ engine = "vllm" }: { engine?: keyof typeof ENGINES 
       maxModelLen: maxLen,
       quant: quant.trim(),
       port: Number(port) || 8001,
+      ...(isVl && limitImages.trim() ? { limitMmImages: Number(limitImages) } : {}),
+      ...(isVl && maxPixels.trim() ? { maxImagePixels: Number(maxPixels) } : {}),
+      ...(isVl ? { baseVision: true } : {}),
     });
     if (ok) toast.success(`${cfg.label} deployment launched — starting up…`);
   };
@@ -144,6 +155,8 @@ export function VllmDeploy({ engine = "vllm" }: { engine?: keyof typeof ENGINES 
             Served at <span className="font-mono text-ink">{data?.servedUrl}</span> · GPU {dep.gpuUtil} · ctx{" "}
             {dep.maxModelLen}
             {dep.quant ? ` · ${dep.quant}` : ""}
+            {dep.limitMmImages ? ` · ≤ ${dep.limitMmImages} images` : ""}
+            {dep.maxImagePixels ? ` · ≤ ${dep.maxImagePixels.toLocaleString("en-US")} px/image` : ""}
           </div>
           <Button variant="outline" size="sm" onClick={doStop} disabled={busy}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Square className="size-4" />}
@@ -226,6 +239,22 @@ export function VllmDeploy({ engine = "vllm" }: { engine?: keyof typeof ENGINES 
             <Field label="Quant" value={quant} onChange={setQuant} placeholder="(none)" />
             {cfg.showPort && <Field label="Port" value={port} onChange={setPort} placeholder="8001" />}
           </div>
+
+          {isVl && (
+            <div>
+              <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-ink-soft">
+                Image limits (optional)
+                <InfoTip label="About image limits">
+                  Each image costs tokens (about one per 32×32 px for Qwen3-VL), and a big picture can fill the whole
+                  context. Leave both empty to keep the engine defaults.
+                </InfoTip>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <Field label="Images per request" value={limitImages} onChange={setLimitImages} placeholder="e.g. 4" />
+                <Field label="Max pixels per image" value={maxPixels} onChange={setMaxPixels} placeholder="e.g. 1048576" />
+              </div>
+            </div>
+          )}
 
           <Button onClick={doDeploy} disabled={busy || !baseModel.trim()}>
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Rocket className="size-4" />}

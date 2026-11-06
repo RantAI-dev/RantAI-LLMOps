@@ -12,9 +12,10 @@ import { EvalForm } from "@/modules/evals/components/eval-form";
 import { EvalJobList } from "@/modules/evals/components/eval-job-list";
 import { GroundingEval } from "@/modules/evals/components/grounding-eval";
 import { RetentionView } from "@/modules/evals/components/retention-view";
+import { VlmEval } from "@/modules/evals/components/vlm-eval";
 import { useEvals } from "@/modules/evals/hooks/use-evals";
 
-type Tab = "single" | "compare" | "retention" | "grounding" | "classification" | "decision";
+type Tab = "single" | "compare" | "retention" | "grounding" | "classification" | "decision" | "vision";
 
 /** Evals workspace: run a benchmark on a model and read the accuracy. */
 export function EvalsPage() {
@@ -26,8 +27,9 @@ export function EvalsPage() {
 
   // Deployments links here with ?tab=decision&model=...
   useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("tab");
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot sync from the URL on mount
-    if (new URLSearchParams(window.location.search).get("tab") === "decision") setTab("decision");
+    if (wanted === "decision" || wanted === "vision") setTab(wanted);
   }, []);
 
   return (
@@ -40,7 +42,8 @@ export function EvalsPage() {
           The <strong>Grounding</strong> tab measures something different: whether the model answers
           only from the material provided, refuses when the answer is not there, and cites its source.
           The <strong>Decision</strong> tab grades a System One model on a labelled test set: accuracy
-          and whether its stated confidence can be trusted.
+          and whether its stated confidence can be trusted. The <strong>Vision</strong> tab grades a
+          vision-language model on your own images and answers.
         </InfoTip>
       </div>
 
@@ -48,7 +51,7 @@ export function EvalsPage() {
         <LoadingState label="Loading evals workspace…" />
       ) : (
         <>
-          <div className="flex gap-1 rounded-lg border border-border bg-surface-2 p-1">
+          <div className="flex gap-1 overflow-x-auto rounded-lg border border-border bg-surface-2 p-1">
             {(
               [
                 ["single", "Single run"],
@@ -57,6 +60,7 @@ export function EvalsPage() {
                 ["grounding", "Grounding"],
                 ["classification", "Classification"],
                 ["decision", "Decision"],
+                ["vision", "Vision"],
               ] as const
             ).map(([id, lbl]) => (
               <button
@@ -64,7 +68,7 @@ export function EvalsPage() {
                 type="button"
                 onClick={() => setTab(id)}
                 className={cn(
-                  "flex-1 rounded-md px-3 py-1.5 text-[13px] font-medium transition",
+                  "flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-[13px] font-medium transition",
                   tab === id ? "bg-surface text-primary shadow-sm" : "text-ink-soft hover:text-ink"
                 )}
               >
@@ -127,8 +131,10 @@ export function EvalsPage() {
             <GroundingEval />
           ) : tab === "classification" ? (
             <ClassificationEval />
-          ) : (
+          ) : tab === "decision" ? (
             <DecisionEval />
+          ) : (
+            <VlmEval />
           )}
         </>
       )}

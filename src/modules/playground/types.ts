@@ -1,3 +1,5 @@
+import type { MessageContent } from "@/lib/chat-content";
+
 export type ChatRole = "system" | "user" | "assistant";
 
 /** Per-response inference metrics, computed in the chat BFF from Ollama's token
@@ -20,7 +22,9 @@ export type ChatMetrics = {
 
 export type ChatMessage = {
   role: ChatRole;
-  content: string;
+  /** A string, or parts with images. Images are always stored references (`/api/chat-images/<sha>`),
+   *  never base64, so a saved conversation stays small. */
+  content: MessageContent;
   /** Assistant messages only: inference metrics for this reply. */
   metrics?: ChatMetrics;
 };

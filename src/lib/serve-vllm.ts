@@ -5,6 +5,7 @@
  * Portainer / docker.sock. When TL is replaced by the Rust backend later, only
  * the provider implementation swaps; this module and the UI stay unchanged.
  */
+import { mmLimits } from "@/lib/serve-mm-limits";
 import { FINETUNE_EXPERIMENT } from "@/lib/tl-constants";
 import { launchProviderTask } from "@/lib/tl-provider";
 import { createTlExperiment, resolveJobExperiment } from "@/lib/tasks-server";
@@ -26,7 +27,7 @@ import {
 
 /** Use the container launcher (GB10 path) when asked for AND the Docker socket
  *  is mounted; otherwise fall through to the portable TL-provider launcher. */
-function useContainerLauncher(): boolean {
+function shouldUseContainerLauncher(): boolean {
   return process.env.SERVE_LAUNCHER === "container" && containerLauncherAvailable();
 }
 
@@ -60,12 +61,18 @@ export type DeployVllmParams = {
   maxModelLen?: string;
   quant?: string;
   port?: number;
+  /** Max images in one request (`--limit-mm-per-prompt`). Used only when the base is a vision model. */
+  limitMmImages?: number;
+  /** Max pixels per image (`--mm-processor-kwargs max_pixels`). Used only when the base is a vision model. */
+  maxImagePixels?: number;
+  /** Whether the base takes images, when the caller knows; else it is guessed from the model name. */
+  baseVision?: boolean;
 };
 
 /** Launch a vLLM serving task (base + optional LoRA adapters) via the provider. */
 export async function deployVllm(p: DeployVllmParams): Promise<VllmDeployment> {
   if (!p.baseModel) throw new Error("baseModel is required");
-  if (useContainerLauncher()) return deployVllmContainer(p);
+  if (shouldUseContainerLauncher()) return deployVllmContainer(p);
   const experiment = await createTlExperiment(FINETUNE_EXPERIMENT);
   const servedName = p.servedName || "base";
   const port = p.port ?? 8001;
@@ -83,6 +90,10 @@ export async function deployVllm(p: DeployVllmParams): Promise<VllmDeployment> {
     VLLM_MAX_LORAS: "4",
     VLLM_MAX_LORA_RANK: "16",
   };
+  // Vision bases only; empty/absent leaves the engine on its defaults (run.py adds no flag).
+  const mm = mmLimits(p);
+  if (mm.images !== undefined) env.VLLM_LIMIT_MM_IMAGES = String(mm.images);
+  if (mm.pixels !== undefined) env.VLLM_MAX_IMAGE_PIXELS = String(mm.pixels);
   const hf = await getHfToken();
   if (hf) env.HF_TOKEN = hf;
 
@@ -112,6 +123,8 @@ export async function deployVllm(p: DeployVllmParams): Promise<VllmDeployment> {
     quant: env.VLLM_QUANT,
     adapters,
     deployedAt: Date.now(),
+    ...(mm.images !== undefined ? { limitMmImages: mm.images } : {}),
+    ...(mm.pixels !== undefined ? { maxImagePixels: mm.pixels } : {}),
   };
   await writeVllmDeployment(dep);
   return dep;

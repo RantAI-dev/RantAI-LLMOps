@@ -19,11 +19,17 @@ Config is read from environment variables (the launcher passes them in
   VLLM_LORA_MODULES       space-sep "name=path" pairs (empty = none)[]
   VLLM_MAX_LORAS          --max-loras                               [4]
   VLLM_MAX_LORA_RANK      --max-lora-rank                           [16]
+  VLLM_LIMIT_MM_IMAGES    --limit-mm-per-prompt '{"image":N}'       [unset]
+  VLLM_MAX_IMAGE_PIXELS   --mm-processor-kwargs '{"max_pixels":N}'  [unset]
   HF_TOKEN                for gated bases                           []
+
+The two multimodal limits are for vision-language bases only (the launcher sets them only then);
+unset or empty adds no flag, so the engine keeps its defaults.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import subprocess
@@ -62,6 +68,13 @@ def _build_args() -> list[str]:
     quant = _env("VLLM_QUANT")
     if quant:
         args += ["--quantization", quant]
+    # Passed as argv items (no shell), so the JSON needs no quoting.
+    images = _env("VLLM_LIMIT_MM_IMAGES")
+    if images:
+        args += ["--limit-mm-per-prompt", json.dumps({"image": int(images)})]
+    pixels = _env("VLLM_MAX_IMAGE_PIXELS")
+    if pixels:
+        args += ["--mm-processor-kwargs", json.dumps({"max_pixels": int(pixels)})]
     lora = _env("VLLM_LORA_MODULES")
     if lora:
         args += ["--enable-lora", "--max-loras", _env("VLLM_MAX_LORAS", "4"),

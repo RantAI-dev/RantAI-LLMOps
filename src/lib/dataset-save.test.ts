@@ -133,6 +133,26 @@ describe("ingestDataset: text", () => {
     await expect(ingestDataset({ name: "x", kind: "text", content: "a | b", destination: { kind: "s3", bucket: " " } })).rejects.toThrow(/bucket/);
   });
 
+  it("stores chat `messages` rows as they came, in the workspace and on S3", async () => {
+    const chat = [
+      '{"messages":[{"role":"system","content":"s"},{"role":"user","content":"hi"},{"role":"assistant","content":"hello"}]}',
+      '{"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b"},{"role":"user","content":"c"},{"role":"assistant","content":"d"}]}',
+    ].join("\n");
+    const local = await ingestDataset({ name: "chat set", kind: "text", filename: "c.jsonl", content: chat });
+    expect(local).toMatchObject({ id: "chat-set", ref: "chat-set", kind: "text" });
+    expect((local.report as { schema: { id: string } }).schema.id).toBe("messages");
+    expect(tl.uploads[0]!.files["chat-set_train.jsonl"]).toBe(chat);
+    const remote = await ingestDataset({ name: "chat s3", kind: "text", filename: "c.jsonl", content: chat, destination: { kind: "s3", bucket: "sft" } });
+    expect(remote.ref).toBe("s3://sft/datasets/chat-s3/train.jsonl");
+    expect(s3.puts[0]!.body).toBe(chat + "\n"); // not turned into prompt/completion, nothing dropped
+  });
+
+  it("sends a user who picked Text for an image dataset to the Vision kind, before storing anything", async () => {
+    const img = '{"messages":[{"role":"user","content":[{"type":"image","image":"images/a.png"},{"type":"text","text":"q"}]},{"role":"assistant","content":"a"}]}';
+    await expect(ingestDataset({ name: "pics", kind: "text", filename: "p.jsonl", content: img })).rejects.toThrow(/Vision/);
+    expect(tl.datasets).toEqual([]);
+  });
+
   it("keeps the rows API (createDataset / createDatasetOnS3) on the same path", async () => {
     expect(await createDataset("api rows", [{ prompt: "p", completion: "c" }])).toBe("api-rows");
     expect(tl.uploads[0]!.files["api-rows_train.jsonl"]).toBe('{"prompt":"p","completion":"c"}');

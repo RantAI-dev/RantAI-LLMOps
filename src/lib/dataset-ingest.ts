@@ -170,12 +170,14 @@ export function toJsonl(text: string, filename = ""): { jsonl: string; format: S
 // Mirrors buildFormattingTemplate in finetune.ts, so the review says what training will do.
 // ---------------------------------------------------------------------------------------------
 
-export type TextSchemaId = "instruction-output" | "prompt-completion" | "question-answer" | "text" | "none";
+export type TextSchemaId = "messages" | "instruction-output" | "prompt-completion" | "question-answer" | "text" | "none";
 
 export type TextSchema = { id: TextSchemaId; label: string; recognised: boolean };
 
 export function detectTextSchema(columns: string[]): TextSchema {
   const has = (c: string) => columns.includes(c);
+  // Chat rows win, as in the SFT trainer: only `messages` can carry a multi-turn conversation.
+  if (has("messages")) return { id: "messages", label: "chat messages", recognised: true };
   if (has("instruction") && has("output")) {
     return { id: "instruction-output", label: has("input") ? "instruction + input → output" : "instruction → output", recognised: true };
   }
@@ -265,4 +267,35 @@ export function buildTextReport(text: string, filename: string, partial = false)
     errors,
     partial,
   };
+}
+
+/**
+ * A `messages` text dataset is stored as it came. The one thing worth refusing up front is image parts in it:
+ * the text trainer would fail on them minutes into a GPU job, while the Vision kind takes exactly that.
+ * Returns the problem, or null.
+ */
+export function textMessagesProblem(jsonl: string): string | null {
+  const lines = jsonl.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i]!.includes('"image')) continue; // cheap pre-filter: "image", "image_url"
+    let row: unknown;
+    try {
+      row = JSON.parse(lines[i]!);
+    } catch {
+      continue;
+    }
+    const messages = (row as { messages?: unknown } | null)?.messages;
+    if (!Array.isArray(messages)) continue;
+    const hasImage = messages.some(
+      (m) =>
+        Array.isArray((m as { content?: unknown } | null)?.content) &&
+        ((m as { content: unknown[] }).content as Array<{ type?: unknown } | null>).some(
+          (p) => p?.type === "image" || p?.type === "image_url"
+        )
+    );
+    if (hasImage) {
+      return `Row ${i + 1} has image parts. This looks like an image dataset: add it as "Vision (images)" instead of Text.`;
+    }
+  }
+  return null;
 }

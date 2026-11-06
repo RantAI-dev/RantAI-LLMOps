@@ -23,7 +23,7 @@ echo "[1/4] merge adapter -> fp16 base ($BASE)"
 CUDA_VISIBLE_DEVICES="" "$PY" - "$ADIR" "$BASE" "$MERGED" <<'PYEOF'
 import sys, torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 adapter, base_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
 # device_map={"": "cpu"} on BOTH loads, not just the base. CUDA_VISIBLE_DEVICES
 # above is not enough: the base honours it, but peft then picks its own device for
@@ -32,7 +32,14 @@ adapter, base_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
 # reads like the model is too big for the box; it is not, it just never belonged
 # on the GPU. Small models happened to fit, which is why this went unnoticed until
 # a 4B adapter was exported. Same fix as rantai_merge.sh.
-base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
+# A vision-language base (vision_config in its config.json) is merged as an image-text model and saved with
+# its processor; the vision projector is exported separately in step 3 (--mmproj).
+is_vl = getattr(AutoConfig.from_pretrained(base_id), "vision_config", None) is not None
+if is_vl:
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+    base = AutoModelForImageTextToText.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
+else:
+    base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
 merged = PeftModel.from_pretrained(base, adapter, device_map={"": "cpu"}).merge_and_unload()
 merged.save_pretrained(out, safe_serialization=True)
 tok = AutoTokenizer.from_pretrained(adapter)
@@ -42,7 +49,13 @@ tok = AutoTokenizer.from_pretrained(adapter)
 if not getattr(tok, "chat_template", None):
     tok.chat_template = AutoTokenizer.from_pretrained(base_id).chat_template
 tok.save_pretrained(out)
-print("merged ->", out, "| chat_template:", "yes" if tok.chat_template else "NO")
+if is_vl:
+    try:
+        AutoProcessor.from_pretrained(adapter).save_pretrained(out)
+    except Exception:
+        AutoProcessor.from_pretrained(base_id).save_pretrained(out)
+open(out + "/.is_vl", "w").write("1" if is_vl else "0")
+print("merged ->", out, "| chat_template:", "yes" if tok.chat_template else "NO", "| vision-language:", is_vl)
 PYEOF
 
 echo "[2/4] ensure llama.cpp + gguf"
@@ -57,6 +70,19 @@ fi
 
 echo "[3/4] convert -> GGUF ($OUTTYPE)"
 PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$GGUF" --outtype "$OUTTYPE"
+if [ "$(cat "$MERGED/.is_vl" 2>/dev/null)" = "1" ]; then
+  # Vision-language model: the vision tower + projector go to a second GGUF (f16). The language GGUF
+  # alone is a text-only model. Not every architecture is supported by llama.cpp's multimodal converter;
+  # if this step fails, say so rather than shipping a model that silently ignores images.
+  MMPROJ="$MERGED/mmproj-$TAG.f16.gguf"
+  PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$MMPROJ" --outtype f16 --mmproj
+  echo "[4/4] vision-language model: Ollama cannot load a separate projector, so no 'ollama create'."
+  echo "Serve it with llama.cpp (CPU or GPU):"
+  echo "  llama-server -m $GGUF --mmproj $MMPROJ --host 0.0.0.0 --port 8080"
+  echo "OK: language GGUF: $GGUF"
+  echo "OK: vision projector: $MMPROJ"
+  exit 0
+fi
 
 echo "[4/4] ollama create $TAG"
 MF=$(mktemp)

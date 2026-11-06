@@ -117,6 +117,10 @@ export function JobList({
                     <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 align-middle text-[10px] font-medium text-primary">
                       Decision
                     </span>
+                  ) : job.kind === "vision" ? (
+                    <span className="ml-2 rounded-full bg-primary-soft px-2 py-0.5 align-middle text-[10px] font-medium text-primary">
+                      Vision
+                    </span>
                   ) : null}
                 </p>
                 <p className="truncate text-[12px] text-ink-soft">

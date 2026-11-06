@@ -26,6 +26,8 @@ const READ_ROUTES = [
   "/api/evals/grounding",
   "/api/evals/jobs",
   "/api/evals/options",
+  "/api/evals/vlm",
+  "/api/evals/vlm/sets",
   "/api/finetune/jobs",
   "/api/finetune/options",
   "/api/hub/base-models",
@@ -63,6 +65,10 @@ const GATED = [
   "/api/tasks/does-not-exist/output",
   "/api/prompts/does-not-exist",
   "/api/notes/does-not-exist",
+  "/api/chat-images/" + "0".repeat(64),
+  "/api/evals/vlm/does-not-exist",
+  "/api/evals/vlm/sets/does-not-exist",
+  "/api/evals/vlm/sets/does-not-exist/image?path=images/a.png",
 ];
 
 test.describe("Auth gate", () => {
@@ -83,7 +89,7 @@ test.describe("Auth gate", () => {
       const res = await anon.post(BASE + path, { data: {} });
       if (res.status() !== 401) leaks.push(`POST ${path} -> ${res.status()}`);
     }
-    for (const path of ["/api/adapters/reconcile", "/api/serve/vllm/stop"]) {
+    for (const path of ["/api/adapters/reconcile", "/api/serve/vllm/stop", "/api/chat-images", "/api/evals/vlm", "/api/evals/vlm/sets"]) {
       const res = await anon.post(BASE + path, { data: {} });
       if (res.status() !== 401) leaks.push(`POST ${path} -> ${res.status()}`);
     }
@@ -166,6 +172,28 @@ test.describe("Destructive routes refuse unknown ids", () => {
   test("a prompt id that does not exist reads as 404", async ({ request }) => {
     const res = await request.get(`${BASE}/api/prompts/definitely-no-such-prompt-xyz`);
     expect(res.status()).toBe(404);
+  });
+});
+
+test.describe("Chat images", () => {
+  // A 1x1 PNG: the smallest real image, so nothing large is stored on the box.
+  const PNG_1X1 =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+  test("store, read back with immutable caching, refuse junk", async ({ request }) => {
+    const up = await request.post(`${BASE}/api/chat-images`, { data: { dataUrl: PNG_1X1 } });
+    expect(up.status(), await up.text()).toBe(200);
+    const { ref } = await up.json();
+    expect(ref).toMatch(/^\/api\/chat-images\/[a-f0-9]{64}$/);
+
+    const got = await request.get(BASE + ref);
+    expect(got.status()).toBe(200);
+    expect(got.headers()["content-type"]).toBe("image/png");
+    expect(got.headers()["cache-control"]).toMatch(/immutable/);
+
+    expect((await request.get(`${BASE}/api/chat-images/not-a-hash`)).status()).toBe(404);
+    const junk = await request.post(`${BASE}/api/chat-images`, { data: { dataUrl: "data:text/html;base64,PGI+" } });
+    expect(junk.status()).toBe(400);
   });
 });
 
@@ -276,6 +304,23 @@ test.describe("Per-id routes", () => {
     const res = await request.get(`${BASE}/api/evals/jobs/..%2F..%2Fetc/samples`);
     expect(res.status()).toBeGreaterThanOrEqual(400);
     expect(res.status()).toBeLessThan(500);
+  });
+
+  test("vision eval routes answer an unknown or unsafe id without a 5xx", async ({ request }) => {
+    for (const path of ["/api/evals/vlm/no-such-run-xyz", "/api/evals/vlm/sets/no-such-set-xyz"]) {
+      expect((await request.get(BASE + path)).status(), path).toBe(404);
+    }
+    for (const path of ["/api/evals/vlm/..%2F..%2Fetc", "/api/evals/vlm/sets/..%2F..%2Fetc"]) {
+      expect([400, 404], path).toContain((await request.get(BASE + path)).status());
+    }
+    expect((await request.get(`${BASE}/api/evals/vlm/sets/no-such-set-xyz/image?path=images/a.png`)).status()).toBe(404);
+    // Starting a run needs a model and a set; nothing is started here.
+    const bad = await request.post(`${BASE}/api/evals/vlm`, { data: {} });
+    expect(bad.status()).toBe(400);
+    expect(await bad.text()).toMatch(/model/i);
+    const noFile = await request.post(`${BASE}/api/evals/vlm/sets`, { multipart: { name: "api-no-file", scoring: "exact" } });
+    expect(noFile.status()).toBe(400);
+    expect(await noFile.text()).toMatch(/ZIP/i);
   });
 
   test("classification eval detail handles an unknown id", async ({ request }) => {

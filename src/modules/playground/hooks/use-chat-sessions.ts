@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { runOptimistic } from "@/lib/optimistic";
-import { makeEmptySession } from "@/modules/playground/lib/storage";
+import { persistableMessages } from "@/modules/playground/lib/image-prep";
+import { makeEmptySession, sessionTitle } from "@/modules/playground/lib/storage";
 import type { ChatMessage, ChatSession } from "@/modules/playground/types";
 
 type State = { sessions: ChatSession[]; activeId: string };
@@ -72,7 +73,8 @@ export function useChatSessions() {
         fetch("/api/conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(session),
+          // Images are stored references; persistableMessages guarantees no inline base64 gets saved.
+          body: JSON.stringify({ ...session, messages: persistableMessages(session.messages) }),
         }),
       errorMessage: "Failed to save chat to the server",
     });
@@ -150,9 +152,7 @@ export function useChatSessions() {
         if (s.id !== st.activeId) return s;
         const messages = updater(s.messages);
         const title =
-          s.title === "New chat" && messages[0]?.role === "user"
-            ? messages[0].content.slice(0, 48)
-            : s.title;
+          s.title === "New chat" && messages[0]?.role === "user" ? sessionTitle(messages[0].content) : s.title;
         return { ...s, messages, title, updatedAt: new Date().toISOString() };
       }),
     }));

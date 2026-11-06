@@ -3,6 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   buildDecisionParameters,
   buildFormattingTemplate,
+  buildVisionParameters,
+  isTrainJob,
+  isVisionJob,
+  VISION_RUN,
+  VISION_SETUP,
+  VISION_SUBTYPE,
   csvToJsonl,
   fineTuneTag,
   isDecisionJob,
@@ -169,5 +175,101 @@ describe("isDecisionJob", () => {
     expect(isDecisionJob({ job_data: { subtype: "TRAIN", run: "python unsloth-llm-train/train.py" } })).toBe(false);
     expect(isDecisionJob({ job_data: { subtype: "EVAL" } })).toBe(false);
     expect(isDecisionJob({})).toBe(false);
+  });
+});
+
+describe("buildVisionParameters", () => {
+  const base: SubmitFinetuneParams = {
+    baseModel: "aisingapore/Gemma-SEA-LION-v4-4B-VL",
+    dataset: "s3://corpus/vision/latex-ocr/",
+    adaptorName: "latex-ocr",
+    method: "vision",
+  };
+
+  it("uses the vision trainer's defaults", () => {
+    expect(buildVisionParameters(base)).toMatchObject({
+      model_name: "aisingapore/Gemma-SEA-LION-v4-4B-VL",
+      dataset: "s3://corpus/vision/latex-ocr/",
+      lr: 0.0002,
+      num_train_epochs: 1,
+      max_steps: -1,
+      batch_size: 1,
+      gradient_accumulation_steps: 8,
+      max_seq_length: 4096,
+      lora_r: 16,
+      lora_alpha: 16,
+      lora_dropout: 0,
+      finetune_vision_layers: false,
+      finetune_language_layers: true,
+      max_pixels: 1003520,
+      max_images_per_sample: 4,
+      optim: "adamw_torch",
+    });
+  });
+
+  it("sends no Hugging Face column keys unless they are given", () => {
+    const p = buildVisionParameters(base);
+    for (const k of ["image_column", "prompt_column", "answer_column", "prompt_text"]) expect(p).not.toHaveProperty(k);
+    const hf = buildVisionParameters({
+      ...base,
+      dataset: "unsloth/LaTeX_OCR",
+      imageColumn: " image ",
+      answerColumn: "text",
+      promptText: "Write the LaTeX.",
+      promptColumn: "  ",
+    });
+    expect(hf).toMatchObject({ image_column: "image", answer_column: "text", prompt_text: "Write the LaTeX." });
+    expect(hf).not.toHaveProperty("prompt_column");
+  });
+
+  it("passes overrides through and ties lora_alpha to lora_r", () => {
+    const p = buildVisionParameters({
+      ...base,
+      loraR: 32,
+      maxSteps: 30,
+      finetuneVisionLayers: true,
+      maxPixels: 401408,
+      maxImagesPerSample: 2,
+      gradientAccumulationSteps: 4,
+      batchSize: 2,
+    });
+    expect(p).toMatchObject({
+      lora_r: 32,
+      lora_alpha: 32,
+      max_steps: 30,
+      finetune_vision_layers: true,
+      finetune_language_layers: true,
+      max_pixels: 401408,
+      max_images_per_sample: 2,
+      gradient_accumulation_steps: 4,
+      batch_size: 2,
+    });
+  });
+
+  it("mirrors the trainer's setup: pinned stack plus pillow and s3fs, its own entrypoint", () => {
+    expect(VISION_SETUP).toContain('"unsloth==2026.10.8"');
+    expect(VISION_SETUP).toContain('"transformers==5.17.0"');
+    expect(VISION_SETUP).toContain("pillow s3fs");
+    expect(VISION_RUN).toBe("python unsloth-vision-train/train.py");
+  });
+});
+
+describe("isVisionJob / isTrainJob", () => {
+  it("recognises the VISION subtype and the vision trainer command", () => {
+    expect(isVisionJob({ job_data: { subtype: VISION_SUBTYPE } })).toBe(true);
+    expect(isVisionJob({ job_data: { run: "python unsloth-vision-train/train.py" } })).toBe(true);
+  });
+
+  it("does not claim SFT, decision or empty jobs", () => {
+    expect(isVisionJob({ job_data: { subtype: "TRAIN", run: "python unsloth-llm-train/train.py" } })).toBe(false);
+    expect(isVisionJob({ job_data: { subtype: "DECISION" } })).toBe(false);
+    expect(isVisionJob({})).toBe(false);
+  });
+
+  it("never treats a vision job as a plain text adapter (GGUF export, adapter pickers)", () => {
+    expect(isTrainJob({ job_data: { subtype: "VISION", run: "python unsloth-vision-train/train.py" } })).toBe(false);
+    // even if the provider stored it under TRAIN
+    expect(isTrainJob({ job_data: { subtype: "TRAIN", run: "python unsloth-vision-train/train.py" } })).toBe(false);
+    expect(isTrainJob({ job_data: { subtype: "TRAIN", run: "python unsloth-llm-train/train.py" } })).toBe(true);
   });
 });

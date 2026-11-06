@@ -142,6 +142,14 @@ services:
           --gpu-memory-utilization "$${VLLM_GPU_UTIL:-0.22}" \
           --max-model-len "$${VLLM_MAX_MODEL_LEN:-16384}" \
           --trust-remote-code
+        # Multimodal limits for a VL base. Unset (default) = no flag, engine defaults. The numbers
+        # become JSON here, so no JSON travels through compose or the environment.
+        if [ -n "$${VLLM_LIMIT_MM_IMAGES:-}" ]; then
+          set -- "$$@" --limit-mm-per-prompt "{\"image\":$${VLLM_LIMIT_MM_IMAGES}}"
+        fi
+        if [ -n "$${VLLM_MAX_IMAGE_PIXELS:-}" ]; then
+          set -- "$$@" --mm-processor-kwargs "{\"max_pixels\":$${VLLM_MAX_IMAGE_PIXELS}}"
+        fi
         if [ -n "$${VLLM_LORA_MODULES:-}" ]; then
           set -- "$$@" --enable-lora \
             --max-loras "$${VLLM_MAX_LORAS:-2}" \
@@ -163,6 +171,10 @@ services:
       - VLLM_LORA_MODULES=${VLLM_LORA_MODULES:-}
       - VLLM_MAX_LORAS=${VLLM_MAX_LORAS:-2}
       - VLLM_MAX_LORA_RANK=${VLLM_MAX_LORA_RANK:-16}
+      # Multimodal limits (VL base only; empty = unchanged). Images per request, e.g. 4, and the
+      # largest image in pixels, e.g. 1048576 (1024x1024). See docs/RENCANA-VLM.md, Fase 2.4.
+      - VLLM_LIMIT_MM_IMAGES=${VLLM_LIMIT_MM_IMAGES:-}
+      - VLLM_MAX_IMAGE_PIXELS=${VLLM_MAX_IMAGE_PIXELS:-}
       # Enables the runtime load/unload API (POST /v1/load_lora_adapter) — Phase 2.
       - VLLM_ALLOW_RUNTIME_LORA_UPDATING=${VLLM_ALLOW_RUNTIME_LORA_UPDATING:-True}
     volumes:
@@ -209,6 +221,8 @@ services:
         set -eu
         set -- "$$VLLM_MODEL" --served-model-name "$$VLLM_SERVED_NAME" --gpu-memory-utilization "$$VLLM_GPU_UTIL" --max-model-len "$$VLLM_MAX_MODEL_LEN" --enforce-eager --max-num-seqs 16 --trust-remote-code
         if [ -n "$${VLLM_QUANT:-}" ]; then set -- "$$@" --quantization "$$VLLM_QUANT"; fi
+        if [ -n "$${VLLM_LIMIT_MM_IMAGES:-}" ]; then set -- "$$@" --limit-mm-per-prompt "{\"image\":$$VLLM_LIMIT_MM_IMAGES}"; fi
+        if [ -n "$${VLLM_MAX_IMAGE_PIXELS:-}" ]; then set -- "$$@" --mm-processor-kwargs "{\"max_pixels\":$$VLLM_MAX_IMAGE_PIXELS}"; fi
         if [ -n "$${VLLM_LORA_MODULES:-}" ]; then set -- "$$@" --enable-lora --max-loras "$$VLLM_MAX_LORAS" --max-lora-rank "$$VLLM_MAX_LORA_RANK" --lora-modules $$VLLM_LORA_MODULES; fi
         echo "[vllm-fp8] serve $$*" >&2
         exec vllm serve "$$@"
@@ -219,6 +233,9 @@ services:
       - VLLM_MAX_MODEL_LEN=${VLLM4B_MAX_MODEL_LEN:-8192}
       # Empty = bf16. The entrypoint only passes --quantization when this is set.
       - VLLM_QUANT=${VLLM4B_QUANT:-}
+      # Multimodal limits (empty = no flag, unchanged): images per request and max pixels per image.
+      - VLLM_LIMIT_MM_IMAGES=${VLLM4B_LIMIT_MM_IMAGES:-}
+      - VLLM_MAX_IMAGE_PIXELS=${VLLM4B_MAX_IMAGE_PIXELS:-}
       - VLLM_MAX_LORAS=${VLLM4B_MAX_LORAS:-8}
       - VLLM_MAX_LORA_RANK=${VLLM4B_MAX_LORA_RANK:-32}
       - VLLM_ALLOW_RUNTIME_LORA_UPDATING=${VLLM4B_RUNTIME_LORA:-True}

@@ -14,6 +14,7 @@
 import { TL_ROOT } from "@/lib/inference";
 import { tlFetch } from "@/lib/tl-fetch";
 import { logServerError } from "@/lib/log";
+import { visionFromArchitecture } from "@/lib/model-capabilities";
 import {
   deleteOllamaModel,
   listOllamaModels,
@@ -41,6 +42,8 @@ export type CatalogModel = {
   ggufFile?: string;
   /** Absolute on-disk path (the .gguf file for GGUF, the dir otherwise). */
   localPath?: string;
+  /** Takes images (derived from the architecture; see `model-capabilities.ts`). */
+  vision?: boolean;
 };
 
 /**
@@ -206,6 +209,7 @@ export async function fetchDownloaded(): Promise<CatalogModel[]> {
       downloaded: true,
       hfRepo: j.huggingface_repo,
       localPath: r.local_path,
+      vision: visionFromArchitecture(architecture),
     } satisfies CatalogModel;
   });
 }

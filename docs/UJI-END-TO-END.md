@@ -288,3 +288,73 @@ Yang **tidak** tercakup:
   menjalankan benchmark penuh memakan GPU berjam-jam.
 
 Ketiganya belum mendesak pada skala sekarang.
+
+---
+
+## 9. Uji VLM (6 November 2026)
+
+**Sasaran:** frontend uji `rantai-frontend-vlm` (10.17.254.27:3010, image `rantai-llmops-fe:vlm-dev` dibangun di box dari
+working tree, data di volume sendiri `vlm-ui-data`) + engine uji `vllm4b-test` (Gemma-SEA-LION v4 4B VL, adapter `latex-ocr`).
+Frontend produksi (`rantai-frontend`, :3000), `rantai-vllm-8b` dan RantAI Agents **tidak disentuh**: tidak ada restart,
+satu permintaan bergambar baca-saja ke SEA-LION 8B produksi dari container terpisah. Rencana: `docs/RENCANA-VLM.md`.
+
+**Hasil:** unit **868 tes TS + 152 tes Python** hijau (Linux, Node 22); `scripts/e2e.js` area Vision **17/17**;
+API chat/gambar **20/20**; gerbang dataset **11/13** (satu kegagalan = rute daftar yang salah tebak di skrip uji saya, diulang dengan rute benar: lulus; satu lagi = temuan 4); training, serving dan eval berjalan end-to-end.
+
+### Ringkasan
+
+| Area | Hasil | Bukti |
+|---|---|---|
+| Chat bergambar | 20/20 | SEA-LION VL menjawab gambar (data URL dan rujukan tersimpan); `file://`/`http://` → 400; ref hilang → 400; body 25 MB → 413; Ollama teks-saja + gambar → 400; 10 percakapan bergambar = 4 KB tanpa `data:` |
+| Dataset bergambar | 11/13 | ZIP 2.000 baris/2.200 gambar masuk (11,5 menit), tata letak `<id>/{train.jsonl,eval.jsonl,images/}`; ZIP rusak ditolak server dan tidak meninggalkan dataset; traversal dan non-gambar ditolak; S3 fixture OK |
+| Trainer vision | lulus | fixture 100 baris: 10 langkah; demo 2.000 baris × 1 epoch = **32 menit**, loss evaluasi **0,235**, puncak GPU 9,0 GiB, `MemAvailable` terendah 13,7 GiB; adapter 476 kunci LoRA, 0 kunci vision |
+| Serving adapter | lulus | vLLM melayani `base` + `latex-ocr`; `--limit-mm-per-prompt` 2: 3 gambar → 400, 2 gambar → 200; SGLang menolak adapter vision dengan alasan (13 tes) |
+| Eval bergambar | lulus | lihat tabel hasil |
+| UI (Chromium headless) | lulus | tab Evals → Vision, kind Vision di Add dataset (review ZIP), ubin Fine-tune → Vision, tombol lampiran di Interact |
+
+### Hasil eval (base 4B vs adapter `latex-ocr`, 300 baris uji yang tidak pernah dipakai training)
+
+| Set uji | Metrik | Base | `latex-ocr` |
+|---|---|---|---|
+| `latex-ocr-test` (LaTeX_OCR, split test) | exact match | 0,7% (0–1,6%) | **15,0%** (11,0–19,0%) |
+| | CER rata-rata | 0,417 | **0,224** |
+| `chartqa-test` (retensi, relaxed ±5%) | akurasi | 57,7% (52,1–63,3%) | 59,3% (53,8–64,9%) |
+
+Fine-tune menaikkan skor tugasnya jauh di luar galat dan tidak menurunkan kemampuan umum (ChartQA setara).
+Dasar pembanding produksi (SEA-LION 8B VL, 30 soal LaTeX): exact 2/30, CER 0,19.
+
+### Temuan
+
+1. **Prompt ChartQA tanpa instruksi jawaban pendek menghasilkan 0%** untuk semua model (model menjawab kalimat).
+   Bukan kegagalan model; `make_demo_dataset.py` kini menambahkan "Answer with a single number or a short phrase only."
+2. **`SFTTrainer` menolak dataset map-style buatan sendiri** (`train_dataset must be a Dataset or IterableDataset`),
+   ditemukan di run GPU pertama; diperbaiki dengan `Dataset.with_transform` (`vlm_data.as_hf_dataset`).
+3. **Daftar percakapan TL menjadi `[]`** bila ada percakapan dengan `updatedAt` bukan string ISO (pengurutan gagal).
+   Ditemukan dari data uji saya; dihapus, percakapan asli tidak terganggu. Bukan bug fitur ini.
+4. **`DELETE /api/datasets/vision/<id>` hanya berlaku untuk unggahan yang belum selesai.** Dataset S3 yang sudah
+   selesai tidak bisa dihapus dari UI/API; satu fixture uji (25 baris) tertinggal di `s3://buku-korpus/datasets-vlm-e2e/`.
+   Menghapusnya dengan kredensial produksi di luar aplikasi sengaja tidak dilakukan.
+5. Unggah dataset besar lambat (±0,3 dtk per gambar, 4 panggilan TL per gambar).
+
+### Belum terverifikasi
+
+- **Peluncuran job lewat Transformer Lab.** TL meng-clone trainer dari branch default GitHub; `trainers/unsloth-vision-train/`
+  belum di-push (perubahan belum di-commit). Training diuji dengan skrip yang meniru SDK `lab`, membaca dataset dari
+  workspace TL yang sama. Setelah push (atau `VISION_TRAINER_BRANCH`), jalankan sekali Fine-tune → Vision dari UI.
+- **Konversi GGUF/`mmproj`.** Merge VL di CPU terbukti (`vision-language: True`, processor tersimpan). Konversi
+  llama.cpp tidak dijalankan di box (mengunduh dan menjalankan converter dari internet ditolak oleh pengaman sesi);
+  skrip `rantai_export_gguf.sh` punya cabang VL tetapi belum teruji, dan tidak membuat tag Ollama untuk model VL.
+- **Benchmark standar lmms-eval** (Fase 6.2) tidak dikerjakan; retensi dicek dengan set ChartQA sendiri.
+- **Batas multimodal di `rantai-vllm-8b` produksi** tidak dinyalakan (butuh restart ±2–3 menit; fiturnya sudah ada di
+  form Deploy dan teruji di engine uji). Tanpa batas, gambar besar tetap aman: vLLM menolak yang melebihi
+  `max_model_len` dengan 400, dan frontend membatasi 4 gambar per pesan.
+- Tombol lampiran Interact hanya dicek keberadaannya; alur lampir-lalu-kirim dicek lewat API, bukan diklik.
+- Form Deploy (field batas gambar) dicek lewat tes komponen, bukan di browser.
+
+### Cara menjalankan ulang
+
+```
+# frontend uji + engine uji (Portainer): start container vllm4b-test, rantai-frontend-vlm (:3010)
+docker exec -e TEST_HOST=frontend-vlm -e APP_PASSWORD=... rantai-frontend-vlm node /tmp/e2e.js   # scripts/e2e.js
+python scripts/vlm/make_demo_dataset.py --out ~/vlm-demo      # latex-ocr-train/test.zip, chartqa-test.zip
+```

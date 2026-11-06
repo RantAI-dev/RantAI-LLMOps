@@ -12,7 +12,7 @@ import { AddDatasetDialog } from "@/modules/datasets/components/add-dataset-dial
 import { HfSearch } from "@/modules/hub/components/hf-search";
 import { cn } from "@/lib/utils";
 
-type Method = "sft" | "grpo" | "tts" | "decision";
+type Method = "sft" | "grpo" | "tts" | "decision" | "vision";
 
 // Mirror of the TTS trainer's defaults (kept local so this client component never
 // pulls the server-only finetune.ts module into the browser bundle). The backend
@@ -33,10 +33,22 @@ const DECISION_MODELS = [
   { id: "aisingapore/Gemma-SEA-LION-v4-4B-VL", name: "SEA-LION v4 4B (PyTorch serving only)", architecture: "Gemma3ForConditionalGeneration", sizeMb: 8000 },
 ] as const;
 
+// Vision-language fine-tune (trainers/unsloth-vision-train). Mirrors VISION_DEFAULT_MODEL /
+// buildVisionParameters in finetune.ts (kept local, same reason as above). The 4B is first because it is
+// the base measured to train next to production on the GB10 (about 9 GiB GPU, 17 GiB host); the 8B needs
+// roughly twice that and does not fit beside rantai-vllm-8b with 16 GB free.
+const VISION_DEFAULT_MODEL = "aisingapore/Gemma-SEA-LION-v4-4B-VL";
+const VISION_MODELS = [
+  { id: "aisingapore/Gemma-SEA-LION-v4-4B-VL", name: "Gemma-SEA-LION v4 4B VL (recommended)", architecture: "Gemma3ForConditionalGeneration", sizeMb: 8000 },
+  { id: "aisingapore/Qwen-SEA-LION-v4-8B-VL", name: "Qwen-SEA-LION v4 8B VL (needs about 30 GB free)", architecture: "Qwen3VLForConditionalGeneration", sizeMb: 16300 },
+] as const;
+
 // Starting values per method. Switching to or from "decision" swaps the whole set, so a value the
 // user typed is not silently kept at a number that only makes sense for the other method.
 const SFT_DEFAULTS = { loraR: 8, loraAlpha: 16, learningRate: 0.0002, maxSeqLength: 2048 };
 const DECISION_DEFAULTS = { loraR: 64, loraAlpha: 64, learningRate: 0.0001, maxSeqLength: 4096 };
+const VISION_DEFAULTS = { loraR: 16, loraAlpha: 16, learningRate: 0.0002, maxSeqLength: 4096 };
+const defaultsFor = (m: Method) => (m === "decision" ? DECISION_DEFAULTS : m === "vision" ? VISION_DEFAULTS : SFT_DEFAULTS);
 
 function slug(s: string): string {
   return (s.split("/").pop() ?? s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -94,6 +106,14 @@ export function FinetuneForm({
   const [holdoutFraction, setHoldoutFraction] = useState(0.1);
   const [gradAccum, setGradAccum] = useState(4);
   const [hfSubset, setHfSubset] = useState("");
+  // Vision method only.
+  const [finetuneVisionLayers, setFinetuneVisionLayers] = useState(false);
+  const [maxPixels, setMaxPixels] = useState(1003520);
+  const [maxImages, setMaxImages] = useState(4);
+  const [imageColumn, setImageColumn] = useState("");
+  const [promptColumn, setPromptColumn] = useState("");
+  const [answerColumn, setAnswerColumn] = useState("");
+  const [promptText, setPromptText] = useState("");
   const [saveMerged, setSaveMerged] = useState(false);
   const [exportGguf, setExportGguf] = useState(false);
   const [inputField, setInputField] = useState("question");
@@ -143,6 +163,14 @@ export function FinetuneForm({
       }
       return list;
     }
+    if (method === "vision") {
+      // Only vision-capable bases: the presets plus whatever the catalog flags as `vision`.
+      const list = options.models.filter((m) => m.vision);
+      for (const m of [...VISION_MODELS].reverse()) {
+        if (!list.some((x) => x.id === m.id)) list.unshift({ ...m, isGguf: false, downloaded: false, vision: true });
+      }
+      return list;
+    }
     if (method !== "tts") return options.models;
     const list = [...options.models];
     if (!list.some((m) => m.id === TTS_DEFAULT_MODEL)) {
@@ -167,15 +195,24 @@ export function FinetuneForm({
       setLearningRate(d.learningRate);
       setMaxSeqLength(d.maxSeqLength);
     };
-    if (next === "decision" && method !== "decision") swap(DECISION_DEFAULTS);
-    if (next !== "decision" && method === "decision") swap(SFT_DEFAULTS);
+    // Each method has its own starting values; swap the whole set when the defaults differ.
+    if (defaultsFor(next) !== defaultsFor(method)) swap(defaultsFor(next));
+    if (next === "vision") setGradAccum(8);
+    else if (method === "vision") setGradAccum(4);
     setMethod(next);
     if (next === "tts") {
       setBaseModel(TTS_DEFAULT_MODEL);
     } else if (next === "decision") {
       // A base picked for another method (an SFT chat model, the TTS one) is the wrong thing here.
       if (!DECISION_MODELS.some((m) => m.id === baseModel)) setBaseModel(DECISION_DEFAULT_MODEL);
-    } else if (baseModel === TTS_DEFAULT_MODEL || (method === "decision" && baseModel === DECISION_DEFAULT_MODEL)) {
+    } else if (next === "vision") {
+      // A text-only or TTS base is the wrong thing here: the server refuses a base that cannot see.
+      if (!VISION_MODELS.some((m) => m.id === baseModel)) setBaseModel(VISION_DEFAULT_MODEL);
+    } else if (
+      baseModel === TTS_DEFAULT_MODEL ||
+      (method === "decision" && baseModel === DECISION_DEFAULT_MODEL) ||
+      (method === "vision" && baseModel === VISION_DEFAULT_MODEL)
+    ) {
       setBaseModel("");
     }
   }
@@ -193,6 +230,9 @@ export function FinetuneForm({
   const canSubmit = baseModel && dataset && effectiveName && !submitting;
   // A Hugging Face id on a decision run: the server downloads and converts it, then starts the job.
   const decisionFromHf = method === "decision" && /^[\w.-]+\/[\w.-]+$/.test(dataset.trim()) && !dataset.startsWith(".");
+
+  // A Hugging Face dataset id on a vision run: the trainer loads it with an Image column.
+  const visionFromHf = method === "vision" && /^[\w.-]+\/[\w.-]+$/.test(dataset.trim()) && !dataset.startsWith(".");
 
   async function handleSubmit() {
     const ok = await onSubmit({
@@ -214,6 +254,22 @@ export function FinetuneForm({
         ? { datasetInputField: inputField, datasetOutputField: outputField }
         : {}),
       ...(method === "tts" ? { audioColumn, textColumn } : {}),
+      ...(method === "vision"
+        ? {
+            gradientAccumulationSteps: gradAccum,
+            finetuneVisionLayers,
+            maxPixels,
+            maxImagesPerSample: maxImages,
+            ...(visionFromHf
+              ? {
+                  imageColumn: imageColumn.trim(),
+                  promptColumn: promptColumn.trim(),
+                  answerColumn: answerColumn.trim(),
+                  promptText: promptText.trim(),
+                }
+              : {}),
+          }
+        : {}),
       ...(method === "decision"
         ? {
             headLearningRate,
@@ -238,7 +294,7 @@ export function FinetuneForm({
 
       <div className="mb-3">
         <span className="mb-1.5 block text-[13px] font-medium text-ink">Training method</span>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           <MethodButton
             active={method === "sft"}
             onClick={() => chooseMethod("sft")}
@@ -262,6 +318,12 @@ export function FinetuneForm({
             onClick={() => chooseMethod("decision")}
             title="Decision"
             desc="System One: typed answers with probabilities"
+          />
+          <MethodButton
+            active={method === "vision"}
+            onClick={() => chooseMethod("vision")}
+            title="Vision"
+            desc="Image + text (VLM): LoRA on a vision-language model"
           />
         </div>
         {method === "grpo" ? (
@@ -336,6 +398,27 @@ export function FinetuneForm({
         ) : null}
       </div>
 
+      {method === "vision" ? (
+        <div className="mb-3 rounded-md border border-primary-soft bg-primary-tint-2 p-2.5 text-[12px]">
+          <p className="text-ink">
+            Fine-tunes a <strong>vision-language model</strong> on rows of images and text: a JSONL of{" "}
+            <code>messages</code> with images (a folder or S3 prefix holding <code>train.jsonl</code>,{" "}
+            <code>eval.jsonl</code> and <code>images/</code>), or a Hugging Face dataset with an image column.
+          </p>
+          <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] leading-4 text-ink-soft">
+            <li>
+              Default base: <strong>Gemma-SEA-LION v4 4B VL</strong> (about 9 GiB GPU and 17 GiB of host
+              memory while training). The <strong>8B does not fit next to production</strong> with 16 GB free.
+            </li>
+            <li>
+              Only the language layers are trained by default; the result is a LoRA adapter saved with its
+              processor. It is <strong>not</strong> a text adapter: it cannot be exported to GGUF/Ollama.
+            </li>
+            <li>The loss is computed on the answer only, and the run stops before training if that mask looks wrong.</li>
+          </ul>
+        </div>
+      ) : null}
+
       {modelOptions.length === 0 && !loading ? (
         <p className="rounded-md bg-surface-2 px-3 py-2 text-[13px] text-ink-soft">
           No trainable base model yet. Download a <strong>non-GGUF</strong> model{" "}
@@ -402,6 +485,20 @@ export function FinetuneForm({
               </button>
             ) : null}
           </div>
+          {visionFromHf ? (
+            <div className="mt-1.5 space-y-1.5">
+              <p className="text-[11px] leading-4 text-ink-soft">
+                From Hugging Face: the trainer loads it when the job starts and needs an image column and
+                the column holding the answer. Leave the image column empty to detect it.
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Input value={imageColumn} onChange={(e) => setImageColumn(e.target.value)} placeholder="Image column (e.g. image)" aria-label="Image column" />
+                <Input value={answerColumn} onChange={(e) => setAnswerColumn(e.target.value)} placeholder="Answer column (e.g. text)" aria-label="Answer column" />
+                <Input value={promptColumn} onChange={(e) => setPromptColumn(e.target.value)} placeholder="Prompt column (optional)" aria-label="Prompt column" />
+                <Input value={promptText} onChange={(e) => setPromptText(e.target.value)} placeholder="Fixed prompt (if no column)" aria-label="Fixed prompt" />
+              </div>
+            </div>
+          ) : null}
           {decisionFromHf ? (
             <div className="mt-1.5 space-y-1.5">
               <p className="text-[11px] leading-4 text-ink-soft">
@@ -556,7 +653,7 @@ export function FinetuneForm({
                 step={256}
                 value={maxSeqLength}
                 onChange={(e) => setMaxSeqLength(Number(e.target.value))}
-                onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : 2048))}
+                onBlur={() => setMaxSeqLength((v) => (Number.isFinite(v) && v >= 256 ? v : defaultsFor(method).maxSeqLength))}
               />
             </div>
             {method !== "decision" ? (
@@ -587,6 +684,83 @@ export function FinetuneForm({
             </div>
             ) : null}
           </div>
+
+          {method === "vision" ? (
+            <div className="space-y-3 rounded-md border border-primary-soft p-3">
+              <p className="text-[12px] font-medium text-primary">Vision model</p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-max-pixels">Max pixels per image</label>
+                    <InfoTip label="About max pixels">
+                      Larger images are shrunk to this many pixels before training (<code>1003520</code> is
+                      about 1024 × 1024). Qwen-VL models turn every ~32 × 32 px into one token, so this
+                      caps the tokens per image; Gemma-3 always resizes to 896 × 896 (256 tokens).
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-max-pixels"
+                    type="number"
+                    min={1024}
+                    step={1024}
+                    value={maxPixels}
+                    onChange={(e) => setMaxPixels(Number(e.target.value))}
+                    onBlur={() => setMaxPixels((v) => (Number.isInteger(v) && v >= 1024 ? v : 1003520))}
+                  />
+                </div>
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-max-images">Images per sample</label>
+                    <InfoTip label="About images per sample">
+                      Most images allowed in one training row. A row with more is invalid.
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-max-images"
+                    type="number"
+                    min={1}
+                    max={16}
+                    value={maxImages}
+                    onChange={(e) => setMaxImages(Number(e.target.value))}
+                    onBlur={() => setMaxImages((v) => (Number.isInteger(v) && v >= 1 && v <= 16 ? v : 4))}
+                  />
+                </div>
+                <div className="block">
+                  <span className="mb-1 flex items-center gap-1.5 text-[13px] font-medium text-ink">
+                    <label htmlFor="ft-vision-grad-accum">Gradient accumulation</label>
+                    <InfoTip label="About gradient accumulation">
+                      Effective batch = batch size (1) × this. Raise this, not the batch, when memory is shared
+                      with a running vLLM.
+                    </InfoTip>
+                  </span>
+                  <Input
+                    id="ft-vision-grad-accum"
+                    type="number"
+                    min={1}
+                    value={gradAccum}
+                    onChange={(e) => setGradAccum(Number(e.target.value))}
+                    onBlur={() => setGradAccum((v) => (Number.isInteger(v) && v >= 1 ? v : 8))}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={finetuneVisionLayers}
+                    onChange={(e) => setFinetuneVisionLayers(e.target.checked)}
+                    className="size-4 shrink-0 accent-primary"
+                  />
+                  <span className="text-[11px] font-medium leading-4 text-ink">Train vision layers</span>
+                </label>
+                <InfoTip label="About training the vision layers">
+                  Off by default: only the language layers get LoRA. With it on, vLLM must be started with{" "}
+                  <code>--enable-tower-connector-lora</code> to serve the adapter, and{" "}
+                  <strong>SGLang cannot serve it at all</strong>.
+                </InfoTip>
+              </div>
+            </div>
+          ) : null}
 
           {method === "decision" ? (
             <div className="space-y-3 rounded-md border border-primary-soft p-3">
@@ -698,6 +872,7 @@ export function FinetuneForm({
             </div>
           ) : null}
 
+          {method !== "vision" ? (
           <div className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2">
             <label className="flex cursor-pointer items-center gap-2">
               <input
@@ -715,6 +890,7 @@ export function FinetuneForm({
               memory makes it unnecessary, and 4-bit kernels are reported to stall on sm_121.
             </InfoTip>
           </div>
+          ) : null}
 
           <p className="flex items-center gap-1.5 rounded-md bg-surface-2 px-3 py-2 text-[11px] leading-4 text-ink-soft">
             <Link href="/settings" className="font-medium text-primary underline underline-offset-2 hover:opacity-80">
@@ -736,7 +912,7 @@ export function FinetuneForm({
 
       <div className="mt-4 flex items-center gap-2">
         <Button type="button" onClick={handleSubmit} disabled={!canSubmit}>
-          {submitting ? (decisionFromHf ? "Downloading dataset, then starting…" : "Starting…") : method === "decision" ? "Start decision training" : "Start fine-tune"}
+          {submitting ? (decisionFromHf ? "Downloading dataset, then starting…" : "Starting…") : method === "decision" ? "Start decision training" : method === "vision" ? "Start vision fine-tune" : "Start fine-tune"}
         </Button>
         <InfoTip label="About the run">
           Runs on the GPU. A small model with a small dataset finishes fastest.

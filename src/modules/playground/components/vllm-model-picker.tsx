@@ -18,7 +18,7 @@ export function VllmModelPicker({
 }: {
   value: string;
   onChange: (id: string) => void;
-  models: { id: string; name: string }[];
+  models: { id: string; name: string; vision?: boolean }[];
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -75,6 +75,11 @@ export function VllmModelPicker({
                   <span className={cn("truncate text-sm", m.id === value ? "text-primary" : "text-ink")}>
                     {m.name || m.id}
                   </span>
+                  {m.vision ? (
+                    <span className="ml-auto shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
+                      Vision
+                    </span>
+                  ) : null}
                 </button>
               ))
             )}

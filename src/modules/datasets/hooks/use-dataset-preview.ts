@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 
-export type DatasetPreview = { columns: string[]; rows: Array<Record<string, string>> };
+/** `vision: true` marks an image dataset: its "image" column holds dataset paths (one per line), not data URLs. */
+export type DatasetPreview = { columns: string[]; rows: Array<Record<string, string>>; vision?: boolean };
 export type PreviewState = "loading" | "ready" | "empty" | "error";
 
 /**

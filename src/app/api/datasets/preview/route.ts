@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 
 import { previewTlDataset } from "@/lib/finetune";
+import { previewVisionDataset } from "@/lib/vision-dataset";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,12 @@ export async function GET(req: NextRequest) {
   const limitParam = Number(req.nextUrl.searchParams.get("limit"));
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 25;
   try {
+    // An image dataset (train.jsonl + images/) is read here: TL's loader cannot take rows whose content is
+    // sometimes a string and sometimes a list of parts. Rows come back with relative image paths
+    // (`vision: true`); the detail view shows them through /api/datasets/vision/<id>/image.
+    const vision = await previewVisionDataset(id, Math.min(limit, 25)).catch(() => null);
+    if (vision) return Response.json(vision);
+    // Image cells of other datasets (HF image columns) arrive as `data:image/...;base64,` strings and are kept as they are.
     const preview = await previewTlDataset(id, limit);
     return Response.json(preview);
   } catch {

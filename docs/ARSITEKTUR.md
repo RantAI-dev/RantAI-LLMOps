@@ -19,6 +19,7 @@ Ditujukan untuk engineer yang akan meneruskan atau mengaudit sistem ini.
 7. [Status fitur](#7-status-fitur)
 8. [Keputusan teknis](#8-keputusan-teknis)
 9. [Jebakan yang sudah pernah menggigit](#9-jebakan-yang-sudah-pernah-menggigit)
+10. [Gambar dan VLM](#10-gambar-dan-vlm)
 
 ---
 
@@ -31,7 +32,7 @@ Sistemnya terdiri dari tiga lapis:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Frontend — Next.js 15 (App Router)                     │
+│  Frontend — Next.js 16 (App Router)                     │
 │  UI + BFF. Tidak pernah memanggil GPU langsung.         │
 └────────────────────────┬────────────────────────────────┘
                          │ HTTP
@@ -54,7 +55,7 @@ menyentuh UI.
 
 ## 2. Frontend
 
-Next.js 15 dengan App Router. Berperan ganda sebagai UI dan sebagai BFF
+Next.js 16 dengan App Router (`src/proxy.ts` menggantikan middleware). Berperan ganda sebagai UI dan sebagai BFF
 (*backend for frontend*) — route di `src/app/api/*` meneruskan permintaan ke backend
 sambil menyembunyikan kredensial dari browser.
 
@@ -551,6 +552,101 @@ panjang.
 
 ---
 
+## 10. Gambar dan VLM
+
+Model yang membaca gambar (SEA-LION v4 8B VL = Qwen3-VL, Gemma-SEA-LION v4 4B VL = Gemma-3) dilayani,
+dilatih, dan dievaluasi lewat LLMOps. Rencana dan hasil uji: `docs/RENCANA-VLM.md`.
+
+### Format konten
+
+Satu format di seluruh jalur: `content` berupa string **atau** array bagian OpenAI,
+`{type:"text"}` dan `{type:"image_url", image_url:{url}}`. vLLM, SGLang dan `/v1` Ollama sudah memahaminya,
+jadi tidak ada konversi di tengah. Aturannya ada di satu tempat, `src/lib/chat-content.ts` (murni, dipakai
+browser dan server): URL gambar boleh `data:image/(png|jpeg|webp|gif);base64,...`, rujukan tersimpan
+`/api/chat-images/<sha256>`, atau `https://` pada host publik. `file://`, `http://`, host privat, nama satu
+label (alias Docker) dan IPv6 ditolak karena engine yang mengambil URL itu. Batas bawaan (env): 4 gambar per
+pesan, 8 per permintaan, 8 MB per gambar, 24 MB per body (di bawah 32 MB milik gateway). Pelanggaran jumlah = 400,
+ukuran = 413.
+
+### Chat
+
+```
+Playground ──(array content, gambar = rujukan /api/chat-images/<sha>)──► /api/chat
+   /api/chat: batas body → validateMessages → tolak model yang PASTI teks-saja →
+              tukar rujukan jadi data URL → engine (vLLM / SGLang / Ollama)
+```
+
+- Gambar dikecilkan di browser (sisi terpanjang ≤ 1280 px, JPEG) lalu disimpan sekali sebagai
+  `$RANTAI_DATA_DIR/chat-images/<sha>`; percakapan hanya menyimpan rujukan. Daftar percakapan tetap kecil
+  (10 percakapan bergambar ≈ 4 KB). `pruneChatImages` membuang gambar yang tak dirujuk dan lebih tua dari 7 hari,
+  dan **tidak menghapus apa pun** bila daftar percakapan tidak bisa dibaca.
+- Kemampuan vision: `src/lib/model-capabilities.ts` (satu sumber untuk Playground, Fine-tune, Evals) memakai
+  `vision_config`, arsitektur, `pipeline_tag`, `capabilities` Ollama, dan nama model. vLLM/SGLang tidak
+  melaporkan kemampuan, jadi hanya kecocokan nama yang positif yang berarti; "tidak cocok" = tidak diketahui
+  dan permintaan tetap dilewatkan (engine yang memutuskan). Hanya model Ollama yang jelas tanpa `vision` yang ditolak.
+- Batas di engine (`DeployVllmParams.limitMmImages/maxImagePixels`): vLLM
+  `--limit-mm-per-prompt '{"image":N}'` dan `--mm-processor-kwargs '{"max_pixels":N}'`; SGLang
+  `--limit-mm-data-per-request` dan `--mm-process-config`. Hanya dipasang bila diisi **dan** basenya vision.
+  Satu token gambar Qwen3-VL ≈ 32×32 piksel (+22 token tetap); tanpa batas, gambar 16 juta piksel bisa belasan
+  ribu token. Gemma-3 selalu 256 token per gambar.
+
+### Dataset bergambar
+
+ZIP: `train.jsonl` (wajib), `eval.jsonl` (opsional), `images/**`. Satu baris =
+`{"messages":[user(image + text), assistant]}`; path gambar relatif (tanpa `..`), atau `https://`/`s3://`.
+Validator ada dua dan kembar: `src/lib/vlm-schema.ts` dan `trainers/unsloth-vision-train/vlm_schema.py`,
+dikunci oleh satu fixture (`fixtures/vlm_cases.jsonl`, 58 kasus). Browser memeriksa seluruh ZIP, **server memeriksa
+ulang** semuanya terhadap gambar yang benar-benar tersimpan; satu gambar hilang saja sudah menolak.
+
+Unggah (`/api/datasets/vision/*`): `init` → gambar per batch (≤ 20 MB) → `complete` (menulis JSONL, validasi ulang;
+gagal = dataset dihapus). Ke workspace, tiap gambar lewat API unggah bertahap Transformer Lab
+(`/upload/init`, chunk, `/upload/complete`, lalu `/data/fileupload?upload_id=&relpath=images/x.png`) karena
+`/data/fileupload` biasa mengabaikan `relpath`; ±0,3 dtk per gambar (2.200 gambar ≈ 11,5 menit). Tata letak:
+`<workspace>/datasets/<id>/{train.jsonl, eval.jsonl, images/}` atau `s3://bucket/prefix/<id>/...`.
+Status unggahan yang terbuka disimpan di memori satu proses (restart server = mulai ulang). `DELETE` hanya untuk
+unggahan yang masih terbuka; dataset S3 yang sudah selesai belum punya tombol hapus.
+
+### Trainer vision
+
+`trainers/unsloth-vision-train/` (stack pustaka sama dengan trainer decision: torch 2.10+cu130, unsloth 2026.10.8,
+transformers 5.17, trl 1.15). Beda dari trainer SFT teks:
+- Model dimuat dengan `FastVisionModel`, `device_map={"":0}` (tanpa offload ke CPU saat GPU dipakai bersama).
+- Data tetap `messages` dengan gambar; gambar didecode malas per baris (`vlm_data.as_hf_dataset` membungkus
+  dataset sebagai `datasets.Dataset` dengan `with_transform`, karena `SFTTrainer` menolak tipe lain).
+- Loss hanya pada jawaban. Penanda giliran diturunkan dari template chat model; sebelum training, satu batch
+  diperiksa (0% atau 100% dilatih = gagal; token gambar tidak boleh dilatih; token akhir giliran harus dilatih).
+- Audit panjang menghitung token gambar. Adapter disimpan **bersama processor** (bukan hanya tokenizer).
+- Lapisan vision dibekukan secara bawaan. LoRA di vision tower hanya bisa dilayani vLLM
+  (`--enable-tower-connector-lora`), tidak oleh SGLang.
+
+### Serving adapter VL
+
+vLLM melayani adapter bahasa seperti adapter teks (`--enable-lora`). SGLang hanya menerapkan LoRA pada modul bahasa:
+`serve-sglang-container.ts` membaca header safetensors adapter dan **menolak** adapter yang menyentuh
+`visual.`/`vision_tower`/`multi_modal_projector` dengan pesan yang menyebut jalan keluarnya, di entrypoint dan di
+helper pasang-saat-jalan.
+
+### Eval bergambar
+
+`Evals → Vision` meniru eval Decision: runner di server (boleh menutup halaman), satu berkas per run di
+`$RANTAI_DATA_DIR/vlm-eval-runs`, set uji di `$RANTAI_DATA_DIR/vlm-eval-sets/<id>/{meta.json,rows.jsonl,images/}`.
+Model yang **sedang dilayani** dipanggil lewat jalur klien; permintaan gagal = `case.error`, bukan salah.
+Penilaian murni di `src/lib/vlm-eval.ts`: `exact`, `latex` (buang `$`, `\[ \]`, pagar kode dan semua spasi, plus CER),
+`numeric` (±5% seperti ChartQA, jadi "2019" vs "2017" dihitung benar), `anls`, `choice`.
+Prompt set ChartQA harus meminta jawaban pendek, kalau tidak model menjawab kalimat dan semua baris salah.
+
+### Jebakan baru
+
+- **`SFTTrainer` hanya menerima `datasets.Dataset`/`IterableDataset`** — dataset map-style buatan sendiri gagal
+  setelah semua persiapan lain lolos. Bungkus dengan `Dataset.with_transform`.
+- **Router percakapan TL mengurutkan dengan `updatedAt`**: satu percakapan yang `updatedAt`-nya bukan string ISO
+  membuat seluruh daftar menjadi `[]` (GET gagal diam-diam, UI tampak kosong) sampai berkas itu dihapus.
+- **Gambar di riwayat chat**: jangan simpan base64 di percakapan; sesi seluruhnya dikirim ulang tiap 500 ms saat stream.
+- **CSP `img-src` tidak punya `blob:`**; pratinjau memakai data URL, bukan `URL.createObjectURL`.
+- **`node_modules` repo dibuat di Windows** (modul native `win32` saja): tes di Linux memakai salinan terpisah.
+
+---
+
 ## Rujukan
 
 | Berkas | Isi |
@@ -560,6 +656,8 @@ panjang.
 | `docs/ROADMAP.md` | Rencana pengembangan |
 | `backend/README.VENDORED.md` | Provenance backend dan rencana migrasi |
 | `trainers/unsloth-llm-train/train.py` | Trainer, dengan deviasi didaftar di docstring |
+| `trainers/unsloth-vision-train/train.py` | Trainer vision (VLM), lihat bagian 10 |
+| `docs/RENCANA-VLM.md` | Rencana, keputusan dan hasil uji VLM |
 | `src/lib/feature-status.ts` | Status tiap fitur terhadap backend |
 | `src/lib/inference.ts` | Konfigurasi koneksi engine |
 | `docker-compose.portainer.yml` | Definisi layanan, termasuk adapter yang dipatri |

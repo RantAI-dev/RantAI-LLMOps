@@ -1,0 +1,60 @@
+name: unsloth-vision-train-task
+# Vision-language LoRA fine-tuning (FastVisionModel + SFTTrainer) on image+text JSONL datasets or a Hugging
+# Face dataset with an Image column. See train.py's docstring. Transformer Lab sparse-clones this directory
+# per job from the repo's DEFAULT branch, unless the launch names a branch (github_repo_branch;
+# src/lib/finetune.ts reads VISION_TRAINER_BRANCH). The app sends setup/run/parameters inline; this file
+# mirrors them.
+github_repo_url: https://github.com/RantAI-dev/RantAI-LLMOps
+github_repo_dir: trainers/unsloth-vision-train
+resources:
+  accelerators: "NVIDIA:1"
+# Same pinned stack as unsloth-decision-train (validated on the GB10, aarch64, CUDA 13, 2026-10-22; the
+# vision recipe was smoke-tested on it on 2026-11-06 with Gemma-SEA-LION v4 4B VL):
+#  - torch AND torchvision from the cu130 index (VL processors import torchvision).
+#  - unsloth / unsloth_zoo / transformers / trl / peft / accelerate / bitsandbytes pinned: a job venv starts
+#    from Transformer Lab's older base packages and uv does not upgrade a package that already satisfies
+#    unsloth's range. bitsandbytes is required by unsloth_zoo even for 16-bit LoRA.
+#  - pillow decodes the training images, s3fs lets `dataset` be an s3:// prefix (with images/) from MinIO.
+setup: >-
+  uv pip install --index-url https://download.pytorch.org/whl/cu130 --extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match "torch==2.10.0+cu130" "torchvision==0.25.0+cu130"
+  && uv pip install --index-strategy unsafe-best-match "unsloth==2026.10.8" "unsloth_zoo==2026.10.8" "transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" datasets huggingface-hub pillow s3fs
+run: "python unsloth-vision-train/train.py"
+envs:
+  PYTHONUNBUFFERED: "1"
+  UNSLOTH_DISABLE_STATISTICS: "1"
+  HF_TOKEN: "{{secret._HF_TOKEN}}"
+parameters:
+  model_name: "aisingapore/Gemma-SEA-LION-v4-4B-VL"
+  # s3://bucket/prefix/ holding train.jsonl (+ eval.jsonl) and images/, a workspace dataset name, a path,
+  # or a Hugging Face dataset id with an Image column (then set image_column / answer_column / prompt_text).
+  dataset: ""
+  lr: 0.0002
+  num_train_epochs: 1
+  # -1 = let num_train_epochs drive the run.
+  max_steps: -1
+  batch_size: 1
+  gradient_accumulation_steps: 8
+  warmup_steps: 5
+  max_seq_length: 4096
+  lora_r: 16
+  lora_alpha: 16
+  lora_dropout: 0.0
+  logging_steps: 1
+  save_steps: 50
+  eval_steps: 50
+  weight_decay: 0.01
+  dataloader_num_workers: 0
+  optim: "adamw_torch"
+  # Off by default: vLLM needs --enable-tower-connector-lora to serve it and SGLang cannot.
+  finetune_vision_layers: false
+  finetune_language_layers: true
+  max_pixels: 1003520
+  max_images_per_sample: 4
+  # Hugging Face datasets only
+  image_column: ""
+  prompt_column: ""
+  answer_column: ""
+  prompt_text: ""
+  system_prompt: ""
+  hf_split: "train"
+  hf_config: ""

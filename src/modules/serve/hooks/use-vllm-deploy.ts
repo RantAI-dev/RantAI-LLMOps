@@ -13,6 +13,9 @@ export type VllmDeployment = {
   quant: string;
   adapters: VllmAdapter[];
   deployedAt: number;
+  /** Multimodal limits the engine started with (vision bases only). */
+  limitMmImages?: number;
+  maxImagePixels?: number;
 };
 export type VllmStatus = {
   deployment: VllmDeployment | null;
@@ -27,6 +30,11 @@ export type DeployBody = {
   maxModelLen?: string;
   quant?: string;
   port?: number;
+  /** Vision bases only: images per request and max pixels per image. */
+  limitMmImages?: number;
+  maxImagePixels?: number;
+  /** True when the model catalog knows the base takes images (otherwise the server guesses from its name). */
+  baseVision?: boolean;
 };
 
 /** Poll + control the single serving deployment of one engine (via /api/serve/vllm

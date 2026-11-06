@@ -49,6 +49,23 @@ classification head that answers typed questions with probabilities):
   automated at 95% accuracy. Two runs on the same test set can be compared.
 - The API gateway can log requests to **Traces** (`GATEWAY_TRACE_FILE`, off by default).
 
+### Images and vision-language models (VLM)
+
+Models that read images (SEA-LION v4 VL, Gemma-3) are first-class (design and test report:
+`docs/RENCANA-VLM.md`, `docs/UJI-END-TO-END.md` §9):
+
+- **Interact** accepts images (attach, paste or drag; downscaled in the browser, stored by content hash,
+  conversations keep only references). Engines that cannot read images are refused up front.
+- **Add dataset → Vision (images)** takes a ZIP (`train.jsonl`, optional `eval.jsonl`, `images/`), validates
+  every row and image in the browser **and** again on the server, and stores it in the workspace or S3.
+- **Fine-tune → Vision** trains a LoRA on image + text rows (`trainers/unsloth-vision-train/`): loss on the
+  answer only, image tokens never trained, the adapter is saved together with its processor.
+- **Deployments** can cap images per request and pixels per image on vLLM/SGLang. SGLang cannot serve LoRA
+  on the vision tower and refuses such an adapter with the reason.
+- **Evals → Vision** scores a served model on your own image test set (exact, LaTeX exact + CER, numeric
+  ±5%, ANLS, multiple choice) and compares two runs on the same set.
+- Demo ZIPs from open datasets: `scripts/vlm/make_demo_dataset.py`.
+
 ## Quick start
 
 ```bash

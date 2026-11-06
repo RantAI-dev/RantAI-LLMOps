@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { reviewDecision, reviewText } from "@/modules/datasets/lib/review";
+import { reviewDecision, reviewText, reviewVision } from "@/modules/datasets/lib/review";
+import type { VisionZipLayout } from "@/modules/datasets/lib/vision-zip";
 
 const dRow = (i: number) =>
   JSON.stringify({ state: `t${i}`, questions: { q: { type: "noul" } }, gold: { q: i % 2 === 0 } });
@@ -62,5 +63,67 @@ describe("reviewText on a JSON array cut off at the review limit", () => {
     const cut = '[{"prompt":"a","completion":"b"},{"prompt":"c","comple';
     expect(reviewText(cut, "big.json", true).blocked).toBeNull();
     expect(reviewText(cut, "big.json", false).blocked).not.toBeNull();
+  });
+});
+
+describe("reviewVision", () => {
+  const vrow = (img: string, n = 0) =>
+    JSON.stringify({
+      messages: [
+        { role: "user", content: [{ type: "image", image: img }, { type: "text", text: `Q${n}` }] },
+        { role: "assistant", content: `A${n}` },
+      ],
+    });
+  const vrows = (n: number, img = (i: number) => `images/${i % 5}.png`) => Array.from({ length: n }, (_, i) => vrow(img(i), i)).join("\n");
+  const layout = (paths: string[], size = 100, extra: Partial<VisionZipLayout> = {}): VisionZipLayout => ({
+    prefix: "",
+    train: { name: "train.jsonl", size: 1000 },
+    eval: null,
+    images: paths.map((p) => ({ path: p, zipName: p, size })),
+    rejected: [],
+    ignored: 0,
+    ...extra,
+  });
+  const five = [0, 1, 2, 3, 4].map((i) => `images/${i}.png`);
+
+  it("passes a complete ZIP and summarises it", () => {
+    const r = reviewVision({ layout: layout(five), trainText: vrows(30), evalText: null, zipBytes: 5000 });
+    expect(r.blocked).toBeNull();
+    expect(r).toMatchObject({ imageCount: 5, imageBytes: 500, missing: [], unused: [] });
+    expect(r.train).toMatchObject({ total: 30, valid: 30, imagesReferenced: 5 });
+    expect(r.sample).toHaveLength(8);
+    expect(r.sample[0]).toEqual({ images: ["images/0.png"], system: "", user: "Q0", assistant: "A0" });
+  });
+
+  it("lists unused images without blocking", () => {
+    const r = reviewVision({ layout: layout([...five, "images/spare.png"]), trainText: vrows(30), evalText: null, zipBytes: 1 });
+    expect(r.blocked).toBeNull();
+    expect(r.unused).toEqual(["images/spare.png"]);
+  });
+
+  it("blocks on ONE missing image, even in a large dataset, and names it", () => {
+    const text = vrows(300) + "\n" + vrow("images/lost.png");
+    const r = reviewVision({ layout: layout(five), trainText: text, evalText: null, zipBytes: 1 });
+    expect(r.missing).toEqual(["images/lost.png"]);
+    expect(r.blocked).toMatch(/images\/lost\.png/);
+  });
+
+  it("blocks without train.jsonl, with too few rows, and on a bad eval file", () => {
+    expect(reviewVision({ layout: layout(five, 100, { train: null }), trainText: null, evalText: null, zipBytes: 1 }).blocked).toMatch(/train\.jsonl at its top level/);
+    expect(reviewVision({ layout: layout(five), trainText: vrows(5), evalText: null, zipBytes: 1 }).blocked).toMatch(/at least 20/);
+    expect(reviewVision({ layout: layout(five), trainText: vrows(30), evalText: vrows(2), zipBytes: 1 }).blocked).toMatch(/eval\.jsonl has 2 valid rows; at least 5/);
+    expect(reviewVision({ layout: layout(five), trainText: vrows(30), evalText: vrows(6), zipBytes: 1 }).blocked).toBeNull();
+  });
+
+  it("blocks a row-level problem past 2% and reports lines", () => {
+    const r = reviewVision({ layout: layout(five), trainText: vrows(40) + "\n" + "garbage\n".repeat(3), evalText: null, zipBytes: 1 });
+    expect(r.blocked).toMatch(/3 of 43 train\.jsonl rows are invalid/);
+    expect(r.train!.problems[0]).toMatchObject({ line: 41, why: "not valid JSON" });
+  });
+
+  it("blocks an oversize image and a ZIP over the total limit", () => {
+    const limits = { maxDatasetBytes: 1000, maxImageBytes: 50 };
+    expect(reviewVision({ layout: layout(five, 100), trainText: vrows(30), evalText: null, zipBytes: 10, limits }).blocked).toMatch(/5 images are larger than/);
+    expect(reviewVision({ layout: layout(five, 10), trainText: vrows(30), evalText: null, zipBytes: 5000, limits }).blocked).toMatch(/larger than/);
   });
 });

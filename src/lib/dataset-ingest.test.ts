@@ -5,6 +5,7 @@ import {
   buildTextReport,
   detectFormat,
   detectTextSchema,
+  textMessagesProblem,
   jsonArrayToJsonl,
   pairsToJsonl,
   toJsonl,
@@ -100,5 +101,29 @@ describe("detectFormat on pasted text", () => {
     expect(detectFormat("", '[{"prompt":"a","completion":"b"}]')).toBe("json");
     expect(detectFormat("", "[\n  {")).toBe("json");
     expect(detectFormat("", "[INST] capital of Indonesia? | Jakarta")).toBe("pairs");
+  });
+});
+
+describe("chat messages datasets", () => {
+  const chat = '{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"}]}';
+
+  it("recognises a messages column, ahead of every other layout", () => {
+    expect(detectTextSchema(["messages"])).toEqual({ id: "messages", label: "chat messages", recognised: true });
+    expect(detectTextSchema(["prompt", "completion", "messages"]).id).toBe("messages");
+    expect(detectTextSchema(["text"]).id).toBe("text"); // unchanged
+  });
+
+  it("reports a messages file as a recognised layout", () => {
+    const r = buildTextReport(chat + "\n" + chat, "chat.jsonl");
+    expect(r.schema.id).toBe("messages");
+    expect(r.rows).toBe(2);
+    expect(r.columns).toEqual(["messages"]);
+  });
+
+  it("finds image parts in a text dataset and points at the Vision kind", () => {
+    expect(textMessagesProblem(chat)).toBeNull();
+    const img = JSON.stringify({ messages: [{ role: "user", content: [{ type: "image", image: "images/a.png" }, { type: "text", text: "q" }] }, { role: "assistant", content: "a" }] });
+    expect(textMessagesProblem(chat + "\n" + img)).toMatch(/Row 2 has image parts.*Vision/);
+    expect(textMessagesProblem(JSON.stringify({ messages: [{ role: "user", content: "the word image appears here" }] }))).toBeNull();
   });
 });

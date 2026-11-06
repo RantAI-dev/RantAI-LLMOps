@@ -25,13 +25,25 @@ if [ ! -f "$OUT/config.json" ]; then
   CUDA_VISIBLE_DEVICES="" "$PY" - "$ADIR" "$BASE" "$OUT" >&2 <<'PYEOF'
 import sys, torch
 from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 adapter, base_id, out = sys.argv[1], sys.argv[2], sys.argv[3]
-base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
+# A vision-language base (config.json has vision_config) must be loaded as an image-text model and saved
+# with its processor; AutoModelForCausalLM would drop the vision tower or fail on e.g. Qwen3-VL / Gemma-3.
+is_vl = getattr(AutoConfig.from_pretrained(base_id), "vision_config", None) is not None
+if is_vl:
+    from transformers import AutoModelForImageTextToText, AutoProcessor
+    base = AutoModelForImageTextToText.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
+else:
+    base = AutoModelForCausalLM.from_pretrained(base_id, dtype=torch.float16, device_map={"": "cpu"})
 merged = PeftModel.from_pretrained(base, adapter, device_map={"": "cpu"}).merge_and_unload()
 merged.save_pretrained(out, safe_serialization=True)
+if is_vl:
+    try:
+        AutoProcessor.from_pretrained(adapter).save_pretrained(out)
+    except Exception:
+        AutoProcessor.from_pretrained(base_id).save_pretrained(out)
 AutoTokenizer.from_pretrained(adapter).save_pretrained(out)
-print("merged ->", out)
+print("merged ->", out, "| vision-language:", is_vl)
 PYEOF
 fi
 echo "$OUT"

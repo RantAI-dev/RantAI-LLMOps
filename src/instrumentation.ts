@@ -54,4 +54,23 @@ export async function register() {
     }, everyS * 1000);
     timer.unref?.();
   }
+
+  // Stored chat images (Playground attachments): drop the ones no conversation refers to any more.
+  // Conservative (nothing younger than 7 days; nothing at all when the conversations cannot be listed),
+  // so it is safe to run on a timer: once shortly after boot, then every CHAT_IMAGE_PRUNE_INTERVAL_S
+  // seconds (default 6 h, 0 = off).
+  const pruneS = Number(process.env.CHAT_IMAGE_PRUNE_INTERVAL_S ?? 21_600);
+  if (Number.isFinite(pruneS) && pruneS > 0) {
+    const prune = async () => {
+      try {
+        const { pruneChatImages } = await import("@/lib/chat-image-store");
+        const res = await pruneChatImages();
+        if (res.deleted) console.log(`[chat-images] pruned ${res.deleted} unreferenced image(s)`);
+      } catch {
+        /* never let housekeeping surface as a server error */
+      }
+    };
+    setTimeout(() => void prune(), 5 * 60_000).unref?.();
+    setInterval(() => void prune(), pruneS * 1000).unref?.();
+  }
 }

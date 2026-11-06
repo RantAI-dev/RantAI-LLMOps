@@ -65,7 +65,7 @@ export function s3Config(): { configured: boolean; buckets: string[]; defaultBuc
 export async function putObject(
   bucket: string,
   key: string,
-  body: string,
+  body: string | Uint8Array,
   contentType = "application/jsonl"
 ): Promise<string> {
   if (!s3Configured()) {
@@ -75,18 +75,55 @@ export async function putObject(
   // Encode to bytes and set Content-Length explicitly. Some S3-compatible servers
   // (e.g. RustFS) reject a length-less/chunked PUT with 411 MissingContentLength,
   // which is what a plain string body produces once aws4fetch re-wraps it.
-  const bytes = new TextEncoder().encode(body);
+  // A Uint8Array (an image) is sent as it is: the same explicit Content-Length applies.
+  const bytes = typeof body === "string" ? new TextEncoder().encode(body) : body;
   const res = await client().fetch(objectUrl(bucket, key), {
     method: "PUT",
-    body: bytes,
+    body: bytes as BodyInit,
     headers: { "content-type": contentType, "content-length": String(bytes.byteLength) },
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(bytes.byteLength > 5 * 1024 * 1024 ? 120_000 : 20_000),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
     throw new Error(`Failed to upload to S3 (${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}`);
   }
   return `s3://${bucket}/${key}`;
+}
+
+export type S3Object = { key: string; size: number };
+
+/** Every object under `prefix` (all pages of ListObjectsV2). Same allowlist and credentials as the other calls. */
+export async function listObjects(bucket: string, prefix: string): Promise<S3Object[]> {
+  if (!s3Configured()) throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
+  assertAllowedBucket(bucket);
+  const out: S3Object[] = [];
+  let token: string | undefined;
+  do {
+    const q = new URLSearchParams({ "list-type": "2", "max-keys": "1000", prefix });
+    if (token) q.set("continuation-token", token);
+    const res = await client().fetch(`${ENDPOINT}/${encodeURIComponent(bucket)}?${q}`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) throw new Error(`S3 list failed (${res.status})`);
+    const xml = await res.text();
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const rawKey = /<Key>([\s\S]*?)<\/Key>/.exec(m[1]!)?.[1];
+      if (rawKey === undefined) continue;
+      out.push({ key: unescapeXml(rawKey), size: Number(/<Size>(\d+)<\/Size>/.exec(m[1]!)?.[1] ?? "0") });
+    }
+    const truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(xml);
+    const rawToken = truncated ? /<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/.exec(xml)?.[1] : undefined;
+    token = rawToken === undefined ? undefined : unescapeXml(rawToken);
+  } while (token);
+  return out;
+}
+
+/** Delete one object (a 404 counts as deleted). */
+export async function deleteObject(bucket: string, key: string): Promise<void> {
+  if (!s3Configured()) throw new Error("S3 is not configured (S3_ENDPOINT_URL / credentials are not set).");
+  assertAllowedBucket(bucket);
+  const res = await client().fetch(objectUrl(bucket, key), { method: "DELETE", signal: AbortSignal.timeout(15000) });
+  if (!res.ok && res.status !== 404) throw new Error(`Failed to delete ${key} from S3 (${res.status})`);
 }
 
 function client(): AwsClient {

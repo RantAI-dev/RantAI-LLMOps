@@ -36,6 +36,7 @@ import {
   detectFormat,
   jsonArrayToJsonl,
   stripBom,
+  textMessagesProblem,
   toJsonl,
   type TextReport,
   type TextSchema,
@@ -47,6 +48,7 @@ import {
   validateDecisionJsonl,
   type DecisionDatasetReport,
 } from "@/lib/decision-schema";
+import type { VlmReport } from "@/lib/vlm-schema";
 
 export { fetchAdaptors } from "@/lib/models-catalog";
 export { DatasetInputError, csvToJsonl, normalizeJsonl } from "@/lib/dataset-ingest";
@@ -157,6 +159,30 @@ export const DECISION_SUBTYPE = "DECISION";
 /** Default base for a decision model: the one base with a complete train→GGUF→serve path. */
 export const DECISION_DEFAULT_MODEL = "unsloth/Qwen3.5-2B";
 
+/**
+ * Vision-language trainer — a RantAI trainer in THIS repo, `trainers/unsloth-vision-train`
+ * (FastVisionModel + SFTTrainer on image+text rows). Its `setup` mirrors the trainer's task.yaml: the
+ * stack of the decision trainer (proven on the GB10) plus pillow for the images. Jobs are tagged subtype
+ * "VISION", NOT "TRAIN": a vision adapter carries a processor and may touch the vision tower, so the
+ * text-adapter paths (GGUF export to Ollama, adapter attach, benchmark picker) must not see it.
+ * Like every trainer here it is cloned from the default branch; to try it from a feature branch first set
+ * VISION_TRAINER_BRANCH on the frontend (read per launch, not at import).
+ */
+export const VISION_GITHUB_DIR = "trainers/unsloth-vision-train";
+export const VISION_SETUP =
+  "uv pip install --index-url https://download.pytorch.org/whl/cu130 " +
+  "--extra-index-url https://pypi.org/simple --index-strategy unsafe-best-match " +
+  '"torch==2.10.0+cu130" "torchvision==0.25.0+cu130" ' +
+  "&& uv pip install --index-strategy unsafe-best-match " +
+  '"unsloth==2026.10.8" "unsloth_zoo==2026.10.8" ' +
+  '"transformers==5.17.0" "trl==1.15.0" "peft==0.21.2" "accelerate==1.15.0" "bitsandbytes==0.50.2" ' +
+  "datasets huggingface-hub pillow s3fs";
+export const VISION_RUN = "python unsloth-vision-train/train.py";
+/** job_data.subtype of a vision fine-tune job. */
+export const VISION_SUBTYPE = "VISION";
+/** Default base for a vision fine-tune: the one that trains next to production in 16 GB free (box test, 6 Nov 2026). */
+export const VISION_DEFAULT_MODEL = "aisingapore/Gemma-SEA-LION-v4-4B-VL";
+
 export type FinetuneDataset = {
   id: string;
   name: string;
@@ -179,7 +205,7 @@ export type TrainingJob = {
   dataset?: string;
   adaptorName?: string;
   /** "decision" for a decision-model job (listed with fine-tunes, but never exportable as a chat adapter). */
-  kind?: "decision";
+  kind?: "decision" | "vision";
 };
 
 /**
@@ -286,7 +312,8 @@ export type DatasetPreview = { columns: string[]; rows: Array<Record<string, str
 /**
  * Real rows from a dataset (TL `/data/preview`). TL returns column-oriented
  * data (`{ data: { columns: { col: [values] } } }`); we transpose it into row
- * objects and stringify cell values so the UI can render arbitrary schemas.
+ * objects and stringify cell values so the UI can render arbitrary schemas. Image cells come
+ * back from TL as `data:image/jpeg;base64,...` strings and stay that way: the detail view renders them as <img>.
  */
 export async function previewTlDataset(id: string, limit = 25): Promise<DatasetPreview> {
   const res = await tlFetch(
@@ -394,16 +421,17 @@ async function createLocalTlDataset(
 /** Where a new dataset is stored: the Transformer Lab workspace, or an S3/MinIO bucket (`s3://` ref). */
 export type DatasetDestination = { kind: "workspace" } | { kind: "s3"; bucket: string; prefix?: string };
 
-export type IngestKind = "text" | "decision";
+/** "vision" datasets (JSONL + images) are not stored by `ingestDataset`: see `completeVisionDataset` in vision-dataset.ts. */
+export type IngestKind = "text" | "decision" | "vision";
 
 export type IngestResult = {
   id: string;
   /** What to pick in Fine-tune: the workspace id, or the `s3://` prefix the trainer pulls from. */
   ref: string;
   kind: IngestKind;
-  report: TextReport | DecisionDatasetReport;
-  /** Decision datasets: the report of the separate test file, when one was given. */
-  eval?: DecisionDatasetReport;
+  report: TextReport | DecisionDatasetReport | VlmReport;
+  /** Decision / vision datasets: the report of the separate test file, when one was given. */
+  eval?: DecisionDatasetReport | VlmReport;
   /** Decision datasets: the id the test file was registered under in Evals → Decision. */
   evalSetId?: string;
   /** The dataset was stored, but its test file could not be registered as a test set. */
@@ -417,6 +445,8 @@ const s3Key = (prefix: string | undefined, id: string, file: string): string => 
 
 /** Rows shaped for the trainer's prompt/completion reader, from any recognised text layout. */
 function toPromptCompletionJsonl(jsonl: string, schema: TextSchema): string {
+  // Chat rows are stored as they came (the trainer reads `messages` itself): nothing to map, nothing to drop.
+  if (schema.id === "messages") return jsonl;
   const map = (r: Record<string, unknown>): { prompt: string; completion: string } | null => {
     const str = (k: string) => (typeof r[k] === "string" ? (r[k] as string).trim() : "");
     if (schema.id === "prompt-completion") return { prompt: str("prompt"), completion: str("completion") };
@@ -525,7 +555,7 @@ async function registerEvalSet(
  */
 export async function ingestDataset(input: {
   name: string;
-  kind: IngestKind;
+  kind: Exclude<IngestKind, "vision">;
   filename?: string;
   content: string;
   evalContent?: string;
@@ -566,6 +596,10 @@ export async function ingestDataset(input: {
 
   const { jsonl, format } = toJsonl(input.content, input.filename ?? "");
   const report = { ...buildTextReport(jsonl, "dataset.jsonl"), format };
+  if (report.schema.id === "messages") {
+    const problem = textMessagesProblem(jsonl);
+    if (problem) throw new DatasetInputError(problem);
+  }
   if (dest.kind === "s3") {
     const rows = toPromptCompletionJsonl(jsonl, report.schema);
     const ref = await putObject(dest.bucket.trim(), s3Key(dest.prefix, id, "train.jsonl"), rows + "\n");
@@ -612,7 +646,7 @@ export async function uploadDecisionDataset(
   evalSource: DecisionEvalSetSource = "dataset"
 ): Promise<{ id: string; train: DecisionDatasetReport; eval?: DecisionDatasetReport; evalSetId?: string }> {
   const r = await ingestDataset({ name, kind: "decision", content, evalContent, evalSource });
-  return { id: r.id, train: r.report as DecisionDatasetReport, ...(r.eval ? { eval: r.eval } : {}), ...(r.evalSetId ? { evalSetId: r.evalSetId } : {}) };
+  return { id: r.id, train: r.report as DecisionDatasetReport, ...(r.eval ? { eval: r.eval as DecisionDatasetReport } : {}), ...(r.evalSetId ? { evalSetId: r.evalSetId } : {}) };
 }
 
 /**
@@ -676,7 +710,7 @@ export type SubmitFinetuneParams = {
   hfToken?: string;
   /** Training method. "sft" (default) = instruction tuning; "grpo" = RL reasoning; "tts" = text-to-speech;
    *  "decision" = decision model (typed yes/no, choice and score answers with probabilities). */
-  method?: "sft" | "grpo" | "tts" | "decision";
+  method?: "sft" | "grpo" | "tts" | "decision" | "vision";
   /** Decision only: learning rate of the decision head (the backbone uses `learningRate`). */
   headLearningRate?: number;
   /** Decision only: steps that train the head alone with the backbone frozen, before LoRA starts. */
@@ -690,6 +724,18 @@ export type SubmitFinetuneParams = {
   saveMerged?: boolean;
   /** Decision only: also export a GGUF. Works for Qwen3.5 backbones only; failure is reported, not fatal. */
   exportGguf?: boolean;
+  /** Vision only: train LoRA in the vision tower too (default off; vLLM then needs --enable-tower-connector-lora, SGLang cannot serve it). */
+  finetuneVisionLayers?: boolean;
+  /** Vision only: cap on pixels per image (default 1003520, about 1024 x 1024). */
+  maxPixels?: number;
+  /** Vision only: images allowed per training row (default 4). */
+  maxImagesPerSample?: number;
+  /** Vision only, Hugging Face datasets with an Image column: which columns hold what. */
+  imageColumn?: string;
+  promptColumn?: string;
+  answerColumn?: string;
+  /** Vision only, Hugging Face datasets: the fixed instruction when there is no prompt column. */
+  promptText?: string;
   /** GRPO only: the dataset's input/output column names + KL beta. */
   datasetInputField?: string;
   datasetOutputField?: string;
@@ -740,6 +786,47 @@ export function buildDecisionParameters(p: SubmitFinetuneParams): Record<string,
     gguf_quantization: "q8_0",
     optim: "adamw_torch",
     logging_steps: 5,
+  };
+}
+
+/**
+ * `parameters` for the vision trainer (`lab.get_config()` keys of trainers/unsloth-vision-train/train.py).
+ * Pure, so the mapping is testable without a Transformer Lab. Defaults follow the trainer's task.yaml
+ * (batch 1 x accumulation 8, 4096 tokens, language layers only). Column names for a Hugging Face dataset
+ * are sent only when given, so the trainer's own detection stays in charge otherwise.
+ */
+export function buildVisionParameters(p: SubmitFinetuneParams): Record<string, unknown> {
+  const loraR = p.loraR ?? 16;
+  const optional: Record<string, unknown> = {};
+  if (p.imageColumn?.trim()) optional.image_column = p.imageColumn.trim();
+  if (p.promptColumn?.trim()) optional.prompt_column = p.promptColumn.trim();
+  if (p.answerColumn?.trim()) optional.answer_column = p.answerColumn.trim();
+  if (p.promptText?.trim()) optional.prompt_text = p.promptText.trim();
+  return {
+    model_name: p.baseModel,
+    dataset: p.dataset,
+    lr: p.learningRate ?? 0.0002,
+    num_train_epochs: p.epochs ?? 1,
+    // -1 = train the full `num_train_epochs`; a positive value silently overrides it.
+    max_steps: p.maxSteps ?? -1,
+    batch_size: p.batchSize ?? 1,
+    gradient_accumulation_steps: p.gradientAccumulationSteps ?? 8,
+    warmup_steps: 5,
+    weight_decay: 0.01,
+    max_seq_length: p.maxSeqLength ?? 4096,
+    lora_r: loraR,
+    lora_alpha: p.loraAlpha ?? loraR,
+    lora_dropout: p.loraDropout ?? 0,
+    finetune_vision_layers: p.finetuneVisionLayers ?? false,
+    finetune_language_layers: true,
+    max_pixels: p.maxPixels ?? 1003520,
+    max_images_per_sample: p.maxImagesPerSample ?? 4,
+    logging_steps: 1,
+    save_steps: 50,
+    eval_steps: p.evalSteps ?? 50,
+    dataloader_num_workers: 0,
+    optim: "adamw_torch",
+    ...optional,
   };
 }
 
@@ -854,6 +941,25 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
     });
   }
 
+  if (p.method === "vision") {
+    // Vision-language model — maps onto trainers/unsloth-vision-train. The dataset is a folder / S3 prefix
+    // holding train.jsonl (+ eval.jsonl) and images/, or a Hugging Face dataset id with an Image column.
+    return launchProviderTask({
+      experimentId: experiment,
+      taskName: adaptorName,
+      run: VISION_RUN,
+      setup: VISION_SETUP,
+      githubRepoUrl: TRAINER_GITHUB_URL,
+      githubRepoDir: VISION_GITHUB_DIR,
+      githubRepoBranch: process.env.VISION_TRAINER_BRANCH?.trim() || undefined,
+      accelerators: "NVIDIA:1",
+      parameters: buildVisionParameters(p),
+      envVars: env_vars,
+      description: `Vision fine-tune "${adaptorName}" on ${p.baseModel} with ${p.dataset}`,
+      subtype: VISION_SUBTYPE,
+    });
+  }
+
   if (p.method === "tts") {
     // Text-to-speech — maps onto the unsloth-text-to-speech-train config keys.
     // The base model is an Orpheus/CSM audio model, and the dataset needs an
@@ -935,8 +1041,10 @@ export async function submitFinetune(p: SubmitFinetuneParams): Promise<string> {
 const TRAINER_DIR_TAG = "unsloth-llm-train";
 
 /** A job is one of our fine-tune runs if it ran the trainer (or is tagged TRAIN). */
-function isTrainJob(j: TlJob): boolean {
+export function isTrainJob(j: TlJob): boolean {
   const d = j.job_data ?? {};
+  // A vision job is never a plain text adapter, whatever subtype it was stored with.
+  if (typeof d.run === "string" && d.run.includes("unsloth-vision-train")) return false;
   if (d.subtype === "TRAIN") return true;
   return typeof d.run === "string" && d.run.includes(TRAINER_DIR_TAG);
 }
@@ -947,6 +1055,15 @@ export function isDecisionJob(j: { job_data?: { subtype?: string; run?: string }
   const d = j.job_data ?? {};
   if (d.subtype === DECISION_SUBTYPE) return true;
   return typeof d.run === "string" && d.run.includes("unsloth-decision-train");
+}
+
+/** A vision fine-tune job (subtype VISION, or it ran the vision trainer). Deliberately NOT a train job:
+ *  its adapter carries a processor and may touch the vision tower, so the text-adapter GGUF export and
+ *  the adapter pickers must not offer it. */
+export function isVisionJob(j: { job_data?: { subtype?: string; run?: string } }): boolean {
+  const d = j.job_data ?? {};
+  if (d.subtype === VISION_SUBTYPE) return true;
+  return typeof d.run === "string" && d.run.includes("unsloth-vision-train");
 }
 
 /**
@@ -1147,7 +1264,7 @@ function normalizeJob(j: TlJob): TrainingJob {
     model: d.parameters?.model_name ?? d.model_name,
     dataset: d.parameters?.dataset ?? d.dataset,
     adaptorName: d.task_name ?? d.template_name,
-    ...(isDecisionJob(j) ? { kind: "decision" as const } : {}),
+    ...(isDecisionJob(j) ? { kind: "decision" as const } : isVisionJob(j) ? { kind: "vision" as const } : {}),
   };
 }
 
@@ -1159,7 +1276,7 @@ function normalizeJob(j: TlJob): TrainingJob {
 export async function fetchTrainingJobs(): Promise<TrainingJob[]> {
   try {
     const rows = await listJobsAllExperiments();
-    return rows.filter((j) => isTrainJob(j) || isDecisionJob(j)).map(normalizeJob);
+    return rows.filter((j) => isTrainJob(j) || isDecisionJob(j) || isVisionJob(j)).map(normalizeJob);
   } catch (err) {
     logServerError("fetchTrainingJobs", err);
     return [];

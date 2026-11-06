@@ -45,7 +45,7 @@ def start(handler, port=0):
 
 
 def load_gateway(upstream_port, **env):
-    for k in ("GATEWAY_POST_PATHS", "GATEWAY_ALLOWED_MODELS", "GATEWAY_API_KEYS", "GATEWAY_CONFIG_FILE", "GATEWAY_ENGINE"):
+    for k in ("GATEWAY_POST_PATHS", "GATEWAY_ALLOWED_MODELS", "GATEWAY_API_KEYS", "GATEWAY_CONFIG_FILE", "GATEWAY_ENGINE", "GATEWAY_MAX_BODY_BYTES"):
         os.environ.pop(k, None)
     os.environ.update({"GATEWAY_UPSTREAM": f"http://127.0.0.1:{upstream_port}", "GATEWAY_API_KEYS": "k-test-123456789012", **env})
     import gateway
@@ -183,6 +183,57 @@ def test_other_engines_pass_names_through():
     _, gw = load_gateway(up.server_address[1])
     assert call(gw.server_address[1], "POST", "/v1/chat/completions", {"model": "ask"})[0] == 200
     assert Upstream.seen[-1][1]["model"] == "ask"
+
+
+def _vision_body(model, nbytes):
+    """A chat request with a text part and an image_url data URL of about `nbytes` of base64."""
+    import base64
+
+    url = "data:image/jpeg;base64," + base64.b64encode(os.urandom(nbytes * 3 // 4)).decode()
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "be brief"},
+            {"role": "user", "content": [{"type": "text", "text": "apa ini?"}, {"type": "image_url", "image_url": {"url": url}}]},
+        ],
+    }
+
+
+def test_a_5mb_image_request_reaches_the_engine_intact():
+    up = start(Upstream)
+    Upstream.seen.clear()
+    _, gw = load_gateway(up.server_address[1])
+    body = _vision_body("ask", 5 * 1024 * 1024)
+    assert len(json.dumps(body)) > 5 * 1024 * 1024
+    assert call(gw.server_address[1], "POST", "/v1/chat/completions", body)[0] == 200
+    path, seen = Upstream.seen[-1]
+    assert path == "/v1/chat/completions"
+    assert seen == body  # array content, the data URL and the plain-string system message are untouched
+
+
+def test_sglang_rewrites_model_without_touching_array_content():
+    up = start(SglangUpstream)
+    SglangUpstream.served = ["ask"]
+    Upstream.seen.clear()
+    _, gw = load_gateway(up.server_address[1], GATEWAY_ENGINE="sglang")
+    body = _vision_body("ask", 512 * 1024)
+    assert call(gw.server_address[1], "POST", "/v1/chat/completions", body)[0] == 200
+    seen = Upstream.seen[-1][1]
+    assert seen["model"] == "base:ask"
+    assert seen["messages"] == body["messages"]
+    assert {k: v for k, v in seen.items() if k not in ("model", "messages")} == {}
+
+
+def test_a_body_over_32mb_is_refused_before_it_is_read():
+    up = start(Upstream)
+    Upstream.seen.clear()
+    _, gw = load_gateway(up.server_address[1])  # GATEWAY_MAX_BODY_BYTES unset: the 32 MB default
+    port = gw.server_address[1]
+    head = b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer k-test-123456789012\r\n"
+    assert _raw(port, head + f"Content-Length: {32 * 1024 * 1024 + 1}\r\n\r\n".encode()) == 413
+    assert Upstream.seen == []
+    # an image request a bit under the cap of the BFF (24 MB) is fine
+    assert call(port, "POST", "/v1/chat/completions", _vision_body("ask", 1024 * 1024))[0] == 200
 
 
 if __name__ == "__main__":

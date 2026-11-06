@@ -19,6 +19,7 @@ type TlCatalogModel = {
   downloaded: boolean;
   hfRepo?: string;
   localPath?: string;
+  vision?: boolean;
 };
 
 /**
@@ -57,7 +58,7 @@ export function tlToRegistryModel(m: TlCatalogModel, now: string): RegistryModel
     repoId: m.hfRepo ?? m.id,
     repoUrl: m.hfRepo ? `https://huggingface.co/${m.hfRepo}` : null,
     author: isFineTuned ? "Internal ML Team" : "Hugging Face",
-    task: "Chat",
+    task: m.vision ? "Vision-Language" : "Chat",
     libraryName: m.isGguf ? "llama.cpp" : "transformers",
     modelFormat: m.isGguf ? "GGUF" : "Safetensors",
     parameterSize: paramSizeFromName(m.name),

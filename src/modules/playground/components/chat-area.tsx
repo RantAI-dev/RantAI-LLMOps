@@ -5,13 +5,17 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { textOf } from "@/lib/chat-content";
+import { AttachButton, AttachmentThumbs, useImageAttachments } from "@/modules/playground/components/image-attach";
+import { MessageContentView } from "@/modules/playground/components/message-content-view";
 import { EnginePicker } from "@/modules/playground/components/engine-picker";
 import { ModelPicker } from "@/modules/playground/components/model-picker";
 import { VllmModelPicker } from "@/modules/playground/components/vllm-model-picker";
 import { clearPrompt, peekPrompt } from "@/modules/prompts/lib/handoff";
+import { buildUserContent, capHistoryImages, visionOf } from "@/modules/playground/lib/image-prep";
 import { parseChatMetrics, parseChatSseError, parseChatSseLine } from "@/modules/playground/lib/sse";
 import type { ChatMessage, ChatMetrics } from "@/modules/playground/types";
-import type { EngineInfo } from "@/modules/serve/hooks/use-engines";
+import { useEngines, type EngineInfo } from "@/modules/serve/hooks/use-engines";
 import { cn } from "@/lib/utils";
 
 type SetMessages = (updater: (prev: ChatMessage[]) => ChatMessage[]) => void;
@@ -45,6 +49,12 @@ export function ChatArea({
     : (vllmModels.find((m) => m.id === "ask")?.id ?? vllmModels[0]?.id ?? vllmModel);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Image input. Attaching is off only when the model is KNOWN not to read images (Ollama reports
+  // capabilities); vLLM / SGLang give no flag, so there the engine decides.
+  const { engines: liveEngines } = useEngines();
+  const selectedModel = isOllama ? model : effectiveVllmModel;
+  const noVision = selectedModel ? visionOf(liveEngines, engine?.id ?? "ollama", selectedModel) === false : false;
+  const attach = useImageAttachments({ disabled: isStreaming || noVision, onError: setError });
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Keep the view pinned to the newest tokens only while the user is at (or near)
@@ -97,13 +107,15 @@ export function ChatArea({
 
   async function send() {
     const text = input.trim();
-    if (!text || isStreaming) return;
+    if ((!text && attach.refs.length === 0) || attach.uploading || isStreaming) return;
 
     setError(null);
     stickToBottomRef.current = true; // sending always jumps to the newest message
-    const history: ChatMessage[] = [...messages, { role: "user", content: text }];
+    // Text only stays a plain string; with images it carries stored references, never the pixels.
+    const history: ChatMessage[] = [...messages, { role: "user", content: buildUserContent(text, attach.refs) }];
     setMessages(() => [...history, { role: "assistant", content: "" }]);
     setInput("");
+    attach.clear();
     setIsStreaming(true);
 
     const controller = new AbortController();
@@ -114,7 +126,7 @@ export function ChatArea({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: history,
+          messages: capHistoryImages(history),
           // Ollama: the picked model (or its hot default). vLLM: the picked
           // served name / adapter (`ask` by default).
           model: isOllama ? model || undefined : effectiveVllmModel || undefined,
@@ -162,7 +174,7 @@ export function ChatArea({
       if ((err as Error).name === "AbortError") return; // user stopped — keep partial
       setError((err as Error).message);
       setMessages((prev) =>
-        prev.length && prev[prev.length - 1]?.role === "assistant" && !prev[prev.length - 1]?.content
+        prev.length && prev[prev.length - 1]?.role === "assistant" && !textOf(prev[prev.length - 1]?.content)
           ? prev.slice(0, -1)
           : prev
       );
@@ -210,7 +222,10 @@ export function ChatArea({
                       m.role === "user" ? "bg-primary text-primary-foreground" : "bg-surface-2 text-ink"
                     )}
                   >
-                    {m.content || (isStreaming && m.role === "assistant" ? "…" : "")}
+                    <MessageContentView
+                      content={m.content}
+                      placeholder={isStreaming && m.role === "assistant" ? "…" : ""}
+                    />
                   </div>
                   {m.role === "assistant" && m.metrics ? (
                     <p className="px-1 text-[11px] tabular-nums text-ink-faint-strong">
@@ -240,30 +255,49 @@ export function ChatArea({
               {error}
             </div>
           ) : null}
-          <div className="flex items-end gap-2 rounded-2xl border border-input bg-background p-2 shadow-[0_1px_2px_rgba(0,0,0,0.06)]">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder="Ask anything…"
-              rows={1}
-              className="max-h-40 min-h-[36px] flex-1 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
-              disabled={isStreaming}
-            />
-            {isStreaming ? (
-              <Button type="button" variant="outline" size="icon" onClick={stop} aria-label="Stop">
-                <Square className="size-4" />
-              </Button>
-            ) : (
-              <Button type="button" size="icon" onClick={send} disabled={!input.trim()} aria-label="Send">
-                <Send className="size-4" />
-              </Button>
-            )}
+          <div
+            onDrop={attach.onDrop}
+            onDragOver={attach.onDragOver}
+            className="rounded-2xl border border-input bg-background p-2 shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+          >
+            <AttachmentThumbs items={attach.items} onRemove={attach.remove} />
+            <div className="flex items-end gap-2">
+              <AttachButton
+                onFiles={(files) => void attach.addFiles(files)}
+                disabled={isStreaming || noVision}
+                disabledReason={noVision ? "This model does not accept images." : undefined}
+              />
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onPaste={attach.onPaste}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="Ask anything…"
+                rows={1}
+                className="max-h-40 min-h-[36px] flex-1 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+                disabled={isStreaming}
+              />
+              {isStreaming ? (
+                <Button type="button" variant="outline" size="icon" onClick={stop} aria-label="Stop">
+                  <Square className="size-4" />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  size="icon"
+                  onClick={send}
+                  disabled={(!input.trim() && attach.refs.length === 0) || attach.uploading}
+                  aria-label="Send"
+                >
+                  <Send className="size-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -274,7 +308,7 @@ export function ChatArea({
 function appendDelta(prev: ChatMessage[], delta: string): ChatMessage[] {
   const next = [...prev];
   const last = next[next.length - 1];
-  if (last?.role === "assistant") next[next.length - 1] = { ...last, content: last.content + delta };
+  if (last?.role === "assistant") next[next.length - 1] = { ...last, content: textOf(last.content) + delta };
   return next;
 }
 

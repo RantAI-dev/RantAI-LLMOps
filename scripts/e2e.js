@@ -125,8 +125,47 @@ let COOKIE = "";
     body: JSON.stringify({ messages: [] }) });
   add("Chat", "EDGE empty messages handled", chatBad.status >= 400 || chatBad.status === 200, `HTTP ${chatBad.status}`);
 
+  // --- VISION (images in chat, image datasets, VLM eval) — read/store only, no GPU work ---
+  const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+  const vImg = "/api/chat-images/" + "a".repeat(64);
+  for (const [m, p] of [["GET", vImg], ["POST", "/api/chat-images"], ["POST", "/api/datasets/vision/init"],
+                        ["GET", "/api/evals/vlm"], ["GET", "/api/evals/vlm/sets"]]) {
+    const r = await fetch(BASE + p, { method: m, headers: m === "POST" ? { "Content-Type": "application/json" } : {}, body: m === "POST" ? "{}" : undefined });
+    add("Vision", `signed-out ${m} ${p.slice(0, 32)} -> 401`, r.status === 401, `HTTP ${r.status}`);
+  }
+  const st = await j("/api/chat-images", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: PNG }) });
+  add("Vision", "store a chat image", st.s === 200 && /^\/api\/chat-images\/[a-f0-9]{64}$/.test(st.b?.ref || ""), `HTTP ${st.s}`);
+  if (st.b?.ref) {
+    const gi = await fetch(BASE + st.b.ref, { headers: { Cookie: COOKIE } });
+    add("Vision", "stored image served with immutable cache", gi.status === 200 && gi.headers.get("content-type") === "image/png" &&
+        /immutable/.test(gi.headers.get("cache-control") || ""), `HTTP ${gi.status} ${gi.headers.get("content-type")}`);
+  }
+  const unknownImg = await j(vImg);
+  add("Vision", "EDGE unknown stored image -> 404", unknownImg.s === 404, `HTTP ${unknownImg.s}`);
+  const chatImg = (url) => j("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine: "vllm", messages: [{ role: "user", content: [{ type: "image_url", image_url: { url } }, { type: "text", text: "x" }] }] }) });
+  const bad1 = await chatImg("file:///etc/passwd");
+  add("Vision", "EDGE chat refuses a file:// image", bad1.s === 400, `HTTP ${bad1.s}`);
+  const bad2 = await chatImg("http://example.com/a.png");
+  add("Vision", "EDGE chat refuses a plain-http image", bad2.s === 400, `HTTP ${bad2.s}`);
+  const bad3 = await chatImg(vImg);
+  add("Vision", "EDGE chat with a missing stored image -> 400", bad3.s === 400, `HTTP ${bad3.s}`);
+  const big = await fetch(BASE + "/api/chat", { method: "POST", headers: { "Content-Type": "application/json", Cookie: COOKIE },
+    body: JSON.stringify({ messages: [{ role: "user", content: "a".repeat(25 * 1024 * 1024) }] }) });
+  add("Vision", "EDGE 25 MB chat body -> 413", big.status === 413, `HTTP ${big.status}`);
+  const sets = await j("/api/evals/vlm/sets");
+  add("Vision", "VLM eval sets list", sets.s === 200 && Array.isArray(sets.b?.sets), `HTTP ${sets.s}`);
+  const runs = await j("/api/evals/vlm");
+  add("Vision", "VLM eval runs list", runs.s === 200, `HTTP ${runs.s}`);
+  const noSet = await j("/api/evals/vlm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ engine: "vllm", model: "base", setId: "no-such-set" }) });
+  add("Vision", "EDGE eval on an unknown set refused", noSet.s >= 400 && noSet.s < 500, `HTTP ${noSet.s}`);
+  const noImg = await j("/api/datasets/vision/no-such-dataset/image?path=images/a.png");
+  add("Vision", "EDGE unknown vision dataset image -> 4xx", noImg.s >= 400 && noImg.s < 500, `HTTP ${noImg.s}`);
+  const trav = await j("/api/datasets/vision/no-such-dataset/image?path=" + encodeURIComponent("images/../train.jsonl"));
+  add("Vision", "EDGE image path traversal refused", trav.s >= 400 && trav.s < 500, `HTTP ${trav.s}`);
+
   // --- PAGES render ---
-  for (const p of ["/dashboard","/tasks","/datasets","/models","/serve","/interact","/finetune","/evals","/prompts","/traces","/compute","/hub","/notes","/workflows","/generations","/settings"]) {
+  for (const p of ["/dashboard","/tasks","/datasets","/models","/serve","/interact","/finetune","/evals","/evals?tab=vision","/prompts","/traces","/compute","/hub","/notes","/workflows","/generations","/settings"]) {
     const r = await fetch(BASE + p, { headers: { Cookie: COOKIE } });
     add("Pages", `${p} renders`, r.status === 200, `HTTP ${r.status}`);
   }

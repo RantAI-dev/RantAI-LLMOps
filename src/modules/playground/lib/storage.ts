@@ -1,3 +1,4 @@
+import { textOf, type MessageContent } from "@/lib/chat-content";
 import type { ChatSession } from "@/modules/playground/types";
 
 // Chat history is persisted server-side (see use-chat-sessions + /api/conversations).
@@ -10,4 +11,9 @@ export function generateSessionId(): string {
 export function makeEmptySession(): ChatSession {
   const now = new Date().toISOString();
   return { id: generateSessionId(), title: "New chat", messages: [], createdAt: now, updatedAt: now };
+}
+
+/** Title from the first user message: its text, or "Image" for a picture sent without a caption. */
+export function sessionTitle(content: MessageContent): string {
+  return textOf(content).trim().slice(0, 48) || "Image";
 }
