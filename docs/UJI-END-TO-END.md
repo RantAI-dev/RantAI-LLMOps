@@ -346,9 +346,15 @@ Dasar pembanding produksi (SEA-LION 8B VL, 30 soal LaTeX): exact 2/30, CER 0,19.
   tetapi tidak cocok dengan `huggingface_hub`. Diperbaiki di `vlm_train_utils.skip_trackio_model_card` (commit `222ddd6`).
   Peringatan `index.json` dari `lab.save_model` muncul di akhir (metadata registri TL); adapter tetap tersimpan.
   Prasyarat: kontainer `rantai-backend` harus bisa membaca GPU (kalau tidak, `/api/finetune/submit` menjawab 503).
-- **Konversi GGUF/`mmproj`.** Merge VL di CPU terbukti (`vision-language: True`, processor tersimpan). Konversi
-  llama.cpp tidak dijalankan di box (mengunduh dan menjalankan converter dari internet ditolak oleh pengaman sesi);
-  skrip `rantai_export_gguf.sh` punya cabang VL tetapi belum teruji, dan tidak membuat tag Ollama untuk model VL.
+- **Konversi GGUF/`mmproj`: terbukti (7 Nov 2026).** `rantai_export_gguf.sh` dijalankan di kontainer uji (tanpa GPU, jaringan bridge)
+  pada adapter job TL penuh dengan llama.cpp **b12182** (kode sumber dari tag, binari CPU arm64 diverifikasi dengan digest rilis).
+  Hasil: `vlm-tl-full.q8_0.gguf` (4,1 GB) dan `mmproj-vlm-tl-full.f16.gguf` (0,85 GB). Dijalankan dengan `llama-mtmd-cli` di CPU pada
+  gambar rumus yang sama: jawaban `( 1 - \Pi ) \xi = 0 ,` (referensi `( 1 - \Pi ) \ \xi = 0 ,`); 285 token prompt dalam 32 detik
+  (±9 token/detik), generasi ±24 token/detik, 16 thread. Catatan: binari llama.cpp butuh glibc ≥ 2.38 (Ubuntu 24.04); image vLLM
+  (22.04) tidak cukup, jadi dijalankan dari image SGLang. Hanya satu gambar yang diuji (bukan evaluasi), jadi kualitas GGUF vs vLLM
+  belum diukur. Satu run pertama dengan 8 thread tidak menghasilkan jawaban dalam 900 detik dan penyebabnya tidak diselidiki;
+  run ulang dengan 16 thread selesai normal. Ollama tidak dipakai untuk VL (tidak bisa memuat proyektor terpisah). Berkas hasil ada di
+  volume `vlm-work` (`/w/home/.transformerlab/rantai_merged/vlm-tl-full`, ±5 GB).
 - **Benchmark standar lmms-eval** (Fase 6.2) tidak dikerjakan; retensi dicek dengan set ChartQA sendiri.
 - **Batas multimodal di `rantai-vllm-8b` produksi: dinyalakan 7 Nov 2026.** Kontainer dibuat ulang dengan konfigurasi
   yang sama ditambah `--limit-mm-per-prompt '{"image":4}' --mm-processor-kwargs '{"max_pixels":1048576}'` (downtime 152 detik,
