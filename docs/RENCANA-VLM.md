@@ -12,7 +12,7 @@
 | 1 Fondasi | selesai | `chat-content.ts`, `model-capabilities.ts` |
 | 2 Playground + serving | selesai, teruji di :3010 | 20/20 API; batas gambar teruji di engine uji; **batas di `rantai-vllm-8b` produksi sengaja belum dinyalakan** |
 | 3 Dataset bergambar | selesai, teruji di :3010 | 2.000 baris masuk; ZIP rusak ditolak; S3 fixture OK (sisa fixture di S3) |
-| 4 Trainer vision | selesai, teruji di GPU | lewat skrip yang meniru SDK `lab`; **peluncuran via TL belum** (kode belum di-push) |
+| 4 Trainer vision | selesai, teruji di GPU | teruji juga lewat TL (job 10 langkah, 7 Nov 2026; lihat UJI-END-TO-END §9) |
 | 5 Serving adapter VL | selesai, teruji | vLLM melayani adapter; SGLang menolak adapter vision |
 | 6 Eval bergambar | 6.1 selesai, teruji; 6.2 tidak dikerjakan | LaTeX 0,7% → 15,0% exact; ChartQA 57,7% → 59,3% |
 | 7 GGUF VL | sebagian | merge VL terbukti; konversi llama.cpp/`mmproj` belum diuji |

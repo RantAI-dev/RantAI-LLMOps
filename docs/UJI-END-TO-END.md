@@ -338,9 +338,14 @@ Dasar pembanding produksi (SEA-LION 8B VL, 30 soal LaTeX): exact 2/30, CER 0,19.
 
 ### Belum terverifikasi
 
-- **Peluncuran job lewat Transformer Lab.** TL meng-clone trainer dari branch default GitHub; `trainers/unsloth-vision-train/`
-  belum di-push (perubahan belum di-commit). Training diuji dengan skrip yang meniru SDK `lab`, membaca dataset dari
-  workspace TL yang sama. Setelah push (atau `VISION_TRAINER_BRANCH`), jalankan sekali Fine-tune → Vision dari UI.
+- **Peluncuran job lewat Transformer Lab: terbukti (7 Nov 2026).** Job 10 langkah dikirim lewat `POST /api/finetune/submit`
+  (method `vision`, Gemma-SEA-LION 4B VL, dataset `vlm-e2e-latex-train`) pada frontend v0.44.0 produksi: clone trainer
+  dari GitHub, venv, dataset TL, training (loss 3,00 → 0,54), checkpoint, adapter 476 kunci LoRA / 0 di vision tower
+  beserta processor dan tokenizer, dan job tercatat `kind: vision`. Memori host terendah 19,7 GiB, GPU puncak 9,0 GiB.
+  Job pertama gagal di checkpoint pertama: TRL membuat model card dan mengimpor `trackio`, yang terpasang di venv TL
+  tetapi tidak cocok dengan `huggingface_hub`. Diperbaiki di `vlm_train_utils.skip_trackio_model_card` (commit `222ddd6`).
+  Peringatan `index.json` dari `lab.save_model` muncul di akhir (metadata registri TL); adapter tetap tersimpan.
+  Prasyarat: kontainer `rantai-backend` harus bisa membaca GPU (kalau tidak, `/api/finetune/submit` menjawab 503).
 - **Konversi GGUF/`mmproj`.** Merge VL di CPU terbukti (`vision-language: True`, processor tersimpan). Konversi
   llama.cpp tidak dijalankan di box (mengunduh dan menjalankan converter dari internet ditolak oleh pengaman sesi);
   skrip `rantai_export_gguf.sh` punya cabang VL tetapi belum teruji, dan tidak membuat tag Ollama untuk model VL.
