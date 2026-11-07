@@ -352,8 +352,9 @@ Dasar pembanding produksi (SEA-LION 8B VL, 30 soal LaTeX): exact 2/30, CER 0,19.
   gambar rumus yang sama: jawaban `( 1 - \Pi ) \xi = 0 ,` (referensi `( 1 - \Pi ) \ \xi = 0 ,`); 285 token prompt dalam 32 detik
   (±9 token/detik), generasi ±24 token/detik, 16 thread. Catatan: binari llama.cpp butuh glibc ≥ 2.38 (Ubuntu 24.04); image vLLM
   (22.04) tidak cukup, jadi dijalankan dari image SGLang. Hanya satu gambar yang diuji (bukan evaluasi), jadi kualitas GGUF vs vLLM
-  belum diukur. Satu run pertama dengan 8 thread tidak menghasilkan jawaban dalam 900 detik dan penyebabnya tidak diselidiki;
-  run ulang dengan 16 thread selesai normal. Ollama tidak dipakai untuk VL (tidak bisa memuat proyektor terpisah). Berkas hasil ada di
+  belum diukur. Di GPU (binari CUDA 13.5 arm64 b12182, `-ngl 99`, GB10) jawabannya sama: prompt 479 token/detik, generasi 54 token/detik.
+  `llama-mtmd-cli` yang dijalankan di `exec` Docker dengan TTY menggantung tanpa keluaran sampai `timeout` (dua run); yang
+  berhasil dijalankan di latar belakang atau dengan `< /dev/null`. Dugaan kuat: ia menunggu stdin, tapi tidak diuji khusus. Ollama tidak dipakai untuk VL (tidak bisa memuat proyektor terpisah). Berkas hasil ada di
   volume `vlm-work` (`/w/home/.transformerlab/rantai_merged/vlm-tl-full`, ±5 GB).
 - **Benchmark standar lmms-eval** (Fase 6.2) tidak dikerjakan; retensi dicek dengan set ChartQA sendiri.
 - **Batas multimodal di `rantai-vllm-8b` produksi: dinyalakan 7 Nov 2026.** Kontainer dibuat ulang dengan konfigurasi
