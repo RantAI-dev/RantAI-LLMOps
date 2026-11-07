@@ -350,10 +350,14 @@ Dasar pembanding produksi (SEA-LION 8B VL, 30 soal LaTeX): exact 2/30, CER 0,19.
   llama.cpp tidak dijalankan di box (mengunduh dan menjalankan converter dari internet ditolak oleh pengaman sesi);
   skrip `rantai_export_gguf.sh` punya cabang VL tetapi belum teruji, dan tidak membuat tag Ollama untuk model VL.
 - **Benchmark standar lmms-eval** (Fase 6.2) tidak dikerjakan; retensi dicek dengan set ChartQA sendiri.
-- **Batas multimodal di `rantai-vllm-8b` produksi** tidak dinyalakan (butuh restart ±2–3 menit; fiturnya sudah ada di
-  form Deploy dan teruji di engine uji). Tanpa batas, gambar besar tetap aman: vLLM menolak yang melebihi
-  `max_model_len` dengan 400, dan frontend membatasi 4 gambar per pesan.
-- Tombol lampiran Interact hanya dicek keberadaannya; alur lampir-lalu-kirim dicek lewat API, bukan diklik.
+- **Batas multimodal di `rantai-vllm-8b` produksi: dinyalakan 7 Nov 2026.** Kontainer dibuat ulang dengan konfigurasi
+  yang sama ditambah `--limit-mm-per-prompt '{"image":4}' --mm-processor-kwargs '{"max_pixels":1048576}'` (downtime 152 detik,
+  produksi idle saat itu, model yang disajikan tetap `base, ask, learn, practice, practicev10e8b`). Terverifikasi: teks dan
+  1 gambar dijawab, 4 gambar diterima, 5 gambar ditolak 400 ("At most 4 image(s)"). Kontainer lama tersimpan berhenti sebagai
+  `rantai-vllm-8b-prev` (jalan mundur: hentikan `rantai-vllm-8b`, ganti namanya, ganti nama `-prev` kembali, start). Hapus
+  `-prev` setelah beberapa hari aman. Compose stack tidak diubah, jadi flag ini hidup di kontainer, bukan di berkas compose.
+- Alur lampir-lalu-kirim di Interact diklik di browser headless (7 Nov 2026): `base` dan adapter hasil job TL menjawab gambar
+  rumus. Evals → Vision dijalankan dari UI untuk adapter `tl-full` (LaTeX 14,3% / CER 0,236; ChartQA 61,7%).
 - Form Deploy (field batas gambar) dicek lewat tes komponen, bukan di browser.
 
 ### Cara menjalankan ulang
@@ -363,3 +367,12 @@ Dasar pembanding produksi (SEA-LION 8B VL, 30 soal LaTeX): exact 2/30, CER 0,19.
 docker exec -e TEST_HOST=frontend-vlm -e APP_PASSWORD=... rantai-frontend-vlm node /tmp/e2e.js   # scripts/e2e.js
 python scripts/vlm/make_demo_dataset.py --out ~/vlm-demo      # latex-ocr-train/test.zip, chartqa-test.zip
 ```
+
+### Tambahan 7 Nov 2026: adapter hasil job TL penuh
+
+Job `f0dfde75…` lewat TL (2.000 baris, 1 epoch, 250 langkah, 32,1 menit, GPU puncak 9,04 GiB): adapter 476 kunci LoRA, 0 di vision
+tower. Disajikan vLLM 4B sebagai `tl-full`, dievaluasi dari UI Evals → Vision pada 300 soal held-out: LaTeX exact 0,7% → 14,3%,
+CER 0,417 → 0,236; ChartQA 57,7% → 61,7%. Adapter job 10 langkah (`tl-smoke2`) hanya 0,3% / CER 0,837, lebih buruk dari base:
+adapter sekecil itu belum belajar format, jadi jangan dipakai untuk menilai kualitas. e2e penuh pada frontend v0.44.0 produksi:
+61 dari 64 lulus (Vision 17/17); tiga yang gagal cek lama (`askv6` sudah tidak disajikan, `ask` kini memang disajikan, engine
+tidak dikenal jatuh ke Ollama) dan tidak terkait VLM. Naskah demo: `docs/DEMO-VLM.md`.
