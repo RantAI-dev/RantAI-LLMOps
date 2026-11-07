@@ -487,3 +487,35 @@ def test_read_mem_available(tmp_path):
     p.write_text("MemTotal: 134217728 kB\nMemAvailable: 16777216 kB\n")
     assert vt.read_mem_available_gib(str(p)) == 16.0
     assert vt.read_mem_available_gib(str(tmp_path / "missing")) is None
+
+
+def test_skip_trackio_model_card_replaces_the_lookup(monkeypatch):
+    import sys
+    import types
+
+    def broken():
+        raise ImportError("cannot import name 'CommitOperationAdd'")
+
+    pkg = types.ModuleType("trl")
+    pkg.__path__ = []
+    trainer_pkg = types.ModuleType("trl.trainer")
+    trainer_pkg.__path__ = []
+    base = types.ModuleType("trl.trainer.base_trainer")
+    base.get_trackio_space_url = broken
+    utils = types.ModuleType("trl.trainer.utils")
+    utils.get_trackio_space_url = broken
+    for name, mod in {"trl": pkg, "trl.trainer": trainer_pkg, "trl.trainer.base_trainer": base, "trl.trainer.utils": utils}.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+    monkeypatch.delitem(sys.modules, "trl.trainer.sft_trainer", raising=False)
+
+    line = vt.skip_trackio_model_card()
+    assert base.get_trackio_space_url() is None and utils.get_trackio_space_url() is None
+    assert "base_trainer" in line and "utils" in line
+
+
+def test_skip_trackio_model_card_never_raises_without_trl(monkeypatch):
+    import sys
+
+    for name in ("trl", "trl.trainer", "trl.trainer.base_trainer", "trl.trainer.utils", "trl.trainer.sft_trainer"):
+        monkeypatch.setitem(sys.modules, name, None)  # import raises ImportError
+    assert "no trackio lookup" in vt.skip_trackio_model_card()

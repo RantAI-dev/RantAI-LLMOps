@@ -458,6 +458,24 @@ def apply_max_pixels(processor: Any, max_pixels: int) -> str:
     return f"this processor has a fixed image size (no max_pixels knob): max_pixels={max_pixels} only applies when images are loaded"
 
 
+def skip_trackio_model_card() -> str:
+    """TRL writes a model card on every checkpoint save, and to do so it imports `trackio` (to link a Space).
+    In the Transformer Lab venv `trackio` is installed but built against an older `huggingface_hub`, so the
+    import raises ImportError and kills the run at the first checkpoint, after all the training is done.
+    The card is of no use here (push_to_hub is off), so its trackio lookup is replaced by "no Space".
+    Returns a log line; never raises."""
+    patched = []
+    for name in ("trl.trainer.base_trainer", "trl.trainer.utils", "trl.trainer.sft_trainer"):
+        try:
+            mod = __import__(name, fromlist=["_"])
+        except Exception:  # noqa: BLE001 - this TRL version does not have the module
+            continue
+        if hasattr(mod, "get_trackio_space_url"):
+            mod.get_trackio_space_url = lambda: None
+            patched.append(name.rsplit(".", 1)[-1])
+    return f"model card: trackio Space lookup disabled in {', '.join(patched)}" if patched else "model card: no trackio lookup to disable"
+
+
 # ───────────────────────────────────── saved adapter ─────────────────────────────────────
 
 _VISION_KEY_HINTS = ("vision_tower", "vision_model", "visual", "multi_modal_projector", "embed_vision", "merger", "vision_embed")

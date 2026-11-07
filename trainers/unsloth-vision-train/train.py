@@ -268,6 +268,7 @@ def train_vision():
             tokenizer.pad_token = tokenizer.eos_token
         log(f"✅ Loaded model: {p.model_name} ({type(model).__name__}); {_memory_line('after load')}")
         log(f"Image setting: {vu.apply_max_pixels(processor, p.max_pixels)}")
+        log(vu.skip_trackio_model_card())
 
         model = FastVisionModel.get_peft_model(
             model,
