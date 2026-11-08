@@ -383,3 +383,11 @@ CER 0,417 → 0,236; ChartQA 57,7% → 61,7%. Adapter job 10 langkah (`tl-smoke2
 adapter sekecil itu belum belajar format, jadi jangan dipakai untuk menilai kualitas. e2e penuh pada frontend v0.44.0 produksi:
 61 dari 64 lulus (Vision 17/17); tiga yang gagal cek lama (`askv6` sudah tidak disajikan, `ask` kini memang disajikan, engine
 tidak dikenal jatuh ke Ollama) dan tidak terkait VLM. Naskah demo: `docs/DEMO-VLM.md`.
+
+### Tambahan 8 Nov 2026: job TL 3 epoch (dijalankan tanpa pengawasan semalam)
+
+Job `f30b0145…` (adaptor `vlm-latex-tl-3ep`, data sama, 3 epoch, 750 langkah) selesai `COMPLETE` dalam 103 menit tanpa error: GPU puncak
+9,04 GiB, memori host tersedia tidak pernah di bawah ±14 GiB, produksi tidak terpengaruh (tanpa restart/OOM). Adapter 476 kunci LoRA,
+0 di vision tower. Disajikan sebagai `tl-3ep` dan dievaluasi lewat API Evals → Vision pada 300 soal held-out: LaTeX exact 16,0% (CER
+0,198; 1 epoch: 14,3% / 0,236; base 0,7% / 0,417), ChartQA 62,7% (1 epoch 61,7%; base 57,7%). Loss latih 0,07 vs loss eval 0,239
+menandakan mulai menghafal; kenaikan exact match masih di dalam galat standar (±2 poin).
