@@ -118,8 +118,10 @@ describe("runVlmEval", () => {
       seen.push(cur.progress.completed);
       return { text: row.gold };
     });
-    // Each request starts after earlier rows were saved: completed grows as the run goes.
-    expect(seen.at(-1)).toBeGreaterThanOrEqual(4);
+    // Each request starts after its own worker's earlier rows were saved, so progress shows up while the run is
+    // going. How many rows the OTHER worker has finished by then depends on timing, so only the guaranteed part
+    // is asserted: the last row to start sees at least the two rows its own worker had already saved.
+    expect(seen.at(-1)).toBeGreaterThanOrEqual(2);
     expect(Math.max(...seen)).toBeGreaterThan(Math.min(...seen));
   });
 

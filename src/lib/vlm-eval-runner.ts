@@ -45,6 +45,13 @@ export async function runVlmEval(run: VlmEvalRun, rows: VlmEvalRow[], predict: V
   let correct = 0;
   let errorSample: string | undefined;
   const progress = () => ({ completed, total: rows.length, errors, correct });
+  // Two workers finish rows at overlapping times. Saves go through one chain, and the progress snapshot is taken
+  // when a save actually runs, so a slower write can never put an older count on disk after a newer one.
+  let saving: Promise<unknown> = Promise.resolve();
+  const saveProgress = () => {
+    saving = saving.then(() => saveVlmEvalRun({ ...run, progress: progress(), errorSample }).catch(() => {}));
+    return saving;
+  };
 
   const worker = async () => {
     for (;;) {
@@ -83,7 +90,7 @@ export async function runVlmEval(run: VlmEvalRun, rows: VlmEvalRow[], predict: V
         errorSample ??= clip(message, 500);
       }
       completed++;
-      await saveVlmEvalRun({ ...run, progress: progress(), errorSample }).catch(() => {});
+      await saveProgress();
     }
   };
 
