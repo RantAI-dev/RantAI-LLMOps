@@ -133,6 +133,13 @@ export function FinetuneForm({
     if (ds) setDataset(ds);
   }, []);
 
+  // `?method=vision` (Hub → "Use in vision fine-tune" on an image dataset). Switches through the same handler as the
+  // method tiles, so the vision defaults (base model, batch, accumulation) are applied.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("method") === "vision") chooseMethod("vision");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot sync from the URL on mount
+  }, []);
+
   // Prefill the HF base search from `?base=` (Model Registry → "Fine-tune"). The
   // registry model is a GGUF (not a valid training base), so we seed the combobox
   // query with its name instead of fake-selecting it.

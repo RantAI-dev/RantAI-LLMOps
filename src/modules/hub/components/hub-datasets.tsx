@@ -28,6 +28,7 @@ const CATEGORIES = [
   { value: "task_categories:text-generation", label: "Text generation", hint: "GEN" },
   { value: "task_categories:conversational", label: "Conversational", hint: "CHAT" },
   { value: "task_categories:question-answering", label: "Question answering", hint: "QA" },
+  { value: "task_categories:image-text-to-text", label: "Image + text (vision)", hint: "VLM" },
 ];
 
 export function HubDatasets() {
@@ -47,9 +48,9 @@ export function HubDatasets() {
     setCategory("all");
   }
 
-  function pickForFinetune(id: string) {
-    toast.success(`Dataset "${id}" selected for fine-tuning`);
-    router.push(`/finetune?dataset=${encodeURIComponent(id)}`);
+  function pickForFinetune(id: string, image: boolean) {
+    toast.success(`Dataset "${id}" selected for ${image ? "vision " : ""}fine-tuning`);
+    router.push(`/finetune?dataset=${encodeURIComponent(id)}${image ? "&method=vision" : ""}`);
   }
 
   return (
@@ -109,7 +110,7 @@ export function HubDatasets() {
       ) : (
         <div className="space-y-2">
           {datasets.map((d) => (
-            <HubDatasetCard key={d.id} dataset={d} onUse={() => pickForFinetune(d.id)} />
+            <HubDatasetCard key={d.id} dataset={d} onUse={() => pickForFinetune(d.id, d.image)} />
           ))}
         </div>
       )}
@@ -129,6 +130,7 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
           <span className="inline-flex items-center gap-0.5">
             <Heart className="size-3" /> {compact(dataset.likes)}
           </span>
+          {dataset.image ? <span className="rounded bg-surface-2 px-1.5 py-0.5 font-medium text-primary">Images</span> : null}
         </div>
       </div>
       <a
@@ -153,7 +155,7 @@ function HubDatasetCard({ dataset, onUse }: { dataset: HubDataset; onUse: () => 
         <Copy className="size-4" />
       </Button>
       <Button type="button" size="sm" onClick={onUse}>
-        <Sparkles className="size-4" /> Use in fine-tune
+        <Sparkles className="size-4" /> {dataset.image ? "Use in vision fine-tune" : "Use in fine-tune"}
       </Button>
     </div>
   );

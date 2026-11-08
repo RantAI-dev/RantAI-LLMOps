@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  isImageDataset,
   quantFromFile,
   searchHfDatasets,
   searchHfTrainableModels,
@@ -16,6 +17,39 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("isImageDataset / searchHfDatasets image flag", () => {
+  it("reads the card's tags: modality:image or an image + text task", () => {
+    expect(isImageDataset(["modality:image", "language:en"])).toBe(true);
+    expect(isImageDataset(["task_categories:image-text-to-text"])).toBe(true);
+    expect(isImageDataset(["task_categories:visual-question-answering"])).toBe(true);
+    expect(isImageDataset(["task_categories:text-generation", "modality:text"])).toBe(false);
+    expect(isImageDataset(undefined)).toBe(false);
+    expect(isImageDataset("modality:image")).toBe(false);
+  });
+
+  it("marks image datasets in a Hub search result", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            { id: "unsloth/LaTeX_OCR", downloads: 5, likes: 2, tags: ["modality:image", "task_categories:image-to-text"] },
+            { id: "tatsu-lab/alpaca", downloads: 9, likes: 3, tags: ["task_categories:text-generation"] },
+            { id: "no/tags", downloads: 1, likes: 0 },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      )
+    );
+    const rows = await searchHfDatasets({});
+    expect(rows.map((r) => [r.id, r.image])).toEqual([
+      ["unsloth/LaTeX_OCR", true],
+      ["tatsu-lab/alpaca", false],
+      ["no/tags", false],
+    ]);
+  });
 });
 
 describe("quantFromFile", () => {

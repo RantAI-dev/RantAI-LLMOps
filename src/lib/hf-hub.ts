@@ -121,7 +121,22 @@ export type HubDataset = {
   downloads: number;
   likes: number;
   updatedAt: string | null;
+  /** The dataset card says it holds images (a `modality:image` tag, or an image + text task). */
+  image: boolean;
 };
+
+const IMAGE_TASKS = new Set([
+  "task_categories:image-text-to-text",
+  "task_categories:image-to-text",
+  "task_categories:visual-question-answering",
+  "task_categories:document-question-answering",
+]);
+
+/** True when a Hugging Face dataset's tags say it has images. Tags are the card's own claim, not a check of the
+ *  files, so the trainer still verifies the image column when the job starts. */
+export function isImageDataset(tags: unknown): boolean {
+  return Array.isArray(tags) && tags.some((t) => typeof t === "string" && (t === "modality:image" || IMAGE_TASKS.has(t)));
+}
 
 /** Search HF datasets (for the fine-tune dataset browser). */
 export async function searchHfDatasets(opts: HubSearch): Promise<HubDataset[]> {
@@ -143,6 +158,7 @@ export async function searchHfDatasets(opts: HubSearch): Promise<HubDataset[]> {
       downloads: Number(d.downloads ?? 0),
       likes: Number(d.likes ?? 0),
       updatedAt: (d.lastModified as string | undefined) ?? null,
+      image: isImageDataset(d.tags),
     }))
     .filter((d) => d.id);
 }
