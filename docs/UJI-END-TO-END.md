@@ -391,3 +391,18 @@ Job `f30b0145…` (adaptor `vlm-latex-tl-3ep`, data sama, 3 epoch, 750 langkah) 
 0 di vision tower. Disajikan sebagai `tl-3ep` dan dievaluasi lewat API Evals → Vision pada 300 soal held-out: LaTeX exact 16,0% (CER
 0,198; 1 epoch: 14,3% / 0,236; base 0,7% / 0,417), ChartQA 62,7% (1 epoch 61,7%; base 57,7%). Loss latih 0,07 vs loss eval 0,239
 menandakan mulai menghafal; kenaikan exact match masih di dalam galat standar (±2 poin).
+
+### Tambahan 8 Nov 2026 (siang): dataset Hugging Face langsung, 3.200 baris
+
+Trainer sekarang punya `max_train_rows` dan `max_eval_rows` (commit `ceb7d98`), dan Hub mengenali dataset bergambar (`1956a4d`).
+Job `67aa497a…` (`vlm-latex-hf3200`) dikirim lewat API frontend uji :3010 (image dibangun dari working tree): `unsloth/LaTeX_OCR`,
+`maxTrainRows=3200`, `maxEvalRows=100`, 1 epoch. Log trainer: "3200 train rows, 100 eval rows (10% hold-out); source: Hugging Face
+unsloth/LaTeX_OCR" dan "Row caps: train 3200 of 61817, eval 100 of 6869". 400 langkah, ±55 menit, memori host terendah 16,2 GiB,
+eval loss 0,270 → 0,217. Hasil di 300 soal held-out: LaTeX exact **13,7%** (41/300), CER **0,246**; ChartQA **56,7%** (170/300).
+Gerbang yang saya tetapkan (exact ≥ 20% dan CER < 0,198) **tidak tercapai**; `hf3200` setara adapter 1 epoch (`tl-full` 14,3% /
+0,236) dan di bawah `tl-3ep` (16,0% / 0,198). Penyebab tidak diuji: yang berbeda dari `tl-3ep` adalah jumlah langkah (400 vs 750),
+data (3.200 baris beragam, 1 epoch, vs 2.000 baris, 3 epoch) dan sumber (HF vs ZIP); tidak ada ablasi. Tombol Hub diklik di browser
+:3010: kartu `linxy/LaTeX_OCR` menampilkan lencana "Images" dan tombol "Use in vision fine-tune", yang membuka
+`/finetune?dataset=linxy%2FLaTeX_OCR&method=vision` dengan ubin Vision terpilih, base Gemma-SEA-LION 4B VL dan dataset terisi.
+Yang tidak diuji: job yang dikirim dari form (job dikirim lewat API dengan body yang sama), dan kolom `answer`/`prompt` selain
+`unsloth/LaTeX_OCR`.

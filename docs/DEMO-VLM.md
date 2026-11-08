@@ -5,11 +5,14 @@ Untuk yang mendemokan. Skenario ringkas ada di `RENCANA-VLM.md` §3b; ini versi 
 
 ## Angka yang boleh disebut (4B VL, 300 soal uji yang tidak dipakai training)
 
-| Set uji | Base | 1 epoch (`tl-full`) | 3 epoch (`tl-3ep`) |
-|---|---|---|---|
-| LaTeX_OCR, exact match | 0,7% | 14,3% | **16,0%** |
-| LaTeX_OCR, CER (makin kecil makin baik) | 0,417 | 0,236 | **0,198** |
-| ChartQA (kemampuan umum, harus tidak turun) | 57,7% | 61,7% | **62,7%** |
+| Set uji | Base | 1 epoch (`tl-full`) | 3 epoch (`tl-3ep`) | 3.200 baris HF (`hf3200`) |
+|---|---|---|---|---|
+| LaTeX_OCR, exact match | 0,7% | 14,3% | **16,0%** | 13,7% |
+| LaTeX_OCR, CER (makin kecil makin baik) | 0,417 | 0,236 | **0,198** | 0,246 |
+| ChartQA (kemampuan umum, harus tidak turun) | 57,7% | 61,7% | **62,7%** | 56,7% |
+
+**Adapter untuk demo: `tl-3ep`.** `hf3200` (3.200 baris acak dari `unsloth/LaTeX_OCR` langsung dari Hugging Face, 1 epoch, 400
+langkah, 55 menit) membuktikan jalur dataset HF dan tombol Hub, tapi skornya tidak melampaui `tl-3ep`. Jangan menyebutnya lebih baik.
 
 Training lewat Transformer Lab dari UI/API frontend: `tl-full` 2.000 contoh, 1 epoch, 32 menit (job `f0dfde75…`); `tl-3ep` data
 sama, 3 epoch, 103 menit (job `f30b0145…`). Galat standar exact match ±2 poin, jadi selisih 14,3% → 16,0% belum bisa dibilang nyata;
@@ -28,7 +31,7 @@ beragam (LaTeX_OCR punya puluhan ribu baris; yang dipakai 2.000), bukan lebih ba
 ## Persiapan (30–40 menit sebelum)
 
 1. Pastikan tidak ada job GPU lain. Memori host harus punya ≥ 20 GiB bebas.
-2. Portainer → nyalakan kontainer `vllm4b-tl` (Gemma-SEA-LION 4B VL + adapter `latex-ocr`, `tl-full`, `tl-3ep`; siap ±2 menit,
+2. Portainer → nyalakan kontainer `vllm4b-tl` (Gemma-SEA-LION 4B VL + adapter `tl-3ep` dan `hf3200`; siap ±2 menit,
    memakai ±13 GB RAM). Kalau kontainer tidak ada, buat dari `vllm4b-test` dengan tambahan mount volume
    `rantai-llmops_tl_data` ke `/tl` dan `VLLM_LORA_MODULES` yang menunjuk ke folder adapter job.
 3. Nyalakan `rantai-frontend-vlm` (http://10.17.254.27:3010, password sama dengan UI produksi). Ia menunjuk ke
@@ -47,7 +50,7 @@ beragam (LaTeX_OCR punya puluhan ribu baris; yang dipakai 2.000), bukan lebih ba
 3. **Fine-tune → Vision, :3010 (2 menit).** Tunjukkan form (base default Gemma-SEA-LION 4B VL, dataset, pilihan lapisan
    vision). Training penuh 32 menit, jadi tunjukkan job `vlm-latex-tl` yang sudah selesai: kurva loss 3,0 → ±0,25.
    Kalau mau live: job 10 langkah selesai ±5 menit setelah dikirim, tapi hasilnya belum belajar (jangan dievaluasi).
-4. **Deployments, :3010 (1 menit).** vLLM menyajikan `base`, `latex-ocr`, `tl-full`, `tl-3ep`, masing-masing berlabel Vision.
+4. **Deployments, :3010 (1 menit).** vLLM menyajikan `base`, `tl-3ep`, dan `hf3200` (adapter lama `latex-ocr`/`tl-full` tidak ikut dimuat di kontainer saat ini), masing-masing berlabel Vision.
 5. **Evals → Vision, :3010 (2 menit).** Run history sudah berisi base vs adapter. Tunjukkan exact match dan CER, lalu
    ChartQA sebagai bukti kemampuan umum tidak rusak. Run baru 300 soal makan ±9 menit, jadi jangan dijalankan live.
 6. **Playground, :3010 (1 menit).** Lampirkan gambar rumus dari `latex-ocr-test.zip`, tanya ke `base`, lalu ke `tl-full`
