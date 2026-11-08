@@ -519,3 +519,12 @@ def test_skip_trackio_model_card_never_raises_without_trl(monkeypatch):
     for name in ("trl", "trl.trainer", "trl.trainer.base_trainer", "trl.trainer.utils", "trl.trainer.sft_trainer"):
         monkeypatch.setitem(sys.modules, name, None)  # import raises ImportError
     assert "no trackio lookup" in vt.skip_trackio_model_card()
+
+
+def test_row_cap_params_default_and_validate():
+    p = vt.read_params({"model_name": "m", "dataset": "d"})
+    assert (p.max_train_rows, p.max_eval_rows) == (0, 500)
+    p = vt.read_params({"model_name": "m", "dataset": "d", "max_train_rows": "3200", "max_eval_rows": 100})
+    assert (p.max_train_rows, p.max_eval_rows) == (3200, 100)
+    with pytest.raises(vt.ParamError, match="max_train_rows must be >= 0"):
+        vt.read_params({"model_name": "m", "dataset": "d", "max_train_rows": -1})

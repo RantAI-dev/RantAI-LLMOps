@@ -53,6 +53,8 @@ export async function visionBaseProblem(
 type VisionBody = {
   maxPixels?: unknown;
   maxImagesPerSample?: unknown;
+  maxTrainRows?: unknown;
+  maxEvalRows?: unknown;
   gradientAccumulationSteps?: unknown;
   batchSize?: unknown;
   maxSeqLength?: unknown;
@@ -69,6 +71,8 @@ export function visionParamProblems(b: VisionBody): string[] {
   };
   int(b.maxPixels, "maxPixels", 1024);
   int(b.maxImagesPerSample, "maxImagesPerSample", 1, 16);
+  int(b.maxTrainRows, "maxTrainRows", 0);
+  int(b.maxEvalRows, "maxEvalRows", 0);
   int(b.gradientAccumulationSteps, "gradientAccumulationSteps", 1);
   int(b.batchSize, "batchSize", 1);
   int(b.maxSeqLength, "maxSeqLength", 256);

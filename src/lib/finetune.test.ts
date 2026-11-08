@@ -203,8 +203,14 @@ describe("buildVisionParameters", () => {
       finetune_language_layers: true,
       max_pixels: 1003520,
       max_images_per_sample: 4,
+      max_train_rows: 0,
+      max_eval_rows: 500,
       optim: "adamw_torch",
     });
+  });
+
+  it("caps the rows used: all train rows by default, 500 eval rows, or what the caller asks for", () => {
+    expect(buildVisionParameters({ ...base, maxTrainRows: 3200, maxEvalRows: 100 })).toMatchObject({ max_train_rows: 3200, max_eval_rows: 100 });
   });
 
   it("sends no Hugging Face column keys unless they are given", () => {

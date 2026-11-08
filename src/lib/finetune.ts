@@ -730,6 +730,10 @@ export type SubmitFinetuneParams = {
   maxPixels?: number;
   /** Vision only: images allowed per training row (default 4). */
   maxImagesPerSample?: number;
+  /** Vision: use only this many (random, seeded) rows of the train set; 0 or unset = all. */
+  maxTrainRows?: number;
+  /** Vision: evaluate on at most this many hold-out rows during training; unset = 500. */
+  maxEvalRows?: number;
   /** Vision only, Hugging Face datasets with an Image column: which columns hold what. */
   imageColumn?: string;
   promptColumn?: string;
@@ -821,6 +825,8 @@ export function buildVisionParameters(p: SubmitFinetuneParams): Record<string, u
     finetune_language_layers: true,
     max_pixels: p.maxPixels ?? 1003520,
     max_images_per_sample: p.maxImagesPerSample ?? 4,
+    max_train_rows: p.maxTrainRows ?? 0,
+    max_eval_rows: p.maxEvalRows ?? 500,
     logging_steps: 1,
     save_steps: 50,
     eval_steps: p.evalSteps ?? 50,

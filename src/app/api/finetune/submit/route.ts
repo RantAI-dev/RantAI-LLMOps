@@ -59,6 +59,8 @@ export async function POST(req: NextRequest) {
     // vision method
     "maxPixels",
     "maxImagesPerSample",
+    "maxTrainRows",
+    "maxEvalRows",
   ] as const;
   for (const key of NUMERIC) {
     const raw = (body as Record<string, unknown>)[key];

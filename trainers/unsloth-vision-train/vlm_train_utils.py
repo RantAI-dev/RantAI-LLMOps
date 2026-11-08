@@ -55,6 +55,9 @@ class VisionParams:
     finetune_language_layers: bool = True
     max_pixels: int = 1003520
     max_images_per_sample: int = 4
+    # 0 = use every row. A cap makes the run length predictable (about 1 s per row on the GB10).
+    max_train_rows: int = 0
+    max_eval_rows: int = 500
     # Hugging Face datasets with an Image column
     image_column: str = ""
     prompt_column: str = ""
@@ -114,6 +117,9 @@ def read_params(config: dict) -> VisionParams:
             problems.append(f"{name} must be >= 1")
     if p.max_pixels < 1:
         problems.append("max_pixels must be >= 1")
+    for name in ("max_train_rows", "max_eval_rows"):
+        if getattr(p, name) < 0:
+            problems.append(f"{name} must be >= 0 (0 = no limit)")
     if p.max_steps == 0 or p.max_steps < -1:
         problems.append("max_steps must be -1 or a positive number")
     if not (0.0 <= p.lora_dropout < 1.0):

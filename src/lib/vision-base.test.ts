@@ -56,6 +56,11 @@ describe("visionParamProblems", () => {
     expect(p).toHaveLength(5);
     expect(p.join(" ")).toMatch(/maxPixels.*maxImagesPerSample.*gradientAccumulationSteps.*batchSize.*maxSeqLength/);
   });
+
+  it("accepts 0 (no limit) and positive row caps, refuses negative or fractional ones", () => {
+    expect(visionParamProblems({ maxTrainRows: 0, maxEvalRows: 300 })).toEqual([]);
+    expect(visionParamProblems({ maxTrainRows: -1, maxEvalRows: 2.5 })).toHaveLength(2);
+  });
 });
 
 describe("visionDatasetRefProblem", () => {

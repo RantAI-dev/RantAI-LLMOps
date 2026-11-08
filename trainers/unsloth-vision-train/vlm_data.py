@@ -705,7 +705,7 @@ class DataBundle:
     info: dict = field(default_factory=dict)
 
 
-def build_datasets(
+def _build_datasets_full(
     spec: str,
     *,
     max_pixels: Optional[int] = DEFAULT_MAX_PIXELS,
@@ -765,3 +765,26 @@ def build_datasets(
     if e_idx:
         return DataBundle(train.subset(t_idx), train.subset(e_idx, "eval"), res.description, "10% hold-out", len(t_idx), len(e_idx), info)
     return DataBundle(train, None, res.description, "none", len(train), 0, info)
+
+
+def cap_bundle(bundle: DataBundle, *, max_train_rows: int = 0, max_eval_rows: int = 0, seed: int = SPLIT_SEED) -> DataBundle:
+    """Limit how many rows train and eval use (0 = no limit). The rows are a seeded random sample, so the same
+    parameters give the same rows. The hold-out was already taken from ALL rows, so capping the train set can
+    never bring an eval row into it."""
+    train, ev = bundle.train, bundle.eval
+    info = dict(bundle.info)
+    if max_train_rows and len(train) > max_train_rows:
+        info["train_rows_available"] = len(train)
+        train = train.subset(sorted(random.Random(seed).sample(range(len(train)), max_train_rows)))
+    if ev is not None and max_eval_rows and len(ev) > max_eval_rows:
+        info["eval_rows_available"] = len(ev)
+        ev = ev.subset(sorted(random.Random(seed + 1).sample(range(len(ev)), max_eval_rows)), "eval")
+    if train is bundle.train and ev is bundle.eval:
+        return bundle
+    return DataBundle(train, ev, bundle.source, bundle.eval_source, len(train), len(ev) if ev is not None else 0, info)
+
+
+def build_datasets(spec: str, *, max_train_rows: int = 0, max_eval_rows: int = 0, **kwargs) -> DataBundle:
+    """Resolve `spec` and return the train (and eval) datasets, optionally capped (see `cap_bundle`).
+    The other keyword arguments are those of `_build_datasets_full`."""
+    return cap_bundle(_build_datasets_full(spec, **kwargs), max_train_rows=max_train_rows, max_eval_rows=max_eval_rows)

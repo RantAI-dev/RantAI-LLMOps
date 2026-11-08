@@ -232,6 +232,8 @@ def train_vision():
                 p.dataset,
                 max_pixels=p.max_pixels,
                 max_images=p.max_images_per_sample,
+                max_train_rows=p.max_train_rows,
+                max_eval_rows=p.max_eval_rows,
                 hf=vlm_data.HfOptions(
                     image_column=p.image_column,
                     prompt_column=p.prompt_column,
@@ -248,6 +250,9 @@ def train_vision():
         except vlm_data.DatasetError as e:
             _fail(f"Dataset '{p.dataset}' cannot be used: {e}")
         log(f"✅ Dataset: {data.n_train} train rows, {data.n_eval} eval rows ({data.eval_source}); source: {data.source}")
+        if "train_rows_available" in data.info or "eval_rows_available" in data.info:
+            log(f"Row caps: train {data.n_train} of {data.info.get('train_rows_available', data.n_train)}, "
+                f"eval {data.n_eval} of {data.info.get('eval_rows_available', data.n_eval)} (max_train_rows={p.max_train_rows}, max_eval_rows={p.max_eval_rows})")
         if data.info:
             log(f"Dataset info: {json.dumps(data.info, default=str)}")
         lab.update_progress(20)

@@ -606,3 +606,43 @@ def test_build_hf_dataset_uses_validation_split_not_test():
 def test_build_hf_unknown_split():
     with pytest.raises(vd.DatasetError, match="no split"):
         vd.build_datasets("fake/latex", hf=vd.HfOptions(answer_column="text", prompt_text="p", split="nope"), hf_loader=_fake_hf(), roots=[])
+
+
+# ---- row caps (max_train_rows / max_eval_rows) ----------------------------------------------------------
+
+
+def _texts(ds):
+    return [ds[i]["messages"][1]["content"][0]["text"] for i in range(len(ds))]
+
+
+def _capped(n=200, **caps):
+    return vd.build_datasets("fake/latex", hf=vd.HfOptions(answer_column="text", prompt_text="p"), hf_loader=_fake_hf(n), roots=[], **caps)
+
+
+def test_row_caps_limit_train_and_eval_and_are_reported():
+    b = _capped(200, max_train_rows=50, max_eval_rows=8)
+    assert (b.n_train, b.n_eval) == (50, 8) and len(b.train) == 50 and len(b.eval) == 8
+    assert b.info["train_rows_available"] == 180 and b.info["eval_rows_available"] == 20
+    assert b.eval_source == "10% hold-out"
+
+
+def test_row_caps_zero_and_oversized_change_nothing():
+    base = _capped(200)
+    for caps in ({}, {"max_train_rows": 0, "max_eval_rows": 0}, {"max_train_rows": 999, "max_eval_rows": 999}):
+        b = _capped(200, **caps)
+        assert (b.n_train, b.n_eval) == (base.n_train, base.n_eval) == (180, 20)
+        assert "train_rows_available" not in b.info
+
+
+def test_row_caps_are_deterministic_and_keep_eval_disjoint_from_train():
+    a, b = _capped(200, max_train_rows=60, max_eval_rows=10), _capped(200, max_train_rows=60, max_eval_rows=10)
+    assert _texts(a.train) == _texts(b.train) and _texts(a.eval) == _texts(b.eval)
+    # the hold-out was taken from ALL rows before the cap, so no eval row is ever a training row
+    assert not (set(_texts(a.train)) & set(_texts(a.eval)))
+    other = vd.cap_bundle(_capped(200), max_train_rows=60, seed=1)
+    assert _texts(other.train) != _texts(a.train)
+
+
+def test_row_caps_leave_a_bundle_without_eval_alone():
+    b = _capped(10, max_train_rows=4, max_eval_rows=3)  # below HOLDOUT_MIN_ROWS: everything trains, no eval
+    assert b.eval is None and (b.n_train, b.n_eval) == (4, 0)
