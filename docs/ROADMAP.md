@@ -188,13 +188,12 @@ dengan area lain bila timnya berbeda.
 
 > Rencana eksekusi rinci (fase 0–8, berkas, tes, gerbang): [RENCANA-VLM.md](RENCANA-VLM.md).
 >
-> **Status 6 November 2026: dibangun dan diuji di box, belum dirilis.** Playground bergambar, dataset bergambar
-> (ZIP), trainer vision, batas gambar di vLLM/SGLang, penolakan adapter vision di SGLang dan Evals → Vision sudah
-> jalan end-to-end di frontend uji (:3010); demo LaTeX_OCR: exact match 0,7% → 15,0% dan CER 0,417 → 0,224 pada
-> 300 soal uji, ChartQA tidak turun (57,7% → 59,3%). Hasil lengkap: [UJI-END-TO-END.md](UJI-END-TO-END.md) §9.
-> **Sisa:** commit + push kode (job TL meng-clone trainer dari GitHub), satu kali Fine-tune → Vision dari UI,
-> rilis frontend, konversi GGUF/mmproj (Fase 7), benchmark lmms-eval (Fase 6.2), keputusan menyalakan batas gambar
-> di vLLM produksi.
+> **Status 8 November 2026: dirilis (v0.44.0) dan berjalan di box.** Playground bergambar, dataset bergambar (ZIP), trainer
+> vision (juga lewat Transformer Lab), batas gambar di vLLM produksi, penolakan adapter vision di SGLang, Evals → Vision dan
+> export GGUF VL (lewat skrip) terbukti. Demo LaTeX_OCR 3 epoch: exact match 0,7% → 16,0% (galat ±2) dan CER 0,417 → 0,198 pada
+> 300 soal uji; ChartQA 57,7% → 62,7%. Hasil: [UJI-END-TO-END.md](UJI-END-TO-END.md) §9; naskah demo: [DEMO-VLM.md](DEMO-VLM.md).
+> **Belum:** benchmark lmms-eval (Fase 6.2), dataset HF bergambar → metode vision di Hub (§3.7), jalur UI export GGUF VL,
+> melatih lapisan vision, fine-tune di base 8B (tidak muat di memori box), dan uji RantAI Agents dengan gambar.
 
 **Apa itu.** Model yang menerima **gambar + teks** dan menjawab dengan teks, misalnya
 menjelaskan foto, membaca grafik, menjawab soal bergambar, atau memeriksa dokumen

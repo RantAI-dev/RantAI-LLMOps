@@ -4,19 +4,19 @@
 > Untuk dieksekusi bertahap oleh agen (Claude Sonnet) atau anggota tim. Brief singkatnya
 > ada di [ROADMAP.md](ROADMAP.md) → "1. Vision — VLM". Dokumen ini versi rincinya.
 
-## Status eksekusi (6 November 2026)
+## Status eksekusi (diperbarui 8 November 2026)
 
 | Fase | Status | Catatan |
 |---|---|---|
 | 0 Verifikasi di box | selesai | hasil di "Hasil Fase 0"; base training = Gemma-SEA-LION 4B VL |
 | 1 Fondasi | selesai | `chat-content.ts`, `model-capabilities.ts` |
-| 2 Playground + serving | selesai, teruji di :3010 | 20/20 API; batas gambar teruji di engine uji; **batas di `rantai-vllm-8b` produksi sengaja belum dinyalakan** |
+| 2 Playground + serving | selesai, teruji | 20/20 API; tombol lampiran diklik di browser; batas gambar (4 gambar, 1.048.576 piksel) **aktif di `rantai-vllm-8b` produksi sejak 7 Nov** |
 | 3 Dataset bergambar | selesai, teruji di :3010 | 2.000 baris masuk; ZIP rusak ditolak; S3 fixture OK (sisa fixture di S3) |
 | 4 Trainer vision | selesai, teruji di GPU | teruji juga lewat TL (job 10 langkah, 7 Nov 2026; lihat UJI-END-TO-END §9) |
 | 5 Serving adapter VL | selesai, teruji | vLLM melayani adapter; SGLang menolak adapter vision |
-| 6 Eval bergambar | 6.1 selesai, teruji; 6.2 tidak dikerjakan | LaTeX 0,7% → 15,0% exact; ChartQA 57,7% → 59,3% |
-| 7 GGUF VL | sebagian | merge VL terbukti; konversi llama.cpp/`mmproj` belum diuji |
-| 8 E2E, dokumen, rilis | E2E + dokumen selesai; rilis belum | `scripts/e2e.js` area Vision 17/17; commit/push/rilis menunggu keputusan |
+| 6 Eval bergambar | 6.1 selesai, teruji; 6.2 tidak dikerjakan | adapter TL 3 epoch: LaTeX 0,7% → 16,0% exact (CER 0,417 → 0,198); ChartQA 57,7% → 62,7% |
+| 7 GGUF VL | terbukti lewat skrip, belum lewat UI | merge VL → GGUF q8_0 + `mmproj` (llama.cpp b12182) menjawab satu gambar di CPU dan GPU; Ollama tidak dipakai untuk VL; `export.ggufVision` tetap `planned` karena jalur UI belum diuji |
+| 8 E2E, dokumen, rilis | selesai | `scripts/e2e.js` area Vision 17/17 di produksi; v0.44.0 dirilis dan frontend produksi memakai image GHCR-nya |
 
 Perbedaan dari rencana awal: base training 4B (8B tidak muat); dataset diunggah per gambar lewat API unggah bertahap TL
 (`/data/fileupload` biasa mengabaikan `relpath`); `SFTTrainer` butuh `datasets.Dataset` (dibungkus `with_transform`);
