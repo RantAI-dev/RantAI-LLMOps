@@ -126,13 +126,22 @@ export function useModelCatalog(onLoaded?: (servedModel: string) => void) {
       setError(null);
       setBusy({ id: fusedModelId, action: "export", stage: "Starting…", percent: null });
       try {
-        await exportModelWithProgress(fusedModelId, (stage, percent) =>
+        const result = await exportModelWithProgress(fusedModelId, (stage, percent) =>
           setBusy((b) =>
             b && b.id === fusedModelId ? { ...b, stage, percent } : b
           )
         );
         await refresh();
-        toast.success("Model ready. Click again to load it.");
+        if (result.vl) {
+          // A vision-language model: Ollama cannot load its separate image projector, so there is nothing to
+          // load here. Say where the files are and how to serve them, instead of "click again to load".
+          toast.success("Exported for llama.cpp (vision model)", {
+            description: `Ollama cannot load a vision projector. Serve it with: ${result.vl.command}`,
+            duration: 30000,
+          });
+        } else {
+          toast.success("Model ready. Click again to load it.");
+        }
       } catch (err) {
         const message = (err as Error).message || "Export failed";
         setError(message);

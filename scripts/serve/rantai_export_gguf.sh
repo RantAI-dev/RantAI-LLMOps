@@ -8,6 +8,12 @@ ADIR="$1"; BASE="$2"; TAG="$3"; OUTTYPE="${4:-q8_0}"
 if [ -z "$ADIR" ] || [ -z "$BASE" ] || [ -z "$TAG" ]; then
   echo "usage: rantai_export_gguf.sh <adapter_dir> <base_model> <tag> [outtype]"; exit 2
 fi
+# The converter writes these types itself. K-quants (Q4_K_M, ...) need llama-quantize, which is not installed;
+# refuse them here, before the merge spends minutes, instead of failing at the end.
+case "$OUTTYPE" in
+  q8_0|f16|bf16) ;;
+  *) echo "outtype must be q8_0, f16 or bf16 (got: $OUTTYPE); K-quants need llama-quantize, which is not installed"; exit 2 ;;
+esac
 export PATH="$HOME/.local/bin:$PATH"
 PY="$HOME/.transformerlab/envs/transformerlab/bin/python"
 PIP="$HOME/.transformerlab/envs/transformerlab/bin/pip"

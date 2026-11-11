@@ -3,13 +3,15 @@
 /**
  * POST a fine-tune's train-job id to `/api/finetune/export` and consume the SSE
  * stage stream, calling `onStage(message, percent)` as the export progresses
- * (merge → convert → import). Resolves with the new Ollama tag when done; rejects
- * with the server-reported error (already cleaned of converter noise).
+ * (merge → convert → import). Resolves with the new Ollama tag when done (or, for a vision-language model,
+ * an empty tag plus the two llama.cpp files in `vl`); rejects with the server-reported error.
  */
+export type ExportOutcome = { tag: string; vl?: { gguf: string; mmproj: string; command: string } };
+
 export async function exportModelWithProgress(
   fusedModelId: string,
   onStage: (message: string, percent: number | null) => void
-): Promise<string> {
+): Promise<ExportOutcome> {
   const res = await fetch("/api/finetune/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,16 +36,16 @@ export async function exportModelWithProgress(
       if (!line.startsWith("data:")) continue;
       const payload = line.slice("data:".length).trim();
       if (!payload) continue;
-      let evt: { stage?: string; percent?: number | null; done?: boolean; tag?: string; error?: string };
+      let evt: { stage?: string; percent?: number | null; done?: boolean; tag?: string; error?: string; vl?: ExportOutcome["vl"] };
       try {
         evt = JSON.parse(payload);
       } catch {
         continue;
       }
       if (evt.error) throw new Error(evt.error);
-      if (evt.done) return evt.tag ?? "";
+      if (evt.done) return { tag: evt.tag ?? "", ...(evt.vl ? { vl: evt.vl } : {}) };
       if (evt.stage) onStage(evt.stage, evt.percent ?? null);
     }
   }
-  return "";
+  return { tag: "" };
 }

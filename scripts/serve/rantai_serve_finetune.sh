@@ -1,10 +1,10 @@
 #!/bin/bash
 # NQR: serve a fine-tune (by train job id) via Ollama.
-# Usage: rantai_serve_finetune.sh <jobId> <base_model_hf_id> <ollama_tag>
+# Usage: rantai_serve_finetune.sh <jobId> <base_model_hf_id> <ollama_tag> [outtype: q8_0|f16|bf16]
 # Resolves the adapter dir saved by the train job, then merges+converts+imports.
 # Invoked by the app's export endpoint via wsl.exe.
 set -e
-JOB="$1"; BASE="$2"; TAG="$3"
+JOB="$1"; BASE="$2"; TAG="$3"; OUTTYPE="${4:-q8_0}"
 if [ -z "$JOB" ] || [ -z "$BASE" ] || [ -z "$TAG" ]; then
   echo "usage: rantai_serve_finetune.sh <jobId> <base_model> <tag>"; exit 2
 fi
@@ -13,4 +13,4 @@ if [ -z "$ADIR" ]; then
   echo "ADAPTER_NOT_FOUND for job $JOB"; exit 3
 fi
 echo "adapter: $ADIR"
-exec bash "$HOME/rantai_export_gguf.sh" "$ADIR" "$BASE" "$TAG"
+exec bash "$HOME/rantai_export_gguf.sh" "$ADIR" "$BASE" "$TAG" "$OUTTYPE"

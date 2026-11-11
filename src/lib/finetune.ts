@@ -1094,12 +1094,48 @@ export function fineTuneTag(name: string, jobId: string): string {
 export type ExportStage = { message: string; percent?: number };
 
 /**
+ * GGUF types the converter (`convert_hf_to_gguf.py --outtype`) writes directly. K-quants such as Q4_K_M need
+ * llama.cpp's `llama-quantize` binary, which the backend container does not have (Ubuntu 22.04: the prebuilt
+ * binaries need glibc >= 2.38, and there is no cmake to build one), so they are not offered.
+ */
+export const EXPORT_OUTTYPES = ["q8_0", "f16", "bf16"] as const;
+export type ExportOuttype = (typeof EXPORT_OUTTYPES)[number];
+export function isExportOuttype(v: unknown): v is ExportOuttype {
+  return typeof v === "string" && (EXPORT_OUTTYPES as readonly string[]).includes(v);
+}
+
+/** A vision-language export: no Ollama model (Ollama cannot load a separate projector), two files for llama.cpp. */
+export type VlExport = { gguf: string; mmproj: string; command: string };
+/** `tag` is the Ollama model to chat with; empty for a vision-language export, which has `vl` instead. */
+export type ExportResult = { tag: string; vl?: VlExport };
+
+/** The result lines rantai_export_gguf.sh prints at the end of its vision-language branch, or undefined. */
+export function parseVlExport(lines: string[]): VlExport | undefined {
+  let gguf = "";
+  let mmproj = "";
+  let command = "";
+  for (const raw of lines) {
+    const l = raw.trim();
+    const g = l.match(/^OK: language GGUF: (\S+)$/);
+    if (g) gguf = g[1]!;
+    const m = l.match(/^OK: vision projector: (\S+)$/);
+    if (m) mmproj = m[1]!;
+    if (/^llama-server\s+-m\s/.test(l)) command = l;
+  }
+  if (!gguf || !mmproj) return undefined;
+  return { gguf, mmproj, command: command || `llama-server -m ${gguf} --mmproj ${mmproj}` };
+}
+
+/**
  * Map a raw line from `rantai_export_gguf.sh` to a friendly stage, or null to ignore.
  * The script prints `[n/4] …` markers per phase; the GGUF converter prints
  * `Writing: NN%` (via `\r`) during the longest phase — surface that as real %.
  */
-function exportStageFromLine(line: string): ExportStage | null {
+export function exportStageFromLine(line: string): ExportStage | null {
   const step = line.match(/^\[(\d)\/4\]/);
+  if (step && step[1] === "4" && /vision-language/i.test(line)) {
+    return { message: "Saved GGUF + vision projector (for llama.cpp; Ollama cannot load it)…" };
+  }
   if (step) {
     const messages: Record<string, string> = {
       "1": "Merging adapter into base model…",
@@ -1128,8 +1164,9 @@ function exportStageFromLine(line: string): ExportStage | null {
  */
 export async function exportFineTunedToGguf(
   jobId: string,
-  onStage?: (stage: ExportStage) => void
-): Promise<string> {
+  onStage?: (stage: ExportStage) => void,
+  outtype: ExportOuttype = "q8_0"
+): Promise<ExportResult> {
   // Resolve the base model + adaptor name from the train job (in its experiment).
   const experiment = await resolveJobExperiment(jobId);
   const jobRes = await tlFetch(
@@ -1149,14 +1186,17 @@ export async function exportFineTunedToGguf(
   assertJobId(jobId);
   assertModelId(base);
   assertTag(tag);
+  if (!isExportOuttype(outtype)) throw new Error(`GGUF type must be one of ${EXPORT_OUTTYPES.join(", ")}`);
 
-  // Fixed command template; values bind to $1/$2/$3 via "$@" — never interpolated.
+  // Fixed command template; values bind to $1..$4 via "$@" — never interpolated.
   const cmd = 'bash ~/rantai_serve_finetune.sh "$@"';
-  const cmdArgs = [jobId, base, tag];
+  const cmdArgs = [jobId, base, tag, outtype];
+  const lines: string[] = [];
   try {
     if (onStage) {
       let last = "";
       await runHostScriptStream(cmd, cmdArgs, (line) => {
+        lines.push(line);
         const stage = exportStageFromLine(line);
         if (!stage) return;
         // Dedupe: only forward when the message or the % actually changes.
@@ -1166,12 +1206,15 @@ export async function exportFineTunedToGguf(
         onStage(stage);
       });
     } else {
-      await runHostScript(cmd, cmdArgs);
+      const out = await runHostScript(cmd, cmdArgs);
+      lines.push(...out.stdout.split("\n"));
     }
   } catch (err) {
     throw new Error(err instanceof Error ? err.message : String(err));
   }
-  return tag;
+  // A vision-language base ends without an Ollama model: report the two files instead of a tag to chat with.
+  const vl = parseVlExport(lines);
+  return vl ? { tag: "", vl } : { tag };
 }
 
 /**

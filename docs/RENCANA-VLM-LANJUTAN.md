@@ -29,6 +29,20 @@ pemeriksaan kode dan box hari ini. Klaim yang belum dicek ditandai **[verifikasi
   (CER 0,541 vs 0,417), jadi selisihnya di engine. Untuk VL, vLLM tetap engine yang disarankan.
 - Keputusan pengguna 11 Nov: **Weight edit berhenti dulu.**
 
+## Paket D, bagian kode (11 November 2026)
+
+- Export dari UI kini mengenali hasil vision-language: server membaca baris `OK: language GGUF` / `OK: vision projector` /
+  `llama-server …` dari `rantai_export_gguf.sh` dan mengirim `vl: {gguf, mmproj, command}` dengan tag kosong. Playground
+  menampilkan lokasi berkas dan perintah `llama-server` (bukan "siap dimuat di Ollama"); workflow tidak menandainya siap chat.
+- Pilihan tipe GGUF `q8_0` (bawaan), `f16`, `bf16` di API dan skrip; tipe lain ditolak sebelum merge. K-quant (Q4_K_M dan
+  sejenisnya) tidak ditawarkan: perlu `llama-quantize`, sedangkan backend Ubuntu 22.04 (glibc 2.35, tanpa cmake) tidak bisa
+  menjalankan binari rilis llama.cpp (butuh glibc ≥ 2.38).
+- **Hambatan untuk produksi:** skrip export di `rantai-backend` (image lokal `rantai-llmops-backend:fix3`) adalah versi lama
+  tanpa cabang VL; skrip disalin dari image (`/opt/rantai/serve`) setiap start. Export VL dari UI di produksi baru jalan setelah
+  image backend diganti (mis. GHCR v0.45.0 atau `fix3` yang dibangun ulang dengan skrip baru). Itu keputusan terpisah (backend
+  dipaku, lihat `DEPLOY-PORTAINER.md`). `export.ggufVision` tetap `planned` sampai satu export VL dari UI berhasil.
+- Belum: evaluasi kualitas GGUF (300 soal, `q8_0` vs vLLM), menunggu training 20k selesai karena butuh memori box.
+
 ## Ringkasan dan urutan
 
 | Urut | Paket | Menutup butir | Kenapa urutan ini | Perkiraan |

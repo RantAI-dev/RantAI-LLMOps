@@ -10,7 +10,11 @@ import {
   VISION_SETUP,
   VISION_SUBTYPE,
   csvToJsonl,
+  EXPORT_OUTTYPES,
+  exportStageFromLine,
   fineTuneTag,
+  isExportOuttype,
+  parseVlExport,
   isDecisionJob,
   normalizeJsonl,
   type SubmitFinetuneParams,
@@ -277,5 +281,50 @@ describe("isVisionJob / isTrainJob", () => {
     // even if the provider stored it under TRAIN
     expect(isTrainJob({ job_data: { subtype: "TRAIN", run: "python unsloth-vision-train/train.py" } })).toBe(false);
     expect(isTrainJob({ job_data: { subtype: "TRAIN", run: "python unsloth-llm-train/train.py" } })).toBe(true);
+  });
+});
+
+
+describe("GGUF export of a vision-language model", () => {
+  // The tail rantai_export_gguf.sh prints in its vision-language branch (seen on the GB10, 7 Nov 2026).
+  const VL_TAIL = [
+    "[3/4] convert -> GGUF (q8_0)",
+    "[4/4] vision-language model: Ollama cannot load a separate projector, so no 'ollama create'.",
+    "Serve it with llama.cpp (CPU or GPU):",
+    "  llama-server -m /root/.transformerlab/rantai_merged/t/t.q8_0.gguf --mmproj /root/.transformerlab/rantai_merged/t/mmproj-t.f16.gguf --host 0.0.0.0 --port 8080",
+    "OK: language GGUF: /root/.transformerlab/rantai_merged/t/t.q8_0.gguf",
+    "OK: vision projector: /root/.transformerlab/rantai_merged/t/mmproj-t.f16.gguf",
+  ];
+
+  it("reads the two files and the llama-server command", () => {
+    expect(parseVlExport(VL_TAIL)).toEqual({
+      gguf: "/root/.transformerlab/rantai_merged/t/t.q8_0.gguf",
+      mmproj: "/root/.transformerlab/rantai_merged/t/mmproj-t.f16.gguf",
+      command:
+        "llama-server -m /root/.transformerlab/rantai_merged/t/t.q8_0.gguf --mmproj /root/.transformerlab/rantai_merged/t/mmproj-t.f16.gguf --host 0.0.0.0 --port 8080",
+    });
+  });
+
+  it("is undefined for a text export (Ollama import) and when a file line is missing", () => {
+    expect(parseVlExport(["[4/4] ollama create rantai-x", "success"])).toBeUndefined();
+    expect(parseVlExport(VL_TAIL.filter((l) => !l.startsWith("OK: vision projector")))).toBeUndefined();
+  });
+
+  it("builds the command when the script did not print one", () => {
+    expect(parseVlExport(VL_TAIL.filter((l) => !l.includes("llama-server")))?.command).toBe(
+      "llama-server -m /root/.transformerlab/rantai_merged/t/t.q8_0.gguf --mmproj /root/.transformerlab/rantai_merged/t/mmproj-t.f16.gguf"
+    );
+  });
+
+  it("names step 4 for what it is: llama.cpp files, not an Ollama import", () => {
+    expect(exportStageFromLine(VL_TAIL[1]!)?.message).toMatch(/vision projector/);
+    expect(exportStageFromLine("[4/4] ollama create rantai-x")?.message).toBe("Importing into Ollama…");
+    expect(exportStageFromLine("Writing:  42%|####")).toEqual({ message: "Converting to GGUF format…", percent: 42 });
+  });
+
+  it("offers only the types the converter writes itself", () => {
+    expect([...EXPORT_OUTTYPES]).toEqual(["q8_0", "f16", "bf16"]);
+    expect(isExportOuttype("f16")).toBe(true);
+    for (const bad of ["Q4_K_M", "q4_k_m", "", 8, undefined]) expect(isExportOuttype(bad)).toBe(false);
   });
 });

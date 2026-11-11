@@ -246,6 +246,11 @@ async function exportOnce(
     setStage("export", { status: "running", detail: percent != null ? `${stage} ${percent}%` : stage })
   );
   if (cancelledRef.current) throw new Error("cancelled");
+  if (exp.done && exp.vl) {
+    // Vision-language model: GGUF + projector for llama.cpp, nothing Ollama can chat with.
+    setStage("export", { status: "done", detail: "GGUF + vision projector saved (llama.cpp, not Ollama)" });
+    return;
+  }
   if (exp.done && exp.tag) {
     out.ggufReady = true;
     out.loadModelId = exp.tag;
@@ -527,7 +532,7 @@ async function consumeExportStream(
   res: Response,
   cancelledRef: { current: boolean },
   onProgress: (stage: string, percent?: number) => void
-): Promise<{ done: boolean; tag: string | null; error: string | null }> {
+): Promise<{ done: boolean; tag: string | null; error: string | null; vl?: boolean }> {
   if (!res.ok || !res.body) return { done: false, tag: null, error: `HTTP ${res.status}` };
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -535,6 +540,7 @@ async function consumeExportStream(
   let done = false;
   let tag: string | null = null;
   let error: string | null = null;
+  let vl = false;
   try {
     while (!cancelledRef.current) {
       const { value, done: streamDone } = await reader.read();
@@ -552,11 +558,13 @@ async function consumeExportStream(
             done?: boolean;
             tag?: string;
             error?: string;
+            vl?: unknown;
           };
           if (ev.error) error = ev.error;
           else if (ev.done) {
             done = true;
             tag = ev.tag ?? null;
+            vl = Boolean(ev.vl);
           } else if (ev.stage) onProgress(ev.stage, ev.percent);
         } catch {
           /* ignore a malformed SSE line */
@@ -566,7 +574,7 @@ async function consumeExportStream(
   } finally {
     void reader.cancel().catch(() => {});
   }
-  return { done, tag, error };
+  return { done, tag, error, vl };
 }
 
 type FineTuned = { name: string; fusedModelId: string; ready: boolean; loadModelId: string | null };
