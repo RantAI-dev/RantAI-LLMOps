@@ -174,7 +174,10 @@ export const SGLANG_ENTRYPOINT = [
   "python3 /tmp/lora_helper.py &",
   'set -- --model-path "$SGLANG_MODEL" --served-model-name "$SGLANG_SERVED_NAME" --host 0.0.0.0 --port 30000 \\',
   '  --mem-fraction-static "$SGLANG_MEM_FRACTION" --context-length "$SGLANG_CONTEXT_LENGTH" \\',
-  "  --max-running-requests 8 --trust-remote-code --enable-metrics",
+  // --enable-multimodal: SGLang turns images OFF by default for some VL architectures (Gemma-3, Llama-4, ...)
+  // and then answers every image with 400 "Model only supports text input". The flag only switches images on
+  // for an architecture that has them, so a text-only base is unaffected.
+  "  --max-running-requests 8 --trust-remote-code --enable-metrics --enable-multimodal",
   'if [ -n "${SGLANG_QUANT:-}" ]; then set -- "$@" --quantization "$SGLANG_QUANT"; fi',
   // Multimodal limits (vision bases only): numbers in env, wrapped in JSON here so no JSON crosses a shell.
   'if [ -n "${SGLANG_LIMIT_MM_IMAGES:-}" ]; then set -- "$@" --limit-mm-data-per-request "{\\"image\\":$SGLANG_LIMIT_MM_IMAGES}"; fi',

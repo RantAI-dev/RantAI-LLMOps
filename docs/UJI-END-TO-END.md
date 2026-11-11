@@ -406,3 +406,22 @@ data (3.200 baris beragam, 1 epoch, vs 2.000 baris, 3 epoch) dan sumber (HF vs Z
 `/finetune?dataset=linxy%2FLaTeX_OCR&method=vision` dengan ubin Vision terpilih, base Gemma-SEA-LION 4B VL dan dataset terisi.
 Yang tidak diuji: job yang dikirim dari form (job dikirim lewat API dengan body yang sama), dan kolom `answer`/`prompt` selain
 `unsloth/LaTeX_OCR`.
+
+### Tambahan 11 Nov 2026: adapter VL di SGLang (paket C)
+
+Kontainer uji `sglang4b-test` (`lmsysorg/sglang:v0.5.23-cu130`, entrypoint `SGLANG_ENTRYPOINT` dari repo), base Gemma-SEA-LION
+4B VL, adapter `tl3ep` (job `f30b0145…`, 0 kunci vision). Temuan:
+- **Nama kunci adapter tidak masalah:** SGLang memuat adapter Transformers 5 apa adanya (`target_modules` terdeteksi, backend
+  LoRA `csgmv`).
+- **Bug di entrypoint kita:** SGLang mematikan multimodal untuk Gemma-3 (juga Llama-4) kecuali diberi `--enable-multimodal`,
+  lalu menolak setiap gambar dengan 400 "Model only supports text input". Semua 600 permintaan eval pertama gagal karena ini.
+  Perbaikan: entrypoint selalu memberi `--enable-multimodal`; untuk arsitektur teks flag itu tidak berpengaruh
+  (`is_multimodal = enable_multimodal and <arsitektur multimodal>`), dan Qwen3-VL di SGLang produksi sudah multimodal secara default.
+  Frontend produksi v0.44.0 belum memuat perbaikan ini.
+- **`--mem-fraction-static` di GB10** dihitung terhadap seluruh memori bersama, termasuk yang dipakai vLLM dan SGLang produksi
+  (±36,6%), jadi untuk 4B perlu ±0,46–0,48 walau tambahan nyatanya hanya ±13 GB. Memori host terendah 9,0 GiB (tanpa multimodal)
+  dan 10,9 GiB (dengan multimodal).
+- **Hasil 300 soal LaTeX, `temperature: 0`:** SGLang base 0,0% / CER 0,541, `tl3ep` 11,0% (33/300) / CER 0,281. Di vLLM: base 0,7% /
+  0,417, `tl3ep` 16,0% / 0,198. Gerbang paket C (±2 poin, ±0,02 CER dari vLLM) **tidak tercapai**. Adapter jelas bekerja di SGLang
+  (penurunan CER oleh adapter mirip: −0,26 di SGLang, −0,22 di vLLM), tapi base pun lebih buruk di SGLang, jadi selisihnya ada di
+  engine (pra-proses gambar atau kernel atensi multimodal `triton_attn`), bukan di LoRA. Penyebab pastinya tidak diselidiki.

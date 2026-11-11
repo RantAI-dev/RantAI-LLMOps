@@ -21,6 +21,14 @@ pemeriksaan kode dan box hari ini. Klaim yang belum dicek ditandai **[verifikasi
   < 0,198) tidak tercapai. Satu jam training tidak cukup untuk menguji hipotesis "data lebih banyak"; 3.200 baris hanya 5% dari split train.
   Paket B penuh (10.000–20.000 baris) tetap belum dijalankan.
 
+## Hasil paket C (11 November 2026)
+
+- SGLang v0.5.23 menyajikan adapter VL (bahasa saja) setelah entrypoint diberi `--enable-multimodal` (sebelumnya Gemma-3 VL
+  diperlakukan sebagai model teks). Nama kunci adapter tidak perlu dipetakan.
+- Gerbang tidak tercapai: `tl3ep` 11,0% / CER 0,281 di SGLang vs 16,0% / 0,198 di vLLM. Base juga lebih buruk di SGLang
+  (CER 0,541 vs 0,417), jadi selisihnya di engine. Untuk VL, vLLM tetap engine yang disarankan.
+- Keputusan pengguna 11 Nov: **Weight edit berhenti dulu.**
+
 ## Ringkasan dan urutan
 
 | Urut | Paket | Menutup butir | Kenapa urutan ini | Perkiraan |
