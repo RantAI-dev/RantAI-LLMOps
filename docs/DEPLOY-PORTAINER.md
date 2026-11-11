@@ -204,6 +204,14 @@ Portainer.
 Kalau pekerjaan GPU tiba-tiba selalu gagal, periksa `nvidia-smi` **di dalam**
 kontainer sebelum mencurigai aplikasinya.
 
+Terulang **7 November** dan **11 November 2026** di `rantai-backend` (Transformer Lab), dan sekali terlihat juga
+di `rantai-vllm-8b` lama. Gejala di LLMOps: `/api/finetune/submit` menjawab 503 ("The GPU is present but this
+container cannot reach the driver"). Rutin yang dipakai: pastikan tidak ada job TL yang aktif, lalu **restart
+`rantai-backend`** (tidak perlu dibuat ulang). Kontainer yang baru dibuat atau di-restart mendapat GPU lagi.
+Dugaan (belum dibuktikan): Docker dengan driver cgroup systemd kehilangan aturan perangkat GPU setiap kali host
+menjalankan `systemctl daemon-reload`; perbaikannya di host (admin), misalnya driver cgroup `cgroupfs` atau
+memasang `/dev/nvidia*` secara eksplisit.
+
 ## Menggabungkan adapter 4B memakan 8 GB dan lebih dari 20 menit
 
 Evaluasi pada hasil penyetelan mengharuskan adapter digabung ke model dasar
@@ -227,6 +235,22 @@ Folder itu **tidak dibersihkan sendiri**.
 label compose. Menaikkan ulang tumpukan tidak menyentuh keduanya — baik itu
 menguntungkan (konfigurasi vLLM tidak terhapus) maupun merepotkan (perubahan
 pada berkas compose tidak sampai ke sana).
+
+**`rantai-vllm-8b` (produksi, di luar tumpukan) membawa batas gambar sejak 7 November 2026.** Kontainernya dibuat
+ulang dari konfigurasi lama dengan dua flag tambahan di perintah `vllm serve`:
+
+```
+--limit-mm-per-prompt '{"image":4}' --mm-processor-kwargs '{"max_pixels":1048576}'
+```
+
+Flag itu hanya ada di kontainer. Kalau `rantai-vllm-8b` dibuat ulang (dari Portainer atau dari compose), **salin
+perintahnya apa adanya** atau isi `VLLM_LIMIT_MM_IMAGES=4` dan `VLLM_MAX_IMAGE_PIXELS=1048576` di layanan compose yang
+setara; tanpa itu batasnya hilang tanpa pesan. Kontainer sebelum perubahan disimpan berhenti sebagai
+`rantai-vllm-8b-prev` (jalan mundur: hentikan `rantai-vllm-8b`, ganti namanya, ganti nama `-prev` kembali, jalankan).
+
+**SGLang dengan base Gemma-3 VL** butuh `--enable-multimodal`; tanpa flag itu SGLang menolak setiap gambar dengan 400
+"Model only supports text input". Entrypoint SGLang di LLMOps memberinya sejak v0.45.0. Kontainer `rantai-sglang-8b`
+(Qwen3-VL) tidak terpengaruh: multimodal Qwen3-VL menyala secara bawaan.
 
 ---
 

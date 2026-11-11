@@ -72,7 +72,7 @@ let COOKIE = "";
   const ad = await j("/api/adapters");
   const served = (ad.b?.served || []).map(x => x.name ?? x);
   add("Serve", "adapters listed", ad.s === 200, `HTTP ${ad.s}, served: ${served.join(",")}`);
-  add("Serve", "stale 'ask' absent", !served.includes("ask"), `served=${served.join(",")}`);
+  // (A former check expected adapter "ask" to be absent; "ask" is served on purpose since v0.43, so it was dropped.)
 
   const gw = await j("/api/serve/gateway");
   add("Serve", "gateway keys readable", gw.s === 200, `HTTP ${gw.s}, ${(gw.b?.apiKeys || []).length} keys`);
@@ -104,7 +104,8 @@ let COOKIE = "";
   // --- CHAT (real inference) ---
   const chat = await fetch(BASE + "/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json", Cookie: COOKIE },
-    body: JSON.stringify({ messages: [{ role: "user", content: "Sebut satu kata." }], engine: "vllm", model: "askv6" }) });
+    // "base" is the served name every vLLM deployment has; adapter names change over time (askv6 is long gone).
+    body: JSON.stringify({ messages: [{ role: "user", content: "Sebut satu kata." }], engine: "vllm", model: "base" }) });
   let got = "";
   if (chat.ok) { const txt = await chat.text(); got = txt.slice(0, 60).replace(/\s+/g, " "); }
   add("Chat", "inference streams", chat.status === 200 && got.length > 0, `HTTP ${chat.status} "${got}"`);
@@ -118,7 +119,8 @@ let COOKIE = "";
   const chatBadEngine = await fetch(BASE + "/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json", Cookie: COOKIE },
     body: JSON.stringify({ messages: [{ role: "user", content: "hi" }], engine: "nonexistent" }) });
-  add("Chat", "EDGE unknown engine handled", chatBadEngine.status >= 400, `HTTP ${chatBadEngine.status}`);
+  // resolveEngine: an unknown engine id falls back to the default engine (Ollama), by design.
+  add("Chat", "EDGE unknown engine falls back to the default", chatBadEngine.status === chatOllama.status, `HTTP ${chatBadEngine.status} (Ollama default: ${chatOllama.status})`);
 
   const chatBad = await fetch(BASE + "/api/chat", {
     method: "POST", headers: { "Content-Type": "application/json", Cookie: COOKIE },
