@@ -101,10 +101,16 @@ const THOUSANDS = /^[-+]?\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
 const NUMBER = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?$/i;
 
 /**
- * A number as written in a chart answer: `%`, `$`, other currency signs and spaces are dropped, and commas
- * only when they group thousands ("1,234.5"); "1,5" is not read as 15. Null when it is not a number.
+ * A number as written in a chart answer: `%`, `$`, other currency signs and the spaces around them are dropped,
+ * and commas only when they group thousands ("1,234.5"); "1,5" is not read as 15. Null when it is not a number.
+ * A space may group thousands ("6 536"). Any other space between digits ("1 2", "3 4 . 6") is NOT read as one
+ * number: that is a model writing character by character (the LaTeX_OCR adapters did exactly this on ChartQA),
+ * and reading it as 12 hid the regression.
  */
 export function parseNumber(s: string): number | null {
+  if (/\d\s+[\d.,]|[\d.,]\s+\d/.test(s) && !/^[-+−–]?\d{1,3}(\s\d{3})+(\.\d+)?$/.test(s.trim().replace(/\s*[%$€£]\s*/g, ""))) {
+    return null;
+  }
   let t = s.trim().replace(/[−–]/g, "-").replace(/[%$€£\s]/g, "").replace(/\.+$/, "");
   if (THOUSANDS.test(t)) t = t.replace(/,/g, "");
   if (!NUMBER.test(t)) return null;

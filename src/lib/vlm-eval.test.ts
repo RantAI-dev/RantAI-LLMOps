@@ -82,6 +82,11 @@ describe("parseNumber", () => {
     ["−5", -5],
     ["+7", 7],
     [" 12 ", 12],
+    ["12 %", 12],
+    ["$ 12", 12],
+    ["6 536", 6536],
+    ["519 462", 519462],
+    ["12 345.5%", 12345.5],
     ["12.", 12],
     [".5", 0.5],
     ["1e3", 1000],
@@ -90,7 +95,7 @@ describe("parseNumber", () => {
     expect(parseNumber(raw)).toBe(want);
   });
 
-  it.each([["abc"], [""], ["1,5"], ["12 apples"], ["1.2.3"], ["--5"], ["NaN"], ["Infinity"]])("%j is not a number", (raw) => {
+  it.each([["abc"], [""], ["1,5"], ["12 apples"], ["1.2.3"], ["--5"], ["NaN"], ["Infinity"], ["1 2"], ["1 0 3 . 7"], ["3 4 . 6 %"], ["1 , 234"], ["4 5%"], ["12 34"]])("%j is not a number", (raw) => {
     expect(parseNumber(raw)).toBeNull();
   });
 });
