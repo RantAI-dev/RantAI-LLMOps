@@ -5,11 +5,16 @@ Untuk yang mendemokan. Skenario ringkas ada di `RENCANA-VLM.md` §3b; ini versi 
 
 ## Angka yang boleh disebut (4B VL, 300 soal uji yang tidak dipakai training)
 
-| Set uji | Base | 1 epoch (`tl-full`) | 3 epoch (`tl-3ep`) | 3.200 baris HF (`hf3200`) |
-|---|---|---|---|---|
-| LaTeX_OCR, exact match | 0,7% | 14,3% | **16,0%** | 13,7% |
-| LaTeX_OCR, CER (makin kecil makin baik) | 0,417 | 0,236 | **0,198** | 0,246 |
-| ChartQA (kemampuan umum, harus tidak turun) | 57,7% | 61,7% | **62,7%** | 56,7% |
+| Set uji | Base | 1 epoch (`tl-full`) | 3 epoch (`tl-3ep`) | 3.200 baris HF (`hf3200`) | **20.000 baris HF (`hf20k`)** | `hf20k` sebagai GGUF `q8_0` |
+|---|---|---|---|---|---|---|
+| LaTeX_OCR, exact match | 0,7% | 14,3% | 16,0% | 13,7% | **27,7%** | 31,7% |
+| LaTeX_OCR, CER (makin kecil makin baik) | 0,417 | 0,236 | 0,198 | 0,246 | **0,124** | 0,121 |
+| ChartQA (kemampuan umum, harus tidak turun) | 57,7% | 61,7% | 62,7% | 56,7% | **59,0%** | 59,3% |
+
+**Adapter untuk demo sekarang: `hf20k`** (job `42c41d75…`, 20.000 baris dari `unsloth/LaTeX_OCR` langsung dari Hugging Face,
+1 epoch, 2.500 langkah, ±5 jam). Kenaikan dari `tl-3ep` (16,0% → 27,7%) sekitar 4 kali galat standar, jadi nyata: data lebih
+banyak dan beragam yang membuat beda, bukan epoch. Kolom GGUF: adapter yang sama diekspor dari UI ke `q8_0` + `mmproj` dan dilayani
+`llama-server`; setara dengan vLLM (selisih exact 4 poin ≈ 1,5 galat standar, CER hampir sama).
 
 **Adapter untuk demo: `tl-3ep`.** `hf3200` (3.200 baris acak dari `unsloth/LaTeX_OCR` langsung dari Hugging Face, 1 epoch, 400
 langkah, 55 menit) membuktikan jalur dataset HF dan tombol Hub, tapi skornya tidak melampaui `tl-3ep`. Jangan menyebutnya lebih baik.
@@ -67,3 +72,9 @@ beragam (LaTeX_OCR punya puluhan ribu baris; yang dipakai 2.000), bukan lebih ba
 ## Setelah demo
 
 Hentikan `vllm4b-tl` dan `rantai-frontend-vlm` (membebaskan ±13 GB RAM dan GPU). Hapus percakapan uji dari Playground.
+
+## Tambahan setelah 12 Nov 2026
+
+- Sajikan `hf20k` di `vllm4b-tl` (adapter `.../jobs/42c41d75-b7bd-4510-ab04-1c421ddb041c/models/42c41d75-..._unsloth_vision_model`).
+- Bisa ditunjukkan juga: Fine-tune → job `vlm-latex-hf20k` → "Export GGUF + projector" → dua berkas dan perintah `llama-server`
+  (±3 menit). Itu bukti model hasil fine-tune bisa dibawa ke llama.cpp, termasuk CPU.

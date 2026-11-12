@@ -43,6 +43,14 @@ pemeriksaan kode dan box hari ini. Klaim yang belum dicek ditandai **[verifikasi
   dipaku, lihat `DEPLOY-PORTAINER.md`). `export.ggufVision` tetap `planned` sampai satu export VL dari UI berhasil.
 - Belum: evaluasi kualitas GGUF (300 soal, `q8_0` vs vLLM), menunggu training 20k selesai karena butuh memori box.
 
+## Hasil paket B penuh dan paket D (12 November 2026)
+
+- **B selesai, gerbang tercapai:** adapter 20.000 baris `hf20k`: LaTeX 27,7% / CER 0,124 / ChartQA 59,0% (vs `tl-3ep` 16,0% / 0,198 /
+  62,7%). Hipotesis "data lebih banyak, bukan epoch" terbukti.
+- **D selesai:** export GGUF VL dari UI (tombol di daftar job Fine-tune) berhasil di box setelah backend diganti ke `fix4`; GGUF `q8_0`
+  via `llama-server` 31,7% / CER 0,121 / ChartQA 59,3%, setara vLLM. `export.ggufVision` → `live`.
+- Sisa: paket E (lmms-eval), K-quant (perlu `llama-quantize` di backend), dan paket A (ditunda).
+
 ## Ringkasan dan urutan
 
 | Urut | Paket | Menutup butir | Kenapa urutan ini | Perkiraan |

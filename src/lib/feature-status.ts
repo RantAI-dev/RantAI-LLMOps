@@ -88,9 +88,10 @@ export const FEATURE_STATUS = {
   "eval.vlmTestSet": "live",
   // Standard VLM benchmarks (ChartQA, DocVQA, MMMU) via lmms-eval. Through `/api/evals`.
   "eval.vlmBenchmark": "planned",
-  // GGUF export of a VL model with its mmproj. Script only (scripts/serve/rantai_export_gguf.sh has a VL branch:
-  // the merge is verified on the box, the llama.cpp conversion is not) — no UI yet.
-  "export.ggufVision": "planned",
+  // GGUF export of a VL model with its mmproj: "Export GGUF + projector" on a finished vision job (Fine-tune list).
+  // Verified on the GB10 12 Nov 2026: export from the UI in 161 s; q8_0 via llama-server scored 31.7% / CER 0.121
+  // on the 300-row LaTeX test vs 27.7% / 0.124 through vLLM (same adapter). Needs backend image fix4 or later.
+  "export.ggufVision": "live",
 } as const satisfies Record<string, FeatureStatus>;
 
 

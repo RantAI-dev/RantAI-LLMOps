@@ -425,3 +425,16 @@ Kontainer uji `sglang4b-test` (`lmsysorg/sglang:v0.5.23-cu130`, entrypoint `SGLA
   0,417, `tl3ep` 16,0% / 0,198. Gerbang paket C (±2 poin, ±0,02 CER dari vLLM) **tidak tercapai**. Adapter jelas bekerja di SGLang
   (penurunan CER oleh adapter mirip: −0,26 di SGLang, −0,22 di vLLM), tapi base pun lebih buruk di SGLang, jadi selisihnya ada di
   engine (pra-proses gambar atau kernel atensi multimodal `triton_attn`), bukan di LoRA. Penyebab pastinya tidak diselidiki.
+
+### Tambahan 12 Nov 2026: adapter 20.000 baris, backend fix4, export GGUF VL dari UI
+
+- **Training:** job `42c41d75…` (`vlm-latex-hf20k`), `unsloth/LaTeX_OCR`, `maxTrainRows=20000`, 1 epoch, 2.500 langkah, 298,8 menit,
+  GPU puncak 9,04 GiB, memori host tersedia ≥ 16 GiB, eval loss 0,270 (langkah 250) → 0,118 (akhir). Adapter 476 kunci, 0 vision.
+- **Eval 300 soal (vLLM):** LaTeX exact **27,7%** (83/300), CER **0,124**; ChartQA **59,0%**. Gerbang paket B (≥ 20%, CER < 0,198,
+  ChartQA ≥ ±52%) **tercapai**. Sebelumnya: `tl-3ep` 16,0% / 0,198 / 62,7%.
+- **Backend:** `rantai-backend` diganti dari `rantai-llmops-backend:fix3` ke `:fix4` (fix3 + skrip export dari `main`, hash diverifikasi).
+  Jeda 2,3 detik, API TL kembali dalam 20 detik, GPU terdeteksi, sidecar export menjawab. Kontainer lama: `rantai-backend-fix3` (berhenti).
+- **Export dari UI:** tombol "Export GGUF + projector" di baris job vision (commit `c04c01c`), diklik di browser pada frontend uji :3010:
+  merge → converter → konversi → "Saved" dengan dua berkas dan perintah `llama-server`, 161 detik.
+- **Kualitas GGUF:** `llama-server` (llama.cpp b12182 CUDA, `-ngl 99`) dengan berkas hasil export UI: LaTeX **31,7%** (95/300), CER
+  **0,121**; ChartQA **59,3%**. Setara dengan vLLM (selisih exact 4 poin ≈ 1,5 galat standar). Flag `export.ggufVision` → `live`.

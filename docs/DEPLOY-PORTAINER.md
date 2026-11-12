@@ -134,6 +134,13 @@ Buka `http://<host>:3000`.
 
 Setiap butir di bawah ini pernah benar-benar terjadi.
 
+## Backend di box: `rantai-llmops-backend:fix4` (sejak 12 November 2026)
+
+`fix4` = `fix3` + tiga skrip export/merge dari `main` (cabang vision-language, pilihan tipe GGUF), tanpa perubahan lain; dibangun di
+box dengan Dockerfile dua baris (`FROM rantai-llmops-backend:fix3` + `COPY` ke `/opt/rantai/serve/`). Entrypoint menyalin skrip itu ke
+`/root` setiap start, jadi skrip baru hanya sampai ke backend lewat image. Jalan mundur: hentikan `rantai-backend`, ganti namanya,
+ganti nama `rantai-backend-fix3` kembali, jalankan.
+
 ## Backend dipaku pada digest — jangan naikkan tanpa rencana
 
 Berkas compose memaku backend pada `@sha256:d4c323…`, bukan `:latest`. Ini
