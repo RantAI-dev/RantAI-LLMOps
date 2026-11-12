@@ -13,6 +13,7 @@ the parts that decide whether a run trains on the RIGHT tokens are unit-tested o
 
 from __future__ import annotations
 
+import os
 import random
 import re
 from dataclasses import asdict, dataclass, field
@@ -480,6 +481,24 @@ def skip_trackio_model_card() -> str:
             mod.get_trackio_space_url = lambda: None
             patched.append(name.rsplit(".", 1)[-1])
     return f"model card: trackio Space lookup disabled in {', '.join(patched)}" if patched else "model card: no trackio lookup to disable"
+
+
+def prune_checkpoints(directory: str, keep: int = 2) -> list:
+    """Delete all but the newest `keep` `checkpoint-<step>` folders in `directory`; return the removed names.
+
+    lab.save_checkpoint copies each checkpoint into the job folder and never prunes it, so `save_total_limit`
+    (which only applies to the trainer's own output_dir) does not bound it: a 2,500-step run left 50 copies of
+    380 MB (19 GB) and filled the box's disk. Only folders named checkpoint-<number> are touched."""
+    import shutil
+
+    if not directory or not os.path.isdir(directory) or keep < 1:
+        return []
+    ckpts = [d for d in os.listdir(directory) if d.startswith("checkpoint-") and d.split("-")[-1].isdigit()
+             and os.path.isdir(os.path.join(directory, d))]
+    old = sorted(ckpts, key=lambda d: int(d.split("-")[-1]))[:-keep]
+    for d in old:
+        shutil.rmtree(os.path.join(directory, d), ignore_errors=True)
+    return old
 
 
 # ───────────────────────────────────── saved adapter ─────────────────────────────────────

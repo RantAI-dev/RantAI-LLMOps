@@ -134,12 +134,16 @@ Buka `http://<host>:3000`.
 
 Setiap butir di bawah ini pernah benar-benar terjadi.
 
-## Backend di box: `rantai-llmops-backend:fix4` (sejak 12 November 2026)
+## Backend di box: `rantai-llmops-backend:fix5` (sejak 12 November 2026)
 
-`fix4` = `fix3` + tiga skrip export/merge dari `main` (cabang vision-language, pilihan tipe GGUF), tanpa perubahan lain; dibangun di
-box dengan Dockerfile dua baris (`FROM rantai-llmops-backend:fix3` + `COPY` ke `/opt/rantai/serve/`). Entrypoint menyalin skrip itu ke
-`/root` setiap start, jadi skrip baru hanya sampai ke backend lewat image. Jalan mundur: hentikan `rantai-backend`, ganti namanya,
-ganti nama `rantai-backend-fix3` kembali, jalankan.
+`fix5` = `fix3` + tiga skrip export/merge dari `main` (cabang vision-language, tipe GGUF termasuk Q4_K_M/Q5_K_M), tanpa
+perubahan lain; dibangun di box dengan Dockerfile dua baris (`FROM rantai-llmops-backend:fix3` + `COPY` ke `/opt/rantai/serve/`).
+Entrypoint menyalin skrip itu ke `/root` setiap start, jadi skrip baru hanya sampai ke backend lewat image. Cadangan:
+`rantai-backend-fix4` dan `rantai-backend-fix3` (berhenti). Jalan mundur: hentikan `rantai-backend`, ganti namanya, ganti nama
+cadangan kembali, jalankan. `llama-quantize` (untuk K-quant) dibangun sekali di `~/.transformerlab/llama.cpp/build` (volume TL).
+
+Image backend resmi dari GHCR (v0.45.x) **belum** dipakai: `fix3` adalah image lokal yang isinya tidak sepenuhnya tercatat di
+repo, jadi beralih ke image GHCR perlu diuji dulu di kontainer terpisah (lihat bagian berikut).
 
 ## Backend dipaku pada digest — jangan naikkan tanpa rencana
 

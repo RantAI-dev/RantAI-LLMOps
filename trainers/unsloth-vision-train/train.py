@@ -138,8 +138,13 @@ class LabCallback(TrainerCallback):
             return
         latest = sorted(ckpts, key=lambda d: int(d.split("-")[-1]))[-1]
         try:
-            lab.save_checkpoint(os.path.join(out, latest), f"checkpoint-{state.global_step}")
+            saved = lab.save_checkpoint(os.path.join(out, latest), f"checkpoint-{state.global_step}")
             log(f"💾 Checkpoint saved at step {state.global_step}")
+            # The job folder keeps every copy otherwise (see prune_checkpoints); resuming needs only the newest.
+            if isinstance(saved, str) and saved:
+                removed = vu.prune_checkpoints(os.path.dirname(saved.rstrip("/")), keep=2)
+                if removed:
+                    log(f"🧹 Removed {len(removed)} older checkpoint copies from the job folder")
         except Exception as e:  # noqa: BLE001
             log(f"⚠️  Could not save checkpoint to Transformer Lab: {e}")
 

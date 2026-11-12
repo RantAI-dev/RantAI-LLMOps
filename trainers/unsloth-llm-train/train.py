@@ -49,6 +49,24 @@ if os.getenv("HF_TOKEN"):
     login(token=os.getenv("HF_TOKEN"))
 
 
+
+def _prune_job_checkpoints(saved_path, keep=2):
+    """lab.save_checkpoint copies every checkpoint into the job folder and never prunes it (save_total_limit only
+    applies to output_dir): long runs filled the GB10's disk. Keep the newest `keep` checkpoint-<step> folders next
+    to `saved_path`; never raises."""
+    try:
+        import shutil
+
+        folder = os.path.dirname(str(saved_path).rstrip("/"))
+        if not saved_path or not os.path.isdir(folder):
+            return
+        ckpts = [d for d in os.listdir(folder) if d.startswith("checkpoint-") and d.split("-")[-1].isdigit()
+                 and os.path.isdir(os.path.join(folder, d))]
+        for d in sorted(ckpts, key=lambda d: int(d.split("-")[-1]))[:-keep]:
+            shutil.rmtree(os.path.join(folder, d), ignore_errors=True)
+    except Exception as e:  # noqa: BLE001 - pruning must never break training
+        lab.log(f"⚠️  Could not prune old checkpoint copies: {e}")
+
 class LabCallback(TrainerCallback):
     """Custom callback to update TransformerLab progress and save checkpoints"""
 
@@ -129,6 +147,7 @@ class LabCallback(TrainerCallback):
                     try:
                         saved_path = lab.save_checkpoint(checkpoint_dir, f"checkpoint-{state.global_step}")
                         lab.log(f"✅ Saved checkpoint to TransformerLab: {saved_path}")
+                        _prune_job_checkpoints(saved_path, keep=2)
                     except Exception as e:
                         lab.log(f"⚠️  Could not save checkpoint to TransformerLab: {e}")
 

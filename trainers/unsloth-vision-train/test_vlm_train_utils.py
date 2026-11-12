@@ -528,3 +528,20 @@ def test_row_cap_params_default_and_validate():
     assert (p.max_train_rows, p.max_eval_rows) == (3200, 100)
     with pytest.raises(vt.ParamError, match="max_train_rows must be >= 0"):
         vt.read_params({"model_name": "m", "dataset": "d", "max_train_rows": -1})
+
+
+def test_prune_checkpoints_keeps_the_newest_and_touches_nothing_else(tmp_path):
+    for n in (50, 100, 150, 1000, 200):
+        (tmp_path / f"checkpoint-{n}").mkdir()
+    (tmp_path / "checkpoint-final").mkdir()  # not a step number: left alone
+    (tmp_path / "checkpoint-7.txt").write_text("x")  # a file, not a folder: left alone
+    removed = vt.prune_checkpoints(str(tmp_path), keep=2)
+    assert removed == ["checkpoint-50", "checkpoint-100", "checkpoint-150"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["checkpoint-1000", "checkpoint-200", "checkpoint-7.txt", "checkpoint-final"]
+
+
+def test_prune_checkpoints_is_safe_on_missing_or_small_folders(tmp_path):
+    assert vt.prune_checkpoints(str(tmp_path / "missing")) == []
+    (tmp_path / "checkpoint-5").mkdir()
+    assert vt.prune_checkpoints(str(tmp_path), keep=2) == []
+    assert vt.prune_checkpoints("", keep=2) == []
