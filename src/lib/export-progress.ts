@@ -10,12 +10,13 @@ export type ExportOutcome = { tag: string; vl?: { gguf: string; mmproj: string; 
 
 export async function exportModelWithProgress(
   fusedModelId: string,
-  onStage: (message: string, percent: number | null) => void
+  onStage: (message: string, percent: number | null) => void,
+  outtype?: "q8_0" | "f16" | "bf16"
 ): Promise<ExportOutcome> {
   const res = await fetch("/api/finetune/export", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fusedModelId }),
+    body: JSON.stringify(outtype ? { fusedModelId, outtype } : { fusedModelId }),
   });
   if (!res.ok || !res.body) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };

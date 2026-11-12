@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import type { TrainingJob } from "@/lib/finetune";
 import { isJobActive, isJobFailed } from "@/modules/finetune/hooks/use-finetune";
 import { TrainingMonitor } from "@/modules/finetune/components/training-monitor";
+import { VisionExport } from "@/modules/finetune/components/vision-export";
 import { parseDecisionReport, type DecisionMetrics } from "@/modules/finetune/lib/parse-decision";
 import { cn } from "@/lib/utils";
 
@@ -151,6 +152,9 @@ export function JobList({
             ) : null}
             {job.kind === "decision" && !active && ["COMPLETE", "COMPLETED"].includes(job.status.toUpperCase()) ? (
               <DecisionResult jobId={job.id} />
+            ) : null}
+            {job.kind === "vision" && !active && ["COMPLETE", "COMPLETED"].includes(job.status.toUpperCase()) ? (
+              <VisionExport jobId={job.id} />
             ) : null}
             <TrainingMonitor jobId={job.id} active={active} />
           </div>
