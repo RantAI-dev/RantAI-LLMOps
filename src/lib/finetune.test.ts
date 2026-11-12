@@ -320,11 +320,14 @@ describe("GGUF export of a vision-language model", () => {
     expect(exportStageFromLine(VL_TAIL[1]!)?.message).toMatch(/vision projector/);
     expect(exportStageFromLine("[4/4] ollama create rantai-x")?.message).toBe("Importing into Ollama…");
     expect(exportStageFromLine("Writing:  42%|####")).toEqual({ message: "Converting to GGUF format…", percent: 42 });
+    expect(exportStageFromLine("building llama-quantize (once per llama.cpp version, a few minutes)")?.message).toMatch(/llama-quantize/);
+    expect(exportStageFromLine("quantize -> Q4_K_M")?.message).toBe("Quantizing to Q4_K_M…");
   });
 
-  it("offers only the types the converter writes itself", () => {
-    expect([...EXPORT_OUTTYPES]).toEqual(["q8_0", "f16", "bf16"]);
+  it("offers the converter's types plus the two K-quants built with llama-quantize", () => {
+    expect([...EXPORT_OUTTYPES]).toEqual(["q8_0", "f16", "bf16", "q4_k_m", "q5_k_m"]);
     expect(isExportOuttype("f16")).toBe(true);
-    for (const bad of ["Q4_K_M", "q4_k_m", "", 8, undefined]) expect(isExportOuttype(bad)).toBe(false);
+    expect(isExportOuttype("q4_k_m")).toBe(true);
+    for (const bad of ["Q4_K_M", "q2_k", "", 8, undefined]) expect(isExportOuttype(bad)).toBe(false);
   });
 });

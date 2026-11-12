@@ -11,7 +11,7 @@ export type ExportOutcome = { tag: string; vl?: { gguf: string; mmproj: string; 
 export async function exportModelWithProgress(
   fusedModelId: string,
   onStage: (message: string, percent: number | null) => void,
-  outtype?: "q8_0" | "f16" | "bf16"
+  outtype?: "q8_0" | "f16" | "bf16" | "q4_k_m" | "q5_k_m"
 ): Promise<ExportOutcome> {
   const res = await fetch("/api/finetune/export", {
     method: "POST",

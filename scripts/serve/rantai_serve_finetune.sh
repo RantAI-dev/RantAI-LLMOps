@@ -1,6 +1,6 @@
 #!/bin/bash
 # NQR: serve a fine-tune (by train job id) via Ollama.
-# Usage: rantai_serve_finetune.sh <jobId> <base_model_hf_id> <ollama_tag> [outtype: q8_0|f16|bf16]
+# Usage: rantai_serve_finetune.sh <jobId> <base_model_hf_id> <ollama_tag> [outtype: q8_0|f16|bf16|q4_k_m|q5_k_m]
 # Resolves the adapter dir saved by the train job, then merges+converts+imports.
 # Invoked by the app's export endpoint via wsl.exe.
 set -e

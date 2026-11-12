@@ -1094,11 +1094,11 @@ export function fineTuneTag(name: string, jobId: string): string {
 export type ExportStage = { message: string; percent?: number };
 
 /**
- * GGUF types the converter (`convert_hf_to_gguf.py --outtype`) writes directly. K-quants such as Q4_K_M need
- * llama.cpp's `llama-quantize` binary, which the backend container does not have (Ubuntu 22.04: the prebuilt
- * binaries need glibc >= 2.38, and there is no cmake to build one), so they are not offered.
+ * GGUF types for export. q8_0 / f16 / bf16 come straight from the converter; q4_k_m / q5_k_m are converted to f16
+ * and then quantized with llama-quantize, which rantai_export_gguf.sh builds once from the llama.cpp checkout
+ * (the backend image is too old for the prebuilt binaries and has no cmake of its own).
  */
-export const EXPORT_OUTTYPES = ["q8_0", "f16", "bf16"] as const;
+export const EXPORT_OUTTYPES = ["q8_0", "f16", "bf16", "q4_k_m", "q5_k_m"] as const;
 export type ExportOuttype = (typeof EXPORT_OUTTYPES)[number];
 export function isExportOuttype(v: unknown): v is ExportOuttype {
   return typeof v === "string" && (EXPORT_OUTTYPES as readonly string[]).includes(v);
@@ -1145,6 +1145,9 @@ export function exportStageFromLine(line: string): ExportStage | null {
     };
     return { message: messages[step[1]!] ?? "Processing…" };
   }
+  if (/^building llama-quantize/.test(line)) return { message: "Building llama-quantize (first time only, a few minutes)…" };
+  const quant = line.match(/^quantize -> (\S+)/);
+  if (quant) return { message: `Quantizing to ${quant[1]}…` };
   const writing = line.match(/Writing:\s*(\d+)%/);
   if (writing) return { message: "Converting to GGUF format…", percent: Number(writing[1]) };
   return null;

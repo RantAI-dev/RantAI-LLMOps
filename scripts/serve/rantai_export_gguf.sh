@@ -8,11 +8,13 @@ ADIR="$1"; BASE="$2"; TAG="$3"; OUTTYPE="${4:-q8_0}"
 if [ -z "$ADIR" ] || [ -z "$BASE" ] || [ -z "$TAG" ]; then
   echo "usage: rantai_export_gguf.sh <adapter_dir> <base_model> <tag> [outtype]"; exit 2
 fi
-# The converter writes these types itself. K-quants (Q4_K_M, ...) need llama-quantize, which is not installed;
-# refuse them here, before the merge spends minutes, instead of failing at the end.
+# q8_0 / f16 / bf16: the converter writes them itself. q4_k_m / q5_k_m: convert to f16, then llama-quantize
+# (built once from the llama.cpp checkout, see step 2). Refuse anything else here, before the merge spends minutes.
 case "$OUTTYPE" in
-  q8_0|f16|bf16) ;;
-  *) echo "outtype must be q8_0, f16 or bf16 (got: $OUTTYPE); K-quants need llama-quantize, which is not installed"; exit 2 ;;
+  q8_0|f16|bf16) CONVTYPE="$OUTTYPE"; QTYPE="" ;;
+  q4_k_m) CONVTYPE=f16; QTYPE=Q4_K_M ;;
+  q5_k_m) CONVTYPE=f16; QTYPE=Q5_K_M ;;
+  *) echo "outtype must be one of q8_0, f16, bf16, q4_k_m, q5_k_m (got: $OUTTYPE)"; exit 2 ;;
 esac
 export PATH="$HOME/.local/bin:$PATH"
 PY="$HOME/.transformerlab/envs/transformerlab/bin/python"
@@ -74,8 +76,34 @@ else
   git clone --depth 1 https://github.com/ggml-org/llama.cpp "$LCPP"
 fi
 
+# K-quants need llama-quantize. The backend image has no cmake and is too old (glibc 2.35) for the prebuilt
+# binaries, so build just that target from the checkout, with cmake + ninja from pip, CPU only. The build lives
+# in the TL volume ($LCPP/build) and is redone only when the llama.cpp commit changes.
+QUANT="$LCPP/build/bin/llama-quantize"
+if [ -n "$QTYPE" ]; then
+  REV=$(git -C "$LCPP" rev-parse HEAD 2>/dev/null || echo unknown)
+  if [ ! -x "$QUANT" ] || [ "$(cat "$LCPP/build/.built_rev" 2>/dev/null)" != "$REV" ]; then
+    echo "building llama-quantize (once per llama.cpp version, a few minutes)"
+    "$PIP" install -q cmake ninja >/dev/null 2>&1 || true
+    export PATH="$(dirname "$PY"):$PATH"
+    cmake -S "$LCPP" -B "$LCPP/build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_CUDA=OFF -DLLAMA_CURL=OFF \
+      -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=OFF >/dev/null
+    cmake --build "$LCPP/build" --target llama-quantize -j "$(nproc)" >/dev/null
+    echo "$REV" > "$LCPP/build/.built_rev"
+  fi
+  [ -x "$QUANT" ] || { echo "llama-quantize could not be built"; exit 1; }
+fi
+
 echo "[3/4] convert -> GGUF ($OUTTYPE)"
-PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$GGUF" --outtype "$OUTTYPE"
+if [ -n "$QTYPE" ]; then
+  F16="$MERGED/$TAG.f16.gguf"
+  PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$F16" --outtype f16
+  echo "quantize -> $QTYPE"
+  "$QUANT" "$F16" "$GGUF" "$QTYPE" "$(nproc)" >/dev/null
+  rm -f "$F16"
+else
+  PYTHONPATH="$LCPP/gguf-py:$PYTHONPATH" "$PY" "$LCPP/convert_hf_to_gguf.py" "$MERGED" --outfile "$GGUF" --outtype "$CONVTYPE"
+fi
 if [ "$(cat "$MERGED/.is_vl" 2>/dev/null)" = "1" ]; then
   # Vision-language model: the vision tower + projector go to a second GGUF (f16). The language GGUF
   # alone is a text-only model. Not every architecture is supported by llama.cpp's multimodal converter;

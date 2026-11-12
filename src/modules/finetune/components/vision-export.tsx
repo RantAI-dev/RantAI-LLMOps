@@ -6,10 +6,13 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { exportModelWithProgress, type ExportOutcome } from "@/lib/export-progress";
 
+// Measured on the GB10 for the 4B VL language model (the projector is ~0.8 GB more, always F16).
 const TYPES = [
-  { value: "q8_0", label: "Q8_0 (about half of BF16)" },
-  { value: "f16", label: "F16" },
-  { value: "bf16", label: "BF16" },
+  { value: "q8_0", label: "Q8_0 (~4.1 GB)" },
+  { value: "q5_k_m", label: "Q5_K_M (~2.7 GB, smaller)" },
+  { value: "q4_k_m", label: "Q4_K_M (~2.4 GB, smallest)" },
+  { value: "f16", label: "F16 (~7.4 GB)" },
+  { value: "bf16", label: "BF16 (~7.4 GB)" },
 ] as const;
 type OutType = (typeof TYPES)[number]["value"];
 

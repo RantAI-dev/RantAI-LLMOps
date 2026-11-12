@@ -438,3 +438,13 @@ Kontainer uji `sglang4b-test` (`lmsysorg/sglang:v0.5.23-cu130`, entrypoint `SGLA
   merge → converter → konversi → "Saved" dengan dua berkas dan perintah `llama-server`, 161 detik.
 - **Kualitas GGUF:** `llama-server` (llama.cpp b12182 CUDA, `-ngl 99`) dengan berkas hasil export UI: LaTeX **31,7%** (95/300), CER
   **0,121**; ChartQA **59,3%**. Setara dengan vLLM (selisih exact 4 poin ≈ 1,5 galat standar). Flag `export.ggufVision` → `live`.
+
+### Tambahan 12 Nov 2026 (siang): K-quant, rilis v0.45.1, backend fix5
+
+- **K-quant:** export menerima `q4_k_m` dan `q5_k_m`: konversi ke `f16`, lalu `llama-quantize`, yang dibangun sekali dari checkout
+  llama.cpp di volume TL dengan cmake + ninja dari pip (backend Ubuntu 22.04 terlalu tua untuk binari rilis). Di box: build ±30 detik,
+  export `Q4_K_M` dari UI 221 detik. Ukuran: `Q4_K_M` 2.375 MiB, `q8_0` 3.940 MiB, `mmproj` 812 MiB.
+- **Kualitas `Q4_K_M` (300 soal, llama-server):** LaTeX 30,7% (92/300), CER 0,134; ChartQA 61,3%. `q8_0`: 31,7% / 0,121 / 59,3%;
+  vLLM bf16: 27,7% / 0,124 / 59,0%. Kuantisasi 4-bit tidak menurunkan skor di luar galat; CER sedikit naik.
+- **Backend:** `rantai-llmops-backend:fix5` (fix3 + skrip dengan K-quant), cadangan `rantai-backend-fix4`.
+- **Rilis v0.45.1** (tombol export VL) terpasang di produksi; e2e penuh 63/63. K-quant ikut rilis berikutnya.
