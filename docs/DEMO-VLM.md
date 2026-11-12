@@ -9,14 +9,21 @@ Untuk yang mendemokan. Skenario ringkas ada di `RENCANA-VLM.md` §3b; ini versi 
 |---|---|---|---|---|---|---|
 | LaTeX_OCR, exact match | 0,7% | 14,3% | 16,0% | 13,7% | **27,7%** | 31,7% |
 | LaTeX_OCR, CER (makin kecil makin baik) | 0,417 | 0,236 | 0,198 | 0,246 | **0,124** | 0,121 |
-| ChartQA (kemampuan umum, harus tidak turun) | 57,7% | 61,7% | 62,7% | 56,7% | **59,0%** | 59,3% |
+| ChartQA (kemampuan umum), dihitung ulang 12 Nov | 57,7% | 24,7% | 27,7% | 12,0% | **21,0%** | 22,7% |
+
+**Peringatan (12 Nov 2026): semua adapter LaTeX_OCR merusak format jawaban umum.** Adapter belajar menulis tiap karakter
+dipisah spasi, persis gaya referensi LaTeX_OCR ("( 1 - \Pi ) = 0"). Pertanyaan grafik dijawab "3 4 . 6 %" alih-alih "34.6%",
+teks dijawab "C O P E N H A G E N". Scorer ChartQA lama membuang semua spasi sehingga "1 2" terbaca 12, dan angka lama
+(61,7 / 62,7 / 56,7 / 59,0 / 59,3%) terlalu tinggi. Scorer sudah diperbaiki (commit 56b0c2d); angka di atas adalah hasil hitung ulang
+jawaban yang sama. lmms-eval (`UJI-END-TO-END.md`, paket E) memastikan: hf20k turun di ChartQA, DocVQA, TextVQA dan OCRBench.
+Jadi `hf20k` adalah **model spesialis rumus**: bagus untuk LaTeX, jangan dipakai untuk tanya-jawab gambar umum.
 
 **Adapter untuk demo sekarang: `hf20k`** (job `42c41d75…`, 20.000 baris dari `unsloth/LaTeX_OCR` langsung dari Hugging Face,
 1 epoch, 2.500 langkah, ±5 jam). Kenaikan dari `tl-3ep` (16,0% → 27,7%) sekitar 4 kali galat standar, jadi nyata: data lebih
 banyak dan beragam yang membuat beda, bukan epoch. Kolom GGUF: adapter yang sama diekspor dari UI ke `q8_0` + `mmproj` dan dilayani
 `llama-server`; setara dengan vLLM (selisih exact 4 poin ≈ 1,5 galat standar, CER hampir sama).
 
-**Adapter untuk demo: `tl-3ep`.** `hf3200` (3.200 baris acak dari `unsloth/LaTeX_OCR` langsung dari Hugging Face, 1 epoch, 400
+Sebelumnya adapter demo adalah `tl-3ep`. `hf3200` (3.200 baris acak dari `unsloth/LaTeX_OCR` langsung dari Hugging Face, 1 epoch, 400
 langkah, 55 menit) membuktikan jalur dataset HF dan tombol Hub, tapi skornya tidak melampaui `tl-3ep`. Jangan menyebutnya lebih baik.
 
 Training lewat Transformer Lab dari UI/API frontend: `tl-full` 2.000 contoh, 1 epoch, 32 menit (job `f0dfde75…`); `tl-3ep` data
@@ -28,9 +35,8 @@ beragam (LaTeX_OCR punya puluhan ribu baris; yang dipakai 2.000), bukan lebih ba
 
 ## Jangan diklaim
 
+- Bahwa fine-tune menjaga kemampuan umum. Tidak: lihat peringatan di atas. Untuk Playground umum pakai `base`.
 - Fine-tune di 8B VL (tidak muat di memori box; yang dilatih 4B).
-- Export GGUF untuk VL (belum terbukti, lihat `UJI-END-TO-END.md` §9).
-- Skor benchmark VL standar (MMMU dan sejenisnya tidak dijalankan).
 - Adapter vision yang dilayani SGLang: SGLang menolak adapter yang menyentuh vision tower (alasannya tampil di pesan).
 
 ## Persiapan (30–40 menit sebelum)
@@ -56,8 +62,9 @@ beragam (LaTeX_OCR punya puluhan ribu baris; yang dipakai 2.000), bukan lebih ba
    vision). Training penuh 32 menit, jadi tunjukkan job `vlm-latex-tl` yang sudah selesai: kurva loss 3,0 → ±0,25.
    Kalau mau live: job 10 langkah selesai ±5 menit setelah dikirim, tapi hasilnya belum belajar (jangan dievaluasi).
 4. **Deployments, :3010 (1 menit).** vLLM menyajikan `base`, `tl-3ep`, dan `hf3200` (adapter lama `latex-ocr`/`tl-full` tidak ikut dimuat di kontainer saat ini), masing-masing berlabel Vision.
-5. **Evals → Vision, :3010 (2 menit).** Run history sudah berisi base vs adapter. Tunjukkan exact match dan CER, lalu
-   ChartQA sebagai bukti kemampuan umum tidak rusak. Run baru 300 soal makan ±9 menit, jadi jangan dijalankan live.
+5. **Evals → Vision, :3010 (2 menit).** Run history sudah berisi base vs adapter. Tunjukkan exact match dan CER. Skor ChartQA
+   di riwayat lama tersimpan dengan scorer lama (terlalu tinggi); kalau ditanya kemampuan umum, jujur: fine-tune ini mengorbankannya
+   (angka di tabel atas). Run baru 300 soal makan ±9 menit, jadi jangan dijalankan live.
 6. **Playground, :3010 (1 menit).** Lampirkan gambar rumus dari `latex-ocr-test.zip`, tanya ke `base`, lalu ke `tl-full`
    (chat baru tiap model; pakai `tl-3ep`). Jawaban adapter lebih dekat ke format referensi.
 7. **Gateway (1 menit).** Satu `curl` ke gateway dengan API key dan gambar sebagai bukti siap dipakai aplikasi lain.

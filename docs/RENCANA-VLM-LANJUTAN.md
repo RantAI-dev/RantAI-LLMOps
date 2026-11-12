@@ -49,7 +49,19 @@ pemeriksaan kode dan box hari ini. Klaim yang belum dicek ditandai **[verifikasi
   62,7%). Hipotesis "data lebih banyak, bukan epoch" terbukti.
 - **D selesai:** export GGUF VL dari UI (tombol di daftar job Fine-tune) berhasil di box setelah backend diganti ke `fix4`; GGUF `q8_0`
   via `llama-server` 31,7% / CER 0,121 / ChartQA 59,3%, setara vLLM. `export.ggufVision` → `live`.
-- Sisa: paket E (lmms-eval), K-quant (perlu `llama-quantize` di backend), dan paket A (ditunda).
+- K-quant (`q4_k_m`, `q5_k_m`) selesai: `llama-quantize` dibangun sekali di volume TL.
+- Sisa: paket A (ditunda).
+
+## Hasil paket E (12 November 2026)
+
+- **Jalan, gerbang tidak lolos.** lmms-eval 0.7.4, 300 soal per task, base → `hf20k`: ChartQA 35,3% → 22,0%, DocVQA 0,738 → 0,530,
+  TextVQA 64,7% → 42,4%, OCRBench 22,9% → 0,6%, MMMU 43,3% → 41,0% (dalam galat). `tl-3ep` di antara keduanya. Rincian di
+  `UJI-END-TO-END.md`, bagian 12 Nov sore.
+- Penyebab: adapter meniru format referensi LaTeX_OCR (spasi di antara tiap karakter) di semua jawaban.
+- Scorer ChartQA kita membuang spasi sehingga regresi tidak terlihat; diperbaiki (56b0c2d). Angka ChartQA di bagian paket B dan D
+  di atas (59,0 / 62,7% dan seterusnya) adalah angka lama yang salah; hitung ulang: `tl-3ep` 27,7%, `hf20k` 21,0%, base 57,7%.
+- Usulan paket berikutnya (butuh keputusan): training ulang dengan campuran data VQA umum atau referensi LaTeX tanpa spasi per
+  token, dengan paket E sebagai gerbang.
 
 ## Ringkasan dan urutan
 

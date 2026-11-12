@@ -444,7 +444,51 @@ Kontainer uji `sglang4b-test` (`lmsysorg/sglang:v0.5.23-cu130`, entrypoint `SGLA
 - **K-quant:** export menerima `q4_k_m` dan `q5_k_m`: konversi ke `f16`, lalu `llama-quantize`, yang dibangun sekali dari checkout
   llama.cpp di volume TL dengan cmake + ninja dari pip (backend Ubuntu 22.04 terlalu tua untuk binari rilis). Di box: build ±30 detik,
   export `Q4_K_M` dari UI 221 detik. Ukuran: `Q4_K_M` 2.375 MiB, `q8_0` 3.940 MiB, `mmproj` 812 MiB.
-- **Kualitas `Q4_K_M` (300 soal, llama-server):** LaTeX 30,7% (92/300), CER 0,134; ChartQA 61,3%. `q8_0`: 31,7% / 0,121 / 59,3%;
-  vLLM bf16: 27,7% / 0,124 / 59,0%. Kuantisasi 4-bit tidak menurunkan skor di luar galat; CER sedikit naik.
+- **Kualitas `Q4_K_M` (300 soal, llama-server):** LaTeX 30,7% (92/300), CER 0,134. `q8_0`: 31,7% / 0,121; vLLM bf16: 27,7% / 0,124.
+  Kuantisasi 4-bit tidak menurunkan skor LaTeX di luar galat; CER sedikit naik. (ChartQA yang semula tertulis 61,3 / 59,3 / 59,0%
+  dihitung dengan scorer yang salah; lihat bagian berikut.)
 - **Backend:** `rantai-llmops-backend:fix5` (fix3 + skrip dengan K-quant), cadangan `rantai-backend-fix4`.
 - **Rilis v0.45.1** (tombol export VL) terpasang di produksi; e2e penuh 63/63. K-quant ikut rilis berikutnya.
+
+### Tambahan 12 Nov 2026 (sore): benchmark VL standar (paket E) dan scorer ChartQA yang salah
+
+**lmms-eval 0.7.4**, model `openai` (OpenAI-compatible) ke `vllm4b-tl`, 300 soal per task, kontainer `lmms-eval-run` di box.
+Dataset benchmark diunduh publik dari Hugging Face (tidak ada yang gated) dan hanya untuk eval internal.
+
+| Task (metrik) | base | `tl-3ep` (2.000 baris, 3 epoch) | `hf20k` (20.000 baris, 1 epoch) |
+|---|---|---|---|
+| ChartQA (relaxed) | 35,3% ± 2,8 | 24,7% ± 2,5 | 22,0% ± 2,4 |
+| DocVQA val (ANLS) | 0,738 ± 0,023 | 0,611 ± 0,024 | 0,530 ± 0,024 |
+| TextVQA val (exact) | 64,7% ± 2,6 | 47,4% ± 2,8 | 42,4% ± 2,8 |
+| OCRBench (dari 300) | 22,9% | 1,5% | 0,6% |
+| MMMU val (pilihan ganda) | 43,3% | 42,0% | 41,0% |
+
+ChartQA base lebih rendah dari set kita (57,7%) karena prompt dan split lmms-eval berbeda; yang dibandingkan adalah selisih antar
+model di benchmark yang sama.
+
+**Temuan: gerbang paket E tidak lolos.** Empat dari lima task turun jauh di luar galat setelah fine-tune LaTeX_OCR; hanya MMMU
+(jawaban satu huruf) yang bertahan. Penyebabnya format, bukan cuma pengetahuan: adapter menulis tiap karakter dipisah spasi seperti
+referensi LaTeX_OCR (`"F r i e n d"`, `"C O P E N H A G E N"`, `"3 4 . 6 %"`), dan OCRBench menilai string sehingga hampir nol.
+Data lebih banyak (`hf20k`) memperbaiki LaTeX tapi memperparah kebiasaan ini.
+
+**Scorer ChartQA kita buta terhadap ini.** `parseNumber` di `src/lib/vlm-eval.ts` membuang semua spasi, jadi `"1 2"` terbaca 12 dan
+`"3 4 . 6 %"` terbaca 34,6. Diperbaiki di commit 56b0c2d: spasi hanya diterima sebagai pemisah ribuan (`"6 536"`). Hitung ulang
+jawaban yang tersimpan (300 soal `chartqa-test`, tanpa inferensi baru):
+
+| Model | ChartQA lama | ChartQA dihitung ulang |
+|---|---|---|
+| base | 57,7% | 57,7% |
+| `tl-full` | 61,7% | 24,7% |
+| `tl-3ep` | 62,7% | 27,7% |
+| `hf3200` | 56,7% | 12,0% |
+| `hf20k` (vLLM) | 59,0% | 21,0% |
+| `hf20k` GGUF `q8_0` | 59,3% | 22,7% |
+| `hf20k` GGUF `Q4_K_M` | 61,3% | 20,7% |
+
+Base tidak berubah sama sekali, adapter jatuh ke 21–28%, sejalan dengan lmms-eval. Semua klaim "ChartQA tidak turun" sebelumnya
+salah. Riwayat run di UI masih menampilkan skor lama (laporan tersimpan saat run); run baru memakai scorer yang benar.
+
+**Arti untuk produk:** adapter LaTeX_OCR adalah spesialis rumus. Untuk menjaga kemampuan umum, langkah berikutnya (belum
+dikerjakan) adalah mencampur data tanya-jawab gambar umum ke training (misalnya 10–20% baris ChartQA/TextVQA train) atau menormalkan
+referensi LaTeX agar tidak berspasi per token, lalu ulangi paket E sebagai gerbang.
+
