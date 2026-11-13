@@ -591,4 +591,9 @@ model mentah; mockup menambah gambar sendiri, karena itu baseline lewat mockup t
 di teks buku). v14 lulus semua kecuali detail-absent (9/19, syarat ≥ 10) dan memiliki satu halusinasi yang tidak ada di `ask`:
 "unsur pembangun puisi" dijawab "tema, gagasan, struktur, bahasa, gaya [4]" padahal kutipan [4] berisi unsur prosa. Dua jawaban v14
 juga menukar nomor sitasi (`[3]` untuk isi `[1]`). 9 dari 19 item detail-absent berbentuk "berapa tepatnya jumlah yang disebutkan di
-buku", yang sering memang terjawab oleh buku, jadi angka itu batas bawah. Belum dipasang ke produksi; `ask` tetap v11.
+buku", yang sering memang terjawab oleh buku, jadi angka itu batas bawah.
+
+**Dipasang 14 Nov 2026** atas keputusan pemilik, dengan sadar akan dua kekurangan di atas: `rantai-vllm-8b` dibuat ulang dengan
+`ask` → job `65a0555d` (v14), konfigurasi lain identik; UGM terputus 138 detik. Probe di produksi sesudahnya: ingat nama 16/16,
+topik 16/16, ganti topik 16/16. Rollback: kontainer `rantai-vllm-8b-v11` (berhenti, restart policy `no`) — hentikan yang baru,
+hapus, ganti nama `rantai-vllm-8b-v11` → `rantai-vllm-8b`, set restart `unless-stopped`, start.
