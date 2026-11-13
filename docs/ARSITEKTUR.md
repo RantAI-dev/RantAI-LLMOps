@@ -409,6 +409,15 @@ pada tanggal yang sama.
 > penuh, padahal yang belum didukung hanya satu-dua kartu di dalamnya. Registry
 > sekarang memberi satu kunci untuk satu widget.
 
+
+### Log isi permintaan dari gateway (diagnosis)
+
+Untuk menelusuri jawaban yang dilaporkan salah oleh klien, gateway dapat menyimpan **isi lengkap** permintaan dan
+jawaban: `GATEWAY_BODY_LOG_DIR=/logs` (pasang volume tersendiri, bukan volume data aplikasi). Satu berkas JSONL per hari
+(`bodies-YYYY-MM-DD.jsonl`, mode 600), dihapus otomatis setelah `GATEWAY_BODY_LOG_DAYS` hari (bawaan 14). Gambar inline
+diganti sha256 dan ukurannya; API key hanya disimpan sebagai sidik 8 karakter. Isinya data pengguna (percakapan siswa):
+nyalakan untuk jangka terbatas, beri tahu pemilik data, dan jangan dipakai untuk training tanpa izin terpisah.
+
 ### Halaman yang membaca data nyata
 
 | Halaman | Endpoint |

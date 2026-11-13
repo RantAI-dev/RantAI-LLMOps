@@ -192,10 +192,17 @@ Kalau `GATEWAY_VLLM_ALLOWED_MODELS` terhapus saat menaikkan ulang, adapter
 |---|---|---|---|
 | `rantai-gateway` | 11435 | Ollama | `GATEWAY_API_KEYS` |
 | `rantai-gateway-vllm` | 11436 | vllm4b | `GATEWAY_VLLM_API_KEYS` |
+| `rantai-gateway-8b` | 11438 | vllm8b (`rantai-vllm-8b`) | variabel lingkungan kontainer |
 
-Halaman **Deployments** hanya mengelola yang 11435. Kunci untuk 11436 diatur
+Halaman **Deployments** hanya mengelola yang 11435. Kunci untuk 11436 dan 11438 diatur
 lewat variabel lingkungan dan tidak pernah tampil di antarmuka. Kunci yang satu
 tidak berlaku di gerbang yang lain.
+
+- **11438 dipakai UI UGM** (adapter `ask`, `learn`, `practice` di 8B VL). Sejak 13 Nov 2026 berjalan dari image
+  kecil `rantai-gateway:bodylog` (`docker/gateway/Dockerfile`) dengan log isi permintaan untuk diagnosis feedback UGM:
+  volume `rantai-gateway-8b-bodylog` di `/logs`, dihapus otomatis setelah 14 hari (lihat `ARSITEKTUR.md`). Rollback:
+  kontainer `rantai-gateway-8b-old` (berhenti). Mematikan log: buat ulang tanpa `GATEWAY_BODY_LOG_DIR`.
+- **11436 tidak berfungsi sejak vLLM 4B diganti 8B:** upstream `vllm4b` sudah tidak ada.
 
 ## GPU bisa lepas dari kontainer yang sedang berjalan
 

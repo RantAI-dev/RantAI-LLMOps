@@ -24,6 +24,12 @@ writes it, so access changes live with no restart):
                           volume). When set, every proxied request appends one metadata line (model,
                           status, tokens, latency; never the prompt or the reply) so API traffic shows
                           up in the LLMOps Traces view. Off by default.
+  GATEWAY_BODY_LOG_DIR    optional directory for a FULL request/reply log, for diagnosing answers a client
+                          reports as wrong. Off by default. One JSONL file per day (`bodies-YYYY-MM-DD.jsonl`,
+                          mode 600) with the request (images replaced by their sha256 and size), the reply
+                          text, and a short fingerprint of the API key (never the key). Holds user content:
+                          enable only for a limited time.
+  GATEWAY_BODY_LOG_DAYS   days a body log file is kept before it is deleted (default 14).
   GATEWAY_ENGINE          set to `sglang` when the upstream is SGLang. SGLang picks a LoRA adapter with
                           `model: "<base>:<adapter>"` and answers ANY other name (a bare adapter name, a
                           typo, an unloaded adapter) with the base model and HTTP 200. In this mode the
@@ -32,6 +38,7 @@ writes it, so access changes live with no restart):
 
 Stdlib only — no extra deps.
 """
+import hashlib
 import hmac
 import json
 import os
@@ -45,6 +52,11 @@ PORT = int(os.environ.get("GATEWAY_PORT", "8080"))
 TRACE_FILE = os.environ.get("GATEWAY_TRACE_FILE", "").strip()
 # Most of a reply kept in memory to read its usage block; a longer reply is traced without token counts.
 _TRACE_CAPTURE = 4 * 1024 * 1024
+BODY_LOG_DIR = os.environ.get("GATEWAY_BODY_LOG_DIR", "").strip()
+try:
+    BODY_LOG_DAYS = max(1, int(os.environ.get("GATEWAY_BODY_LOG_DAYS", "14")))
+except ValueError:
+    BODY_LOG_DAYS = 14
 # Largest request body read into memory (32 MB leaves room for base64 images in a chat request).
 MAX_BODY = int(os.environ.get("GATEWAY_MAX_BODY_BYTES", str(32 * 1024 * 1024)))
 
@@ -138,6 +150,90 @@ def _trace(model, status, started, first_byte, captured, streamed):
             f.write(json.dumps(event) + "\n")
     except Exception as e:  # noqa: BLE001
         print(f"[rantai-gateway] trace write failed: {e}", flush=True)
+
+
+def _redact_images(obj):
+    """A copy of a request with every inline image (`data:...;base64,...`) replaced by its sha256 and size,
+    so the log keeps which image was sent without storing the picture."""
+    if isinstance(obj, dict):
+        return {k: _redact_images(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_images(v) for v in obj]
+    if isinstance(obj, str) and obj.startswith("data:") and ";base64," in obj[:100]:
+        head, _, data = obj.partition(",")
+        return {"redacted": head, "sha256": hashlib.sha256(data.encode()).hexdigest(), "base64Bytes": len(data)}
+    return obj
+
+
+def _reply_text(captured, streamed):
+    """The reply as the client saw it: the parsed JSON, or for a stream the joined content, reasoning,
+    finish reason and usage."""
+    text = captured.decode("utf-8", "replace")
+    if not streamed:
+        try:
+            return json.loads(text)
+        except ValueError:
+            return text[:20000]
+    content, reasoning, finish, usage = [], [], "", None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:") or line[5:].strip() in ("", "[DONE]"):
+            continue
+        try:
+            o = json.loads(line[5:])
+        except ValueError:
+            continue
+        if isinstance(o, dict):
+            usage = o.get("usage") or usage
+            choice = (o.get("choices") or [None])[0]
+            if isinstance(choice, dict):
+                finish = choice.get("finish_reason") or finish
+                delta = choice.get("delta") or {}
+                if isinstance(delta, dict):
+                    content.append(delta.get("content") or "")
+                    reasoning.append(delta.get("reasoning_content") or "")
+    out = {"content": "".join(content), "finish_reason": finish, "usage": usage}
+    if any(reasoning):
+        out["reasoning"] = "".join(reasoning)
+    return out
+
+
+_body_log_pruned = {"at": 0.0}
+
+
+def _body_log(key_id, path, request, status, http_status, started, captured, streamed):
+    """Append one full request/reply record. Never raises: logging must not break a request."""
+    if not BODY_LOG_DIR:
+        return
+    try:
+        old = os.umask(0o077)
+        try:
+            os.makedirs(BODY_LOG_DIR, exist_ok=True)
+            day = time.strftime("%Y-%m-%d", time.gmtime(started))
+            record = {
+                "ts": int(started * 1000),
+                "key": key_id,
+                "path": path,
+                "status": status,
+                "httpStatus": http_status,
+                "totalMs": round((time.time() - started) * 1000),
+                "request": _redact_images(request),
+                "reply": _reply_text(captured, streamed),
+            }
+            with open(os.path.join(BODY_LOG_DIR, f"bodies-{day}.jsonl"), "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        finally:
+            os.umask(old)
+        now = time.time()
+        if now - _body_log_pruned["at"] > 3600:  # delete expired days at most once an hour
+            _body_log_pruned["at"] = now
+            cutoff = now - BODY_LOG_DAYS * 86400
+            for name in os.listdir(BODY_LOG_DIR):
+                full = os.path.join(BODY_LOG_DIR, name)
+                if name.startswith("bodies-") and name.endswith(".jsonl") and os.path.getmtime(full) < cutoff:
+                    os.remove(full)
+    except Exception as e:  # noqa: BLE001
+        print(f"[rantai-gateway] body log write failed: {e}", flush=True)
 
 
 ENGINE = os.environ.get("GATEWAY_ENGINE", "").strip().lower()
@@ -256,8 +352,13 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return self.rfile.read(n) if n else b""
 
-    def _proxy(self, method, body=None, model="", streamed=False):
+    def _key_id(self):
+        """A short fingerprint of the caller's key for the body log (never the key itself)."""
+        return hashlib.sha256(self._bearer().encode("utf-8")).hexdigest()[:8]
+
+    def _proxy(self, method, body=None, model="", streamed=False, request=None):
         started = time.time()
+        path = self.path.split("?")[0]
         req = urllib.request.Request(UPSTREAM + self.path, data=body, method=method)
         req.add_header("Content-Type", "application/json")
         try:
@@ -265,6 +366,7 @@ class Handler(BaseHTTPRequestHandler):
         except urllib.error.HTTPError as e:
             _trace(model, "error", started, None, b"", streamed)
             raw = e.read()
+            _body_log(self._key_id(), path, request, "error", e.code, started, raw, False)
             try:
                 upstream = json.loads(raw)  # pass a JSON error through as JSON, keeping its "type"
             except ValueError:
@@ -276,6 +378,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         except Exception as e:  # noqa: BLE001
             _trace(model, "error", started, None, b"", streamed)
+            _body_log(self._key_id(), path, request, "error", 502, started, str(e).encode(), False)
             self._json(502, {"error": {"message": f"gateway upstream error: {e}"}})
             return
         # Stream the upstream body straight back. No Content-Length + Connection:
@@ -295,7 +398,7 @@ class Handler(BaseHTTPRequestHandler):
                 break
             if first_byte is None:
                 first_byte = time.time()
-            if TRACE_FILE and len(captured) < _TRACE_CAPTURE:
+            if (TRACE_FILE or BODY_LOG_DIR) and len(captured) < _TRACE_CAPTURE:
                 captured += chunk
             try:
                 self.wfile.write(chunk)
@@ -303,7 +406,9 @@ class Handler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 ok = False  # the client left mid-reply: still a request worth showing
                 break
-        _trace(model, "ok" if ok and resp.status < 400 else "error", started, first_byte, bytes(captured), streamed)
+        status = "ok" if ok and resp.status < 400 else "error"
+        _trace(model, status, started, first_byte, bytes(captured), streamed)
+        _body_log(self._key_id(), path, request, status if ok else "client_left", resp.status, started, bytes(captured), streamed)
 
     # ---- routes -------------------------------------------------------------
     def do_GET(self):
@@ -353,7 +458,8 @@ class Handler(BaseHTTPRequestHandler):
             if upstream_model != parsed.get("model"):
                 parsed["model"] = upstream_model
                 body = json.dumps(parsed).encode("utf-8")
-        self._proxy("POST", body, model=model if isinstance(model, str) else "", streamed=streamed)
+        self._proxy("POST", body, model=model if isinstance(model, str) else "", streamed=streamed,
+                    request=parsed if parsed is not None else body.decode("utf-8", "replace")[:20000])
 
     def _list_models(self, allowed):
         # OpenAI /v1/models, but only the allowed tags (empty allowlist => all).
