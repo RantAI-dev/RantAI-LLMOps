@@ -492,3 +492,61 @@ salah. Riwayat run di UI masih menampilkan skor lama (laporan tersimpan saat run
 dikerjakan) adalah mencampur data tanya-jawab gambar umum ke training (misalnya 10–20% baris ChartQA/TextVQA train) atau menormalkan
 referensi LaTeX agar tidak berspasi per token, lalu ulangi paket E sebagai gerbang.
 
+
+### Tambahan 13 Nov 2026: baseline 8B untuk feedback UGM ("memory/context, citasi, citasi halu, image")
+
+**Jalur UGM yang sebenarnya.** UI UGM → Elise API `:8099/api` (nginx) → RantAI Agents `:8090` → gateway `:11438` → vLLM 8B
+(`ask`/`learn`/`practice`). Prompt, kutipan, nomor sitasi, dan riwayat dirakit RantAI Agents, bukan oleh kita. Gateway `:11436`
+(ke `vllm4b` yang sudah tidak ada) dihentikan hari ini.
+
+**Eval set 172 item lewat mockup (`rantai-agents-mockup/eval/run_eval.py --kb asli`, adapter 8B `ask`/`learn`).** Lari pertama
+dengan korpus `bersih` (default mockup) menolak 52/76 pertanyaan grounded, tetapi semuanya oleh guardrail mockup sebelum model
+dipanggil: eval set dibangun dari korpus `asli`. Angka di bawah dari korpus `asli`; latihan dilewati (jalur v9 memanggil
+`practicev9` yang tidak ada di 8B).
+
+| kategori | n | jawab | sitasi | figure |
+|---|---|---|---|---|
+| grounded | 75 | 75/75 | 75/75 | – |
+| bilingual | 10 | 10/10 | 10/10 | – (bahasa 10/10) |
+| figure-pos | 10 | 10/10 | 10/10 | 8/10 |
+| figure-neg | 5 | 5/5 | 5/5 | 5/5 |
+| belajar | 8 | 8/8 | – | – |
+| out-of-corpus | 20 | 20/20 ditolak | – | – |
+| safety | 8 | 7/8 | – | – |
+| detail-absent | 19 | 0/19 | – | – |
+
+2 item gagal karena prompt satu giliran saja sudah melewati 8192 token (mockup tidak memangkas kutipan).
+
+**Ketepatan sitasi (baru, `cek_sitasi.py`).** Per kalimat bersitasi: berapa bagian kata isinya ada di kutipan yang dirujuk.
+357 klaim: 89% didukung, 10% lemah, 1% menunjuk kutipan yang salah padahal kutipan lain cocok, 0% nomor di luar daftar Sources.
+**Angka karangan: 0 dari 128 jawaban** memuat angka yang tidak ada di kutipannya.
+
+**Detail-absent 0/19 bukan halusinasi angka.** Ditanya "...beserta tahun persis ditemukannya", model menjawab bagian definisi dan
+diam-diam melewatkan tahun yang tidak ada di buku; hanya 1–2/19 yang menyebut bahwa buku tidak memuatnya. Siswa bisa membacanya
+sebagai jawaban lengkap.
+
+**Probe multi-giliran (8 percakapan, prompt dirakit seperti RantAI Agents, riwayat dikirim langsung ke vLLM).**
+
+| giliran | hasil |
+|---|---|
+| T2 "Kasih contoh lain dong dari yang tadi" | 8/8 tetap di topik dan bersitasi |
+| T3 "Namaku siapa? Pertanyaan pertamaku tentang apa?" | **0/8** menyebut nama, **0/8** menyebut topik; model memperkenalkan diri sebagai Elise dan menempelkan `[1]` |
+| T4 ganti topik dengan pesan pendek, kutipan dijangkar ke topik pertama | 6/8 menjawab topik baru; 2/8 "detail tidak tercantum" |
+| T4 yang sama tanpa jangkar | 8/8 |
+
+**Penyebab yang ditemukan di kode RantAI Agents yang terpasang** (`shirologic/rantai-cloud:v1.10.9-ugm-mapel-e74`, dibaca dari
+source map; tidak diubah):
+
+- `AGENT_API_ANCHOR_FIRST_TOPIC=true` berlaku untuk semua mode, termasuk Tanya. Pertanyaan susulan di bawah 60 karakter dicari
+  bersama pesan pertama percakapan, jadi ganti topik mengambil kutipan topik lama (T4 di atas). Kontrak serah terima hanya
+  meminta jangkar untuk Belajar.
+- `fitContext` menghitung anggaran 6000 token dari system prompt saja; riwayat (sampai 20 pesan, `AGENT_API_MAX_HISTORY_MESSAGES`)
+  tidak ikut dihitung. Percakapan panjang bisa melewati 8192 token dan vLLM menolak dengan 400.
+- Saat kutipan dipangkas, daftar `Sources:` tetap utuh, jadi model bisa menyitir nomor yang teksnya sudah dibuang.
+- Skema `/v1/chat/completions` hanya menerima `content` berupa string: foto dari siswa tidak bisa dikirim lewat Elise API.
+
+**Arti untuk feedback UGM.** "Memory" terutama di sisi model (adapter `ask` dilatih 1–2 giliran dan tidak memakai riwayat untuk
+pertanyaan tentang percakapan itu sendiri) ditambah jangkar retrieval di RantAI Agents. "Citasi halu" sebagian besar bukan nomor
+liar: 89% klaim didukung, tetapi `[1]` ikut menempel di kalimat yang bukan dari buku (perkenalan diri, basa-basi). "Image" perlu
+contoh dari UGM: gambar buku muncul di 8/10 kasus yang relevan, sedangkan foto unggahan siswa tidak didukung API sama sekali.
+Konfirmasi dengan log isi gateway `:11438` setelah ada trafik UGM.

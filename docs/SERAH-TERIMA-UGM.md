@@ -6,6 +6,12 @@ penilaian, hasil evaluasi, dan status terhadap PRD MVP.
 Semua angka di dokumen ini berasal dari pengukuran pada kasus di luar data latih, bukan
 dari perkiraan.
 
+> **Status 13 Nov 2026 — sebagian dokumen ini sudah usang.** Serving sekarang memakai **Qwen-SEA-LION-v4-8B-VL**
+> (`rantai-vllm-8b`) dengan adapter `ask`, `learn`, `practice`, lewat gateway **`http://10.17.254.27:11438/v1`**.
+> Gateway `:11436` dan model `askv6` (4B) sudah tidak ada; adapter `grading` tidak dimuat di 8B. Kontrak prompt di §4–§5
+> tetap berlaku, tetapi angka hasil uji di §2 dan §5 adalah angka 4B. Baseline 8B dan temuan atas feedback UGM ada di
+> `UJI-END-TO-END.md` (Tambahan 13 Nov 2026).
+
 ---
 
 ## Daftar Isi

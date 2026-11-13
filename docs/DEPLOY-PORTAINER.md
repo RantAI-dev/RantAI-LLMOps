@@ -19,7 +19,8 @@ Delapan layanan, bukan tiga seperti versi pertama dokumen ini.
   ollama               (tanpa port host — sengaja)
   vllm / vllm4b        (tanpa port host — sengaja)
   rantai-gateway       :11435 → ollama          klien luar, wajib kunci
-  rantai-gateway-vllm  :11436 → vllm4b          klien luar, wajib kunci
+  rantai-gateway-vllm  :11436 → vllm4b          DIHENTIKAN 13 Nov 2026 (upstream sudah tidak ada)
+  rantai-gateway-8b    :11438 → vllm8b          RantAI Agents (Elise API untuk UGM), wajib kunci
 ```
 
 Ollama **tidak** dipublikasikan ke jaringan: ia tanpa autentikasi dan melayani
@@ -191,18 +192,22 @@ Kalau `GATEWAY_VLLM_ALLOWED_MODELS` terhapus saat menaikkan ulang, adapter
 | Gerbang | Port | Ke | Kuncinya dari |
 |---|---|---|---|
 | `rantai-gateway` | 11435 | Ollama | `GATEWAY_API_KEYS` |
-| `rantai-gateway-vllm` | 11436 | vllm4b | `GATEWAY_VLLM_API_KEYS` |
+| `rantai-gateway-vllm` | 11436 | vllm4b (dihentikan) | `GATEWAY_VLLM_API_KEYS` |
 | `rantai-gateway-8b` | 11438 | vllm8b (`rantai-vllm-8b`) | variabel lingkungan kontainer |
 
 Halaman **Deployments** hanya mengelola yang 11435. Kunci untuk 11436 dan 11438 diatur
 lewat variabel lingkungan dan tidak pernah tampil di antarmuka. Kunci yang satu
 tidak berlaku di gerbang yang lain.
 
-- **11438 dipakai UI UGM** (adapter `ask`, `learn`, `practice` di 8B VL). Sejak 13 Nov 2026 berjalan dari image
+- **11438 melayani UGM, tidak langsung.** UI UGM memanggil Elise API (`:8099/api`, nginx `elise-api-docs`) yang
+  meneruskan ke RantAI Agents (`:8090`); RantAI Agents yang merakit prompt (persona, kutipan, Sources, riwayat) lalu
+  memanggil 11438 (adapter `ask`, `learn`, `practice` di 8B VL). Sejak 13 Nov 2026 berjalan dari image
   kecil `rantai-gateway:bodylog` (`docker/gateway/Dockerfile`) dengan log isi permintaan untuk diagnosis feedback UGM:
   volume `rantai-gateway-8b-bodylog` di `/logs`, dihapus otomatis setelah 14 hari (lihat `ARSITEKTUR.md`). Rollback:
   kontainer `rantai-gateway-8b-old` (berhenti). Mematikan log: buat ulang tanpa `GATEWAY_BODY_LOG_DIR`.
-- **11436 tidak berfungsi sejak vLLM 4B diganti 8B:** upstream `vllm4b` sudah tidak ada.
+- **11436 dihentikan 13 Nov 2026.** Upstream `vllm4b` sudah tidak ada, jadi setiap permintaan berakhir 502.
+  Kontainer `rantai-gateway-vllm` disimpan dengan restart policy `no`; menyalakannya lagi tidak ada gunanya
+  sebelum `GATEWAY_UPSTREAM` diarahkan ke server yang hidup.
 
 ## GPU bisa lepas dari kontainer yang sedang berjalan
 
