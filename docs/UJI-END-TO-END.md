@@ -550,3 +550,45 @@ pertanyaan tentang percakapan itu sendiri) ditambah jangkar retrieval di RantAI 
 liar: 89% klaim didukung, tetapi `[1]` ikut menempel di kalimat yang bukan dari buku (perkenalan diri, basa-basi). "Image" perlu
 contoh dari UGM: gambar buku muncul di 8/10 kasus yang relevan, sedangkan foto unggahan siswa tidak didukung API sama sekali.
 Konfirmasi dengan log isi gateway `:11438` setelah ada trafik UGM.
+
+### Tambahan 13 Nov 2026 (malam): latih ulang `ask` 8B dengan data multi-giliran (v13, v14)
+
+**Data.** `ask/v11-inggris` (547 baris, yang melayani `ask` sekarang) + baris baru yang semuanya dirakit dari baris v11, jadi tiap
+giliran asisten tetap berpijak pada kutipan di prompt-nya sendiri (trainer menghitung loss di SETIAP giliran asisten):
+
+| jenis | v13 | v14 | isi |
+|---|---|---|---|
+| ingat percakapan | 100 | 100 | nama, pertanyaan sebelumnya, dua topik; jawaban tanpa `[n]`; 9 baris nama belum disebut |
+| basa-basi | 30 | 30 | "makasih ya" → balasan singkat tanpa `[n]` |
+| detail tidak ada di buku | 70 | 170 | tahun/penemu/persen yang terbukti tidak ada di kutipan → jawab bagian yang ada + bilang terus terang |
+| ganti topik | 60 | 60 | kutipan topik A + B dalam satu prompt (bentuk jangkar RantAI), nomor sitasi dipetakan ulang |
+
+Topik eval set, nama "Rara", dan kalimat probe tidak pernah dipakai; template detail-absent eval tidak disalin. Pembangun:
+`rantai-agents-mockup/eval/build_ask_multigiliran.py`. Dataset: `s3://buku-korpus/ask/v13-multigiliran/`, `.../v14-multigiliran/`.
+
+**Training.** Resep v11 (unsloth-llm-train, LoRA r16/α32, lr 2e-4, 2 epoch, batch 2 × akumulasi 4) dengan `max_seq_length` 6144
+(baris terpanjang 4.737 token). v13 job `00e4ac75` (2 j 24 m), v14 job `65a0555d` (2 j 37 m). SGLang 8B dihentikan selama training
+untuk memori, lalu dinyalakan lagi.
+
+**Uji A/B.** Prompt dibekukan sekali dari mockup (`collect_prompts.py`), lalu `ask`, `askv13`, `askv14` dijalankan di vLLM uji yang
+sama (`vllm8b-uji`, klon `rantai-vllm-8b`, tanpa port host) dengan prompt identik (`ab_eval.py`). Angka gambar di sini adalah keluaran
+model mentah; mockup menambah gambar sendiri, karena itu baseline lewat mockup tadi siang 8/10.
+
+| uji | `ask` | `askv13` | `askv14` |
+|---|---|---|---|
+| ingat nama (probe hari ini + probe frasa baru) | 5/16 | 16/16 | 16/16 |
+| ingat topik pertama | 8/16 | 16/16 | 16/16 |
+| jawaban ingat-percakapan tanpa `[n]` | 2/16 | 16/16 | 15/16 |
+| ganti topik, kutipan dijangkar | 12/16 | 15/16 | 16/16 |
+| grounded jawab / sitasi | 75/75 / 75/75 | 75/75 / 75/75 | 75/75 / 75/75 |
+| gambar relevan / tidak relevan | 2/10 / 5/5 | 2/9 / 5/5 | 4/10 / 5/5 |
+| di luar buku ditolak, bahasa Inggris | 20/20, 10/10 | 20/20, 10/10 | 20/20, 10/10 |
+| detail-absent diakui | 0/19 | 2/19 | 9/19 |
+| dukungan sitasi (tanpa item Inggris) | 98% | 95% (4 nomor di luar Sources) | 97% |
+| angka karangan | 0 | 0 | 0 |
+
+**Vonis terhadap gerbang yang ditetapkan sebelum melihat hasil:** v13 gagal (detail-absent, sitasi `[12]`–`[16]` dari daftar bernomor
+di teks buku). v14 lulus semua kecuali detail-absent (9/19, syarat ≥ 10) dan memiliki satu halusinasi yang tidak ada di `ask`:
+"unsur pembangun puisi" dijawab "tema, gagasan, struktur, bahasa, gaya [4]" padahal kutipan [4] berisi unsur prosa. Dua jawaban v14
+juga menukar nomor sitasi (`[3]` untuk isi `[1]`). 9 dari 19 item detail-absent berbentuk "berapa tepatnya jumlah yang disebutkan di
+buku", yang sering memang terjawab oleh buku, jadi angka itu batas bawah. Belum dipasang ke produksi; `ask` tetap v11.
