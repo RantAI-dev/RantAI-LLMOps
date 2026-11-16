@@ -624,3 +624,30 @@ di jawaban nyata tidak valid** (menunjuk sumber yang bukan gambar atau di luar S
 
 Dua pola terakhir menjadi data v15 (`ask/v15-nyambung`): permintaan "yang lain" dijawab dengan isi kutipan yang belum
 disebut, dan pertanyaan susulan pendek dijawab dari kutipan topik percakapan walau prompt memuat kutipan buku lain.
+
+### Tambahan 16 Nov 2026 (sore): `ask` v15 ("nyambung") tidak lulus, produksi tetap v14
+
+**Data.** `ask/v15-nyambung` = v14 (907 baris) + 80 baris "ada lagi?" (jawaban pertama separuh kalimat bersitasi,
+lanjutan separuh sisanya, tanpa mengulang) + 80 baris kutipan nyasar (percakapan topik A dengan kutipan buku lain dari
+kelas yang sama, kadang sebagai [1]; susulan pendek dijawab dari kutipan A). Job `83228fc6`, resep sama dengan v14,
+3 j 43 m. Prompt eval dan probe dibekukan ulang (149 + 16, sama dengan sebelumnya); v14 dan v15 di `vllm8b-uji`
+(konteks 16k) dengan prompt identik.
+
+| uji | v14 (produksi) | v15 |
+|---|---|---|
+| putar ulang 6 percakapan nyata UGM × 3, jawaban tetap di topik | **14/18** | 8/18 |
+| gambar relevan dipasang (model mentah) | 6/10 | 3/10 |
+| detail-absent diakui | 9/20 | 8/20 |
+| dukungan sitasi | 85% | 86% |
+| grounded, di luar buku, bahasa Inggris, probe memori | setara | setara |
+
+Per percakapan: v15 lebih baik untuk "teks bold serta tabel" (benar-benar membuat tabel), tetapi "buatkan contoh 5 soal"
+di obrolan machine learning jadi 0/3 (soal pengumpulan data dan diagram batang) dan "coba beri rumus lain" 0/3 (luas
+lingkaran). Keduanya masih gagal di "beri contoh sederhana dengan rumus" (soal eksponen dari kutipan matematika yang
+ikut terambil). Catatan: v14 sendiri tidak konsisten antar-percobaan ("rumus lain" mengulang contoh di satu putaran,
+memberi R² di putaran lain), jadi satu kali putar ulang tidak cukup untuk menilai.
+
+**Kenapa gagal (dugaan).** Baris "ada lagi? → isi kutipan yang belum disebut" mengajari model mengambil materi yang
+belum dibahas; di percakapan nyata materi yang belum dibahas sering justru kutipan nyasar. "Jangan mengulang" dan
+"tetap di topik" bertabrakan bila satu-satunya bahan baru salah topik. Perbaikan berikutnya sebaiknya di sisi
+retrieval RantAI Agents (jangkar topik pertama hanya untuk Belajar, U2), bukan di adapter.
