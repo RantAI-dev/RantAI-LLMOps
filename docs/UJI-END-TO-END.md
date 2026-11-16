@@ -597,3 +597,30 @@ buku", yang sering memang terjawab oleh buku, jadi angka itu batas bawah.
 `ask` → job `65a0555d` (v14), konfigurasi lain identik; UGM terputus 138 detik. Probe di produksi sesudahnya: ingat nama 16/16,
 topik 16/16, ganti topik 16/16. Rollback: kontainer `rantai-vllm-8b-v11` (berhenti, restart policy `no`) — hentikan yang baru,
 hapus, ganti nama `rantai-vllm-8b-v11` → `rantai-vllm-8b`, set restart `unless-stopped`, start.
+
+### Tambahan 16 Nov 2026: log isi gateway UGM (13–15 Nov), konteks 16k, putar ulang
+
+**Data.** 58 request nyata lewat `:11438` (RantAI Agents memakai kunci yang sama dengan uji kita, sidik `1e8e218b`, jadi
+dipisahkan menurut isi, bukan kunci): `ask` 17, `practice` 17, `base` 24. Riwayat chat **sampai** ke model (percakapan
+sampai 12 pesan). Tidak ada request bergambar dari UGM.
+
+**400 karena konteks.** 3 request ditolak vLLM: prompt 7.169 token + 1.024 jatah jawaban > 8.192, termasuk **chat baru**.
+RantAI Agents memperkirakan 3,4 karakter per token; untuk materi ini ±2,3 (16.707 karakter, termasuk daftar 49 dokumen
+4.182 karakter). Konteks vLLM 8B dinaikkan ke 16.384; dua request yang gagal diputar ulang dan berhasil (10.591 dan
+8.793 token, ±90 dan ±33 detik).
+
+**Sitasi di jawaban nyata (`ask`, 14 jawaban).** 85% klaim bersitasi didukung kutipan yang dirujuk (45 dari 53), 2 menunjuk
+nomor yang tertukar. Catatan alat: RantAI Agents menggabung beberapa potongan satu dokumen di bawah satu nomor dengan
+pemisah `---` tanpa label baru; skorer yang hanya membaca potongan pertama memberi 34% palsu. **Ketiga tag `[figure:N]`
+di jawaban nyata tidak valid** (menunjuk sumber yang bukan gambar atau di luar Sources): kandidat kuat keluhan "Image".
+4 jawaban tanpa sitasi sama sekali (permintaan format "bold serta tabel", hitungan eksponen).
+
+**Putar ulang percakapan multi-giliran ke `ask` v14 (6 percakapan, prompt asli).**
+- "buatkan contoh 5 soal" setelah "aku mau belajar machine learning": v14 memberi 5 soal machine learning (v11: jawaban
+  kabur, di percakapan lain soal eksponen).
+- "beri contoh sederhana dengan rumus" di percakapan machine learning: v11 dan v14 sama-sama memberi soal **eksponen**
+  dari kutipan matematika yang ikut terambil retrieval (jangkar topik pertama + pesan pendek).
+- "coba beri rumus lain": v14 **mengulang** contoh eksponen yang sama (v11 memberi rumus R²).
+
+Dua pola terakhir menjadi data v15 (`ask/v15-nyambung`): permintaan "yang lain" dijawab dengan isi kutipan yang belum
+disebut, dan pertanyaan susulan pendek dijawab dari kutipan topik percakapan walau prompt memuat kutipan buku lain.
