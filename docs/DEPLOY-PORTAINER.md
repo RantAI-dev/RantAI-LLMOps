@@ -205,6 +205,10 @@ tidak berlaku di gerbang yang lain.
   kecil `rantai-gateway:bodylog` (`docker/gateway/Dockerfile`) dengan log isi permintaan untuk diagnosis feedback UGM:
   volume `rantai-gateway-8b-bodylog` di `/logs`, dihapus otomatis setelah 14 hari (lihat `ARSITEKTUR.md`). Rollback:
   kontainer `rantai-gateway-8b-old` (berhenti). Mematikan log: buat ulang tanpa `GATEWAY_BODY_LOG_DIR`.
+- **Konteks vLLM 8B = 16.384 token sejak 16 Nov 2026** (`VLLM_MAX_MODEL_LEN`, sebelumnya 8.192). RantAI Agents memperkirakan
+  3,4 karakter per token, padahal materi UGM ±2,3, sehingga prompt yang dianggap muat (16,7 ribu karakter = 7.169 token)
+  ditolak 400. Dua request yang gagal 15 Nov diputar ulang dan berhasil (10.591 dan 8.793 token). KV cache 41.200 token.
+  Rollback: `rantai-vllm-8b-8k` (berhenti). `rantai-sglang-8b` dimatikan permanen (restart `no`) untuk memori.
 - **`ask` di 8B = v14 (multi-giliran) sejak 14 Nov 2026**, job `65a0555d`. Rollback ke v11: kontainer `rantai-vllm-8b-v11`
   (lihat `UJI-END-TO-END.md`, Tambahan 13 Nov malam).
 - **11436 dihentikan 13 Nov 2026.** Upstream `vllm4b` sudah tidak ada, jadi setiap permintaan berakhir 502.
