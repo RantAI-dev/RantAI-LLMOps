@@ -75,6 +75,7 @@ lingkungan berikut:
 | `GATEWAY_VLLM_API_KEYS` | kunci untuk gerbang vLLM (11436) |
 | `GATEWAY_VLLM_ALLOWED_MODELS` | daftar-izin, mis. `base,askv6,learn,practice` |
 | `HF_TOKEN` | opsional, untuk model bergerbang |
+| `DUO_GATEWAY_URL`, `DUO_GATEWAY_TOKEN` | opsional: gateway Rantai-Aql untuk halaman Duo, mis. `http://rantai-aql:8080` dan salah satu tokennya (`NAFS_AUTH_TOKENS`) |
 | `INFERENCE_API_KEY` | kosongkan dulu — diisi pada langkah 4 |
 
 > **Rahasia JWT wajib.** Tanpa keduanya backend menjawab `/` tetapi setiap

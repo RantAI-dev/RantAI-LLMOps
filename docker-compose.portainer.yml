@@ -452,6 +452,10 @@ services:
       # empty to hide the Decision card on Deployments (the server is behind `--profile decision`).
       - DECISION_BASE_URL=${DECISION_BASE_URL:-}
       - DECISION_ADMIN_TOKEN=${DECISION_ADMIN_TOKEN:-}
+      # Duo (System 1 + System 2): a Rantai-Aql gateway (RantAI-dev/Rantai-Aql, deploy/gb10) and one of its
+      # bearer tokens. Leave DUO_GATEWAY_URL empty and the Duo page says it is not configured.
+      - DUO_GATEWAY_URL=${DUO_GATEWAY_URL:-}
+      - DUO_GATEWAY_TOKEN=${DUO_GATEWAY_TOKEN:-}
       # Optional second engine: a permanent vLLM service (safetensors, full
       # precision) reachable by its network alias `vllm`. Leave unset to keep the
       # Serve UI showing vLLM as "not configured" (never an error). See the
