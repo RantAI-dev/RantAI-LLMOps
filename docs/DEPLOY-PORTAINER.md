@@ -206,6 +206,12 @@ tidak berlaku di gerbang yang lain.
   kecil `rantai-gateway:bodylog` (`docker/gateway/Dockerfile`) dengan log isi permintaan untuk diagnosis feedback UGM:
   volume `rantai-gateway-8b-bodylog` di `/logs`, dihapus otomatis setelah 14 hari (lihat `ARSITEKTUR.md`). Rollback:
   kontainer `rantai-gateway-8b-old` (berhenti). Mematikan log: buat ulang tanpa `GATEWAY_BODY_LOG_DIR`.
+- **Pemeriksa sitasi di :11438 sejak 17 Nov 2026** (`GATEWAY_CITATION_GUARD=1`, image `rantai-gateway:citeguard`):
+  pada request yang system prompt-nya memuat daftar `Sources:` bernomor, `[figure:N]` yang tidak menunjuk sumber
+  `[FIGURE]` dan `[n]` di luar daftar dibuang sebelum jawaban sampai ke RantAI Agents (juga saat streaming). Di 14
+  jawaban UGM yang tercatat: 3 tag gambar dibuang (tidak satu pun punya sumber gambar), 0 sitasi. Jumlah yang dibuang
+  tercatat di log isi (`guard`). Volume log `rantai-gateway-8b-bodylog` dipasang lewat `Mounts`. Rollback: kontainer
+  `rantai-gateway-8b-bodylog` (berhenti).
 - **Konteks vLLM 8B = 16.384 token sejak 16 Nov 2026** (`VLLM_MAX_MODEL_LEN`, sebelumnya 8.192). RantAI Agents memperkirakan
   3,4 karakter per token, padahal materi UGM ±2,3, sehingga prompt yang dianggap muat (16,7 ribu karakter = 7.169 token)
   ditolak 400. Dua request yang gagal 15 Nov diputar ulang dan berhasil (10.591 dan 8.793 token). KV cache 41.200 token.
