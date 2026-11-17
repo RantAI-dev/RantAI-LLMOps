@@ -61,3 +61,4 @@ __pycache__/
 # Playwright browser-test output
 /test-results/
 /playwright-report/
+scripts/poc/elise_poc_report.md

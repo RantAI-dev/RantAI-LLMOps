@@ -651,3 +651,29 @@ memberi R² di putaran lain), jadi satu kali putar ulang tidak cukup untuk menil
 belum dibahas; di percakapan nyata materi yang belum dibahas sering justru kutipan nyasar. "Jangan mengulang" dan
 "tetap di topik" bertabrakan bila satu-satunya bahan baru salah topik. Perbaikan berikutnya sebaiknya di sisi
 retrieval RantAI Agents (jangkar topik pertama hanya untuk Belajar, U2), bukan di adapter.
+
+### Tambahan 17 Nov 2026: memory menurut prompt asli RantAI Agents, dan klien POC Elise API
+
+**Tanggapan UGM (17 Nov).** Memory sudah mereka tangani di backend integrator (RantAI Agents memang stateless: riwayat
+harus dikirim aplikasi). Yang tersisa dari sisi model: referensi yang tidak konsisten dan inline figure.
+
+**Prompt asli dari log, dengan dan tanpa riwayat** (3 percakapan multi-giliran UGM, model produksi `ask` v14):
+
+| | dengan riwayat | tanpa riwayat (aplikasi stateless) |
+|---|---|---|
+| "Tadi pertanyaan pertamaku apa?" | 3/3 benar ("Pertanyaan pertamamu: 'Apa itu machine learning?'") | model **mengarang** pertanyaan dari isi kutipan ("Tadi kamu bertanya: 'Apa yang dimaksud dengan debugging…'") |
+| "buatkan contoh 5 soal" | soal tetap seputar machine learning | soal melebar ke bab lain di buku |
+
+Jadi gejala "kaku dan tidak nyambung" muncul bila aplikasi tidak mengirim riwayat; model tidak hanya lupa tetapi
+mengisi kekosongan dengan pertanyaan karangan.
+
+**Gambar.** Di 56 request yang tercatat (13–15 Nov) tidak satu pun daftar Sources dari RantAI Agents memuat sumber
+`[FIGURE]`; ketiga `[figure:N]` yang muncul adalah karangan model dan kini dibuang pemeriksa sitasi gateway. Tidak ada
+request ke `learn`: "mode discuss" di aplikasi UGM tampaknya memakai asisten Tanya (`ask`).
+
+**Klien POC** `scripts/poc/elise_poc.py`: memerankan aplikasi UGM terhadap Elise API (`:8099/api`). Percakapan tiga
+giliran dikirim sebagai aplikasi yang mengirim riwayat dan sebagai aplikasi stateless (masing-masing 3 kali), lalu satu
+pertanyaan dengan `inline_figures` diperiksa: setiap `[n]` harus ada di `sources`, setiap `[figure:N]` harus menunjuk
+sumber `chunkType: figure`, dan `figures` harus cocok dengan tagnya. Kunci (`rantai_sk_…`, satu asisten Tanya) dibaca
+dari `~/.rantai_poc_key` dan tidak pernah dicetak. Contoh gambar yang dijamin ada menurut dokumentasi Elise: kunci Tanya
+Kelas 8, "Jelaskan struktur jantung manusia."
