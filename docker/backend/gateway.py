@@ -42,6 +42,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.request
@@ -57,6 +58,11 @@ try:
     BODY_LOG_DAYS = max(1, int(os.environ.get("GATEWAY_BODY_LOG_DAYS", "14")))
 except ValueError:
     BODY_LOG_DAYS = 14
+# Citation guard (opt-in): on a chat request whose system prompt carries a numbered `Sources:` list (the RantAI
+# Agents RAG contract), drop `[figure:N]` tags that do not name a [FIGURE] source and `[n]` citations outside the list
+# before the reply reaches the client. Measured 16 Nov 2026: all three figure tags in real UGM replies named a source
+# that was not an image.
+CITATION_GUARD = os.environ.get("GATEWAY_CITATION_GUARD", "").strip().lower() in ("1", "true", "on", "yes")
 # Largest request body read into memory (32 MB leaves room for base64 images in a chat request).
 MAX_BODY = int(os.environ.get("GATEWAY_MAX_BODY_BYTES", str(32 * 1024 * 1024)))
 
@@ -198,10 +204,117 @@ def _reply_text(captured, streamed):
     return out
 
 
+_TAG = re.compile(r"\[(figure:\s*)?(\d{1,4})\]", re.I)
+# The end of a text that may be the start of a tag still being streamed: "[", "[1", "[fig", "[figure:1" …
+_PARTIAL_TAG = re.compile(r"\[(?:f(?:i(?:g(?:u(?:r(?:e(?::\s*\d{0,4})?)?)?)?)?)?|\d{0,4})$", re.I)
+_SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([.,;:!?])")
+
+
+class CiteGuard:
+    """Removes citation tags that point nowhere. Built from the request: `n_sources` numbered entries, of which
+    `figures` are tagged [FIGURE]. `feed` takes streamed text and holds back a possible partial tag; `fix` takes
+    a whole reply."""
+
+    def __init__(self, n_sources, figures):
+        self.n_sources = n_sources
+        self.figures = frozenset(figures)
+        self.pending = ""
+        self.removed = {"figure": 0, "cite": 0}
+
+    @classmethod
+    def from_request(cls, parsed):
+        """A guard for a chat request with a `Sources:` list in its system prompt, else None."""
+        try:
+            first = (parsed.get("messages") or [None])[0]
+            if not isinstance(first, dict) or first.get("role") != "system" or not isinstance(first.get("content"), str):
+                return None
+            text = first["content"]
+            at = text.rfind("\nSources:\n")
+            if at < 0:
+                return None
+            # A source title can span lines (a section heading followed by a line of code), so a line that is
+            # not the next number continues the previous entry. The list ends at the next section. When in
+            # doubt this counts a source too many, which keeps a tag rather than dropping a valid one.
+            n, figs = 0, []
+            for line in text[at + len("\nSources:\n"):].split("\n"):
+                if line.startswith("## ") or line.startswith("Related entities:"):
+                    break
+                m = re.match(r"(\d+)\. (\[FIGURE\] )?", line)
+                if m and int(m.group(1)) == n + 1:
+                    n += 1
+                    if m.group(2):
+                        figs.append(n)
+            return cls(n, figs) if n else None
+        except Exception:  # noqa: BLE001  (a request we cannot read is passed through untouched)
+            return None
+
+    def _keep(self, m):
+        n = int(m.group(2))
+        if m.group(1):
+            if n in self.figures:
+                return m.group(0)
+            self.removed["figure"] += 1
+            return ""
+        if 1 <= n <= self.n_sources:
+            return m.group(0)
+        self.removed["cite"] += 1
+        return ""
+
+    def fix(self, text):
+        out = _TAG.sub(self._keep, text)
+        return _SPACE_BEFORE_PUNCT.sub(r"\1", out) if out != text else out
+
+    def feed(self, text):
+        s = self.pending + text
+        m = _PARTIAL_TAG.search(s)
+        start = m.start() if m else len(s)
+        while start > 0 and s[start - 1] in " \t":  # spaces before a tag go with it if the tag is dropped
+            start -= 1
+        if m and len(s) - start <= 24:
+            self.pending, s = s[start:], s[:start]
+        else:
+            self.pending = ""
+        return self.fix(s)
+
+    def flush(self):
+        s, self.pending = self.pending, ""
+        return self.fix(s)
+
+    def fix_json_reply(self, raw):
+        """A whole (non-streamed) chat completion: fix every choice's message text."""
+        reply = json.loads(raw)
+        for c in reply.get("choices") or []:
+            msg = c.get("message") or {}
+            if isinstance(msg.get("content"), str):
+                msg["content"] = self.fix(msg["content"])
+        return json.dumps(reply, ensure_ascii=False).encode("utf-8")
+
+    def fix_sse_line(self, line):
+        """One SSE line of a streamed chat completion (bytes, without its newline)."""
+        if not line.startswith(b"data: ") or line.strip() == b"data: [DONE]":
+            return line
+        try:
+            event = json.loads(line[6:])
+        except ValueError:
+            return line
+        changed = False
+        for c in event.get("choices") or []:
+            delta = c.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            if isinstance(delta.get("content"), str):
+                delta["content"] = self.feed(delta["content"])
+                changed = True
+            if c.get("finish_reason") and self.pending:
+                delta["content"] = (delta.get("content") or "") + self.flush()
+                changed = True
+        return b"data: " + json.dumps(event, ensure_ascii=False).encode("utf-8") if changed else line
+
+
 _body_log_pruned = {"at": 0.0}
 
 
-def _body_log(key_id, path, request, status, http_status, started, captured, streamed):
+def _body_log(key_id, path, request, status, http_status, started, captured, streamed, guard=None):
     """Append one full request/reply record. Never raises: logging must not break a request."""
     if not BODY_LOG_DIR:
         return
@@ -220,6 +333,8 @@ def _body_log(key_id, path, request, status, http_status, started, captured, str
                 "request": _redact_images(request),
                 "reply": _reply_text(captured, streamed),
             }
+            if guard is not None:
+                record["guard"] = {"sources": guard.n_sources, "figures": sorted(guard.figures), "removed": guard.removed}
             with open(os.path.join(BODY_LOG_DIR, f"bodies-{day}.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         finally:
@@ -356,7 +471,7 @@ class Handler(BaseHTTPRequestHandler):
         """A short fingerprint of the caller's key for the body log (never the key itself)."""
         return hashlib.sha256(self._bearer().encode("utf-8")).hexdigest()[:8]
 
-    def _proxy(self, method, body=None, model="", streamed=False, request=None):
+    def _proxy(self, method, body=None, model="", streamed=False, request=None, guard=None):
         started = time.time()
         path = self.path.split("?")[0]
         req = urllib.request.Request(UPSTREAM + self.path, data=body, method=method)
@@ -392,10 +507,36 @@ class Handler(BaseHTTPRequestHandler):
         first_byte = None
         captured = bytearray()
         ok = True
+        guard = guard if resp.status < 400 else None
+        if guard is not None and not streamed:
+            raw = resp.read()  # a whole JSON reply: fix it once, then send it
+            first_byte = time.time()
+            try:
+                raw = guard.fix_json_reply(raw)
+            except Exception:  # noqa: BLE001  (not the JSON we expected: pass it on untouched)
+                pass
+            chunks = [raw]
+        else:
+            chunks = None
+        line_buf = b""
         while True:
-            chunk = resp.read(8192)
-            if not chunk:
-                break
+            if chunks is not None:
+                if not chunks:
+                    break
+                chunk = chunks.pop()
+            else:
+                chunk = resp.read(8192)
+                if not chunk:
+                    if guard is not None and line_buf:
+                        chunk, line_buf = guard.fix_sse_line(line_buf), b""
+                    else:
+                        break
+                elif guard is not None:  # streamed: rewrite complete SSE lines, keep a partial one for later
+                    line_buf += chunk
+                    *lines, line_buf = line_buf.split(b"\n")
+                    chunk = b"".join(guard.fix_sse_line(x) + b"\n" for x in lines)
+                    if not chunk:
+                        continue
             if first_byte is None:
                 first_byte = time.time()
             if (TRACE_FILE or BODY_LOG_DIR) and len(captured) < _TRACE_CAPTURE:
@@ -408,7 +549,8 @@ class Handler(BaseHTTPRequestHandler):
                 break
         status = "ok" if ok and resp.status < 400 else "error"
         _trace(model, status, started, first_byte, bytes(captured), streamed)
-        _body_log(self._key_id(), path, request, status if ok else "client_left", resp.status, started, bytes(captured), streamed)
+        _body_log(self._key_id(), path, request, status if ok else "client_left", resp.status, started, bytes(captured),
+                  streamed, guard=guard)
 
     # ---- routes -------------------------------------------------------------
     def do_GET(self):
@@ -458,8 +600,11 @@ class Handler(BaseHTTPRequestHandler):
             if upstream_model != parsed.get("model"):
                 parsed["model"] = upstream_model
                 body = json.dumps(parsed).encode("utf-8")
+        guard = None
+        if CITATION_GUARD and path == "/v1/chat/completions" and isinstance(parsed, dict):
+            guard = CiteGuard.from_request(parsed)
         self._proxy("POST", body, model=model if isinstance(model, str) else "", streamed=streamed,
-                    request=parsed if parsed is not None else body.decode("utf-8", "replace")[:20000])
+                    request=parsed if parsed is not None else body.decode("utf-8", "replace")[:20000], guard=guard)
 
     def _list_models(self, allowed):
         # OpenAI /v1/models, but only the allowed tags (empty allowlist => all).
