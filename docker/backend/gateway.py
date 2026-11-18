@@ -63,6 +63,11 @@ except ValueError:
 # before the reply reaches the client. Measured 16 Nov 2026: all three figure tags in real UGM replies named a source
 # that was not an image.
 CITATION_GUARD = os.environ.get("GATEWAY_CITATION_GUARD", "").strip().lower() in ("1", "true", "on", "yes")
+# Figure placement (opt-in, needs the guard): when the Sources hold a [FIGURE] whose caption names what the student asked
+# about and the model wrote no figure tag, put `[figure:N]` after the first cited sentence about it. Measured 18 Nov 2026
+# through the Elise API: RantAI Agents picked "Gambar 1.20 Struktur Jantung Manusia" for "Jelaskan struktur jantung
+# manusia" every time, and the model placed it 0 of 6 times, so it only ever showed below the answer.
+FIGURE_PLACEMENT = os.environ.get("GATEWAY_FIGURE_PLACEMENT", "").strip().lower() in ("1", "true", "on", "yes")
 # Largest request body read into memory (32 MB leaves room for base64 images in a chat request).
 MAX_BODY = int(os.environ.get("GATEWAY_MAX_BODY_BYTES", str(32 * 1024 * 1024)))
 
@@ -208,6 +213,16 @@ _TAG = re.compile(r"\[(figure:\s*)?(\d{1,4})\]", re.I)
 # The end of a text that may be the start of a tag still being streamed: "[", "[1", "[fig", "[figure:1" …
 _PARTIAL_TAG = re.compile(r"\[(?:f(?:i(?:g(?:u(?:r(?:e(?::\s*\d{0,4})?)?)?)?)?)?|\d{0,4})$", re.I)
 _SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([.,;:!?])")
+# The end of a sentence and the citations that belong to it: "… ventrikel) [1]." / "… ventrikel. [1][2]"
+_SENTENCE_END = re.compile(r"(?:\s*\[\d+\])*[.!?](?:\s*\[\d+\])*(?=\s)")
+_CITE_ONLY = re.compile(r"\[\d+\]")
+_WORD = re.compile(r"[a-zA-ZÀ-ÿ]{4,}")
+_CAPTION_STOP = frozenset("""gambar halaman ilustrasi kelas edisi revisi buku siswa untuk dengan yang pada dari dalam adalah atau
+jelaskan apakah bagaimana mengapa kenapa tolong tentang sebutkan contoh bisa kamu saya kita dong""".split())
+
+
+def _words(text):
+    return {w for w in (x.lower() for x in _WORD.findall(text or "")) if w not in _CAPTION_STOP}
 
 
 class CiteGuard:
@@ -215,11 +230,17 @@ class CiteGuard:
     `figures` are tagged [FIGURE]. `feed` takes streamed text and holds back a possible partial tag; `fix` takes
     a whole reply."""
 
-    def __init__(self, n_sources, figures):
+    def __init__(self, n_sources, figures, place=None, place_words=frozenset(), place_strong=False):
         self.n_sources = n_sources
         self.figures = frozenset(figures)
         self.pending = ""
         self.removed = {"figure": 0, "cite": 0}
+        # figure placement: the figure to place, the words of its caption, whether its caption matches the question
+        # strongly enough to place it at the end when no sentence names it
+        self.place, self.place_words, self.place_strong = place, frozenset(place_words), place_strong
+        self.placed = None          # "gateway" once inserted, "model" when the model wrote a valid figure itself
+        self.window = ""            # text since the last sentence end, already sent
+        self.cited = False          # the answer carries a citation (an explanation, not a question back)
 
     @classmethod
     def from_request(cls, parsed):
@@ -235,7 +256,7 @@ class CiteGuard:
             # A source title can span lines (a section heading followed by a line of code), so a line that is
             # not the next number continues the previous entry. The list ends at the next section. When in
             # doubt this counts a source too many, which keeps a tag rather than dropping a valid one.
-            n, figs = 0, []
+            n, figs, captions = 0, [], {}
             for line in text[at + len("\nSources:\n"):].split("\n"):
                 if line.startswith("## ") or line.startswith("Related entities:"):
                     break
@@ -244,7 +265,26 @@ class CiteGuard:
                     n += 1
                     if m.group(2):
                         figs.append(n)
-            return cls(n, figs) if n else None
+                        captions[n] = line[m.end():]
+                elif n in captions:
+                    captions[n] += " " + line  # a caption that continues on the next line
+            if not n:
+                return None
+            place, words, strong = None, frozenset(), False
+            if FIGURE_PLACEMENT and captions:
+                users = [m for m in parsed.get("messages") or [] if isinstance(m, dict) and m.get("role") == "user"]
+                question = _words(users[-1].get("content") if users and isinstance(users[-1].get("content"), str) else "")
+                best = (0, None)
+                for k, cap in captions.items():
+                    # the caption is what follows the book title: "IPA … — Gambar 1.20 Struktur Jantung Manusia"
+                    cw = _words(cap.split(" — ", 1)[-1])
+                    score = len(cw & question)
+                    if score >= 2 or (score == 1 and len(cw) <= 2):
+                        if score > best[0]:
+                            best = (score, k, cw)
+                if best[1] is not None:
+                    place, words, strong = best[1], best[2], best[0] >= 2
+            return cls(n, figs, place, words, strong)
         except Exception:  # noqa: BLE001  (a request we cannot read is passed through untouched)
             return None
 
@@ -252,6 +292,10 @@ class CiteGuard:
         n = int(m.group(2))
         if m.group(1):
             if n in self.figures:
+                if self.placed == "gateway" and n == self.place:
+                    return ""  # the model wrote the figure the gateway already placed
+                if self.placed is None:
+                    self.placed = "model"
                 return m.group(0)
             self.removed["figure"] += 1
             return ""
@@ -262,7 +306,37 @@ class CiteGuard:
 
     def fix(self, text):
         out = _TAG.sub(self._keep, text)
-        return _SPACE_BEFORE_PUNCT.sub(r"\1", out) if out != text else out
+        out = _SPACE_BEFORE_PUNCT.sub(r"\1", out) if out != text else out
+        return self._place(out)
+
+    def _place(self, out):
+        """Insert the chosen figure after the first cited sentence that names it. `out` is the next piece of the
+        answer; the sentence it ends may have begun in pieces already sent (kept in `window`)."""
+        if self.place is None or self.placed is not None:
+            return out
+        text = self.window + out
+        if _CITE_ONLY.search(text):
+            self.cited = True
+        start = 0
+        for m in _SENTENCE_END.finditer(text):
+            if m.end() >= len(self.window):
+                sentence = text[start:m.end()]
+                if _CITE_ONLY.search(sentence) and _words(sentence) & self.place_words:
+                    cut = m.end() - len(self.window)
+                    self.placed = "gateway"
+                    self.window = ""
+                    return out[:cut] + f"\n[figure:{self.place}]\n" + out[cut:].lstrip(" ")
+            start = m.end()
+        self.window = text[start:][-4000:]
+        return out
+
+    def finish(self):
+        """At the end of an answer: place the figure at the end when no sentence named it, if the answer explained
+        (cited) and the caption matched the question strongly."""
+        if self.place is None or self.placed is not None or not (self.cited and self.place_strong):
+            return ""
+        self.placed = "gateway"
+        return f"\n\n[figure:{self.place}]"
 
     def feed(self, text):
         s = self.pending + text
@@ -278,7 +352,7 @@ class CiteGuard:
 
     def flush(self):
         s, self.pending = self.pending, ""
-        return self.fix(s)
+        return self.fix(s) + self.finish()
 
     def fix_json_reply(self, raw):
         """A whole (non-streamed) chat completion: fix every choice's message text."""
@@ -286,7 +360,7 @@ class CiteGuard:
         for c in reply.get("choices") or []:
             msg = c.get("message") or {}
             if isinstance(msg.get("content"), str):
-                msg["content"] = self.fix(msg["content"])
+                msg["content"] = self.fix(msg["content"]) + self.finish()
         return json.dumps(reply, ensure_ascii=False).encode("utf-8")
 
     def fix_sse_line(self, line):
@@ -305,9 +379,11 @@ class CiteGuard:
             if isinstance(delta.get("content"), str):
                 delta["content"] = self.feed(delta["content"])
                 changed = True
-            if c.get("finish_reason") and self.pending:
-                delta["content"] = (delta.get("content") or "") + self.flush()
-                changed = True
+            if c.get("finish_reason"):
+                tail = self.flush()
+                if tail:
+                    delta["content"] = (delta.get("content") or "") + tail
+                    changed = True
         return b"data: " + json.dumps(event, ensure_ascii=False).encode("utf-8") if changed else line
 
 
@@ -334,7 +410,8 @@ def _body_log(key_id, path, request, status, http_status, started, captured, str
                 "reply": _reply_text(captured, streamed),
             }
             if guard is not None:
-                record["guard"] = {"sources": guard.n_sources, "figures": sorted(guard.figures), "removed": guard.removed}
+                record["guard"] = {"sources": guard.n_sources, "figures": sorted(guard.figures), "removed": guard.removed,
+                                   "figure_chosen": guard.place, "figure_placed_by": guard.placed}
             with open(os.path.join(BODY_LOG_DIR, f"bodies-{day}.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
         finally:
