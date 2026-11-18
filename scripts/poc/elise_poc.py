@@ -26,7 +26,7 @@ FIG = re.compile(r"\[figure:\s*(\d+)\]", re.I)
 def key():
     k = os.environ.get("RANTAI_POC_KEY") or open(os.path.expanduser("~/.rantai_poc_key")).read()
     k = k.strip()
-    if not re.fullmatch(r"rantai_sk_[A-Za-z0-9]{32}", k):
+    if not re.fullmatch(r"rantai_sk_[A-Za-z0-9_-]{32}", k):
         raise SystemExit("the key does not look like rantai_sk_ + 32 characters")
     return k
 

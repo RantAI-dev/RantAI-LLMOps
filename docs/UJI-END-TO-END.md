@@ -677,3 +677,25 @@ pertanyaan dengan `inline_figures` diperiksa: setiap `[n]` harus ada di `sources
 sumber `chunkType: figure`, dan `figures` harus cocok dengan tagnya. Kunci (`rantai_sk_…`, satu asisten Tanya) dibaca
 dari `~/.rantai_poc_key` dan tidak pernah dicetak. Contoh gambar yang dijamin ada menurut dokumentasi Elise: kunci Tanya
 Kelas 8, "Jelaskan struktur jantung manusia."
+
+### Tambahan 18 Nov 2026: POC lewat Elise API (RantAI Agents), kunci Kelas 8 Tanya dan Belajar
+
+`scripts/poc/elise_poc.py` memerankan aplikasi UGM terhadap `http://10.17.254.27:8099/api/v1/chat/completions`.
+Percakapan tiga giliran ("Halo, aku Dimas. <topik>" → "Kasih contohnya dong." → "Namaku siapa? Terus tadi pertanyaan
+pertamaku tentang apa?"), 3 kali per skenario.
+
+| skenario | Tanya (`ask` v14) | Belajar (`learn`) |
+|---|---|---|
+| aplikasi mengirim riwayat | ingat nama dan pertanyaan pertama 3/3 | **0/3**: pertanyaan siswa diabaikan, model melanjutkan alur tanya-balik ("Jawabanmu soal ventrikel sudah tepat… Sekarang coba tebak…") |
+| aplikasi hanya mengirim pesan terakhir | 3/3 jujur: "Kamu belum menyebutkan namamu di percakapan ini" | **3/3 mengarang**: "Tadi kamu bertanya tentang cerita anak buta yang bermain piano…" |
+
+Kesimpulan: untuk Tanya, memory bergantung pada aplikasi mengirim riwayat dan modelnya sudah benar. Untuk Belajar ("mode
+discuss"), masalahnya di **model**: adapter `learn` tidak menanggapi pertanyaan siswa di luar alur tutornya dan tidak
+memakai riwayat untuk menjawabnya. Adapter `learn` belum pernah dilatih ulang dengan data multi-giliran (v14 hanya `ask`).
+
+**Gambar (pertanyaan "Jelaskan struktur jantung manusia.", `inline_figures: true`, 3 kali per mode).** RantAI Agents
+mengirim 7 sumber, 4 di antaranya gambar, dengan urutan bercampur ([3], [4], [5] gambar, [6] teks, [7] gambar), bukan
+teks 1..M lalu gambar M+1..K seperti kontrak serah terima dan data latih. Gambar yang tepat ("Gambar 1.20 Struktur
+Jantung Manusia") ada di [7] dan dikirim di `figures` dengan `cited: false` (ditampilkan setelah jawaban), tetapi model
+tidak pernah menulis `[figure:7]` di jawabannya (0/6). Itu sebabnya gambar tidak muncul di posisi kalimat yang
+membahasnya.
