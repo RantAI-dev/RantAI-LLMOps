@@ -699,3 +699,26 @@ teks 1..M lalu gambar M+1..K seperti kontrak serah terima dan data latih. Gambar
 Jantung Manusia") ada di [7] dan dikirim di `figures` dengan `cited: false` (ditampilkan setelah jawaban), tetapi model
 tidak pernah menulis `[figure:7]` di jawabannya (0/6). Itu sebabnya gambar tidak muncul di posisi kalimat yang
 membahasnya.
+
+### Tambahan 18 Nov 2026: `learn` v16 (percakapan bebas di Belajar), tidak lolos
+
+Data `learn/v16-nyambung` (235 baris) = `learn/v15-emas` (115, adapter `learn` yang melayani) + 60 baris *ingat*
+(siswa menyebut nama di awal lalu bertanya "namaku siapa? kita bahas apa?") + 40 *ringkas* (kalimat bersitasi dari
+giliran sebelumnya disalin utuh) + 20 *kosong* (pesan pertama yang menanyakan percakapan sebelumnya → jujur belum ada).
+Latih 4 epoch, r16/α32, lr 2e-4 (job 98c7698b, 1 jam 3 menit). Uji A/B di kontainer `vllm8b-uji` dengan request
+RantAI Agents yang dibekukan dari log gateway (8 topik Belajar Kelas 8):
+
+| ukuran | `learn` lama | v16 |
+|---|---|---|
+| dengan riwayat: ingat nama / topik | 0/6 / 6/6 | **6/6 / 6/6** |
+| tanpa riwayat: jujur / mengarang | 0/6 / 6/6 | **6/6 / 0/6** |
+| giliran 1 bertanya balik | 8/8 | 8/8 |
+| giliran 2 bersitasi (3 sampel per prompt) | 18/24 | **10/24** |
+
+Ingatan beres, tetapi sitasi giliran kedua turun, jadi v16 **tidak dipasang** (gerbang: sifat tutor tidak boleh lebih
+buruk). Penyebab di data: di v15-emas setiap baris diakhiri giliran bersitasi (0/115 tanpa sitasi); di v16 80/235 baris
+(34%) diakhiri jawaban *ingat*/*kosong* tanpa sitasi, sehingga model belajar giliran lanjutan boleh tanpa sitasi.
+
+v17 (`learn/v17-nyambung`, 215 baris): jawaban *ingat* tetap menyebut nama dan topik, lalu mengulang titik terakhir
+pelajaran dengan sitasi aslinya dari prompt yang sama ("Terakhir kita sampai di sini: … [1]"); *kosong* dikurangi ke
+12. Baris yang berakhir tanpa sitasi 12/215 (6%), giliran asisten bersitasi 67% (v15-emas 63%). Hiperparameter sama.
