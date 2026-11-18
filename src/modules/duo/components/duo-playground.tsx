@@ -42,7 +42,11 @@ export function DuoPlayground() {
       .then((j: { configured?: boolean }) => setConfigured(Boolean(j.configured)))
       .catch(() => setConfigured(false));
   }, []);
-  useEffect(() => endRef.current?.scrollIntoView?.({ block: "end" }), [turns, busy]);
+  // A block body: an effect may only return a cleanup function. Chrome's scrollIntoView now returns a Promise, and
+  // returning it made React call the Promise as a cleanup when the Duo tabs hid this panel ("i is not a function").
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: "end" });
+  }, [turns, busy]);
 
   async function send() {
     const q = input.trim();
