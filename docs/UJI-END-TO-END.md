@@ -733,3 +733,9 @@ tetapi jujur tanpa riwayat hanya 3/6 karena frasa tetap "Terakhir kita sampai di
 v19 (`learn/v19-nyambung`, 145 baris, job cf417628): giliran baru **ditempel pada baris v15 itu sendiri** (48 *ingat*,
 40 *ringkas*), tanpa salinan, sehingga setiap giliran lama terlatih persis sesering di `learn` lama (4 epoch); frasa
 rekap divariasikan; *kosong* 30 baris pendek.
+
+**Hasil v19 dan uji kontrol.** v19: ingat 6/6, jujur 6/6, tetapi sitasi giliran 2 tetap 47% (30/64) melawan 74%
+(119/160) untuk `learn` lama di semua run. Kontrol (data v15-emas dilatih ulang dengan setelan yang sama, job 16fbb4e5):
+69% (22/32), setara `learn` lama. Jadi melatih ulang tidak menurunkan sitasi; contoh-contoh memory itu sendiri yang
+menurunkannya. Jalur latih ulang dihentikan; `learn` production tetap job 192ce8d5. Jalan keluar tanpa latihan baru
+(belum dikerjakan): gateway mengarahkan pertanyaan tentang percakapan ke v19 (job cf417628), giliran lain ke `learn`.
