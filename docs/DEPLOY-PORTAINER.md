@@ -206,6 +206,11 @@ tidak berlaku di gerbang yang lain.
   kecil `rantai-gateway:bodylog` (`docker/gateway/Dockerfile`) dengan log isi permintaan untuk diagnosis feedback UGM:
   volume `rantai-gateway-8b-bodylog` di `/logs`, dihapus otomatis setelah 14 hari (lihat `ARSITEKTUR.md`). Rollback:
   kontainer `rantai-gateway-8b-old` (berhenti). Mematikan log: buat ulang tanpa `GATEWAY_BODY_LOG_DIR`.
+- **Penempatan gambar di :11438 sejak 18 Nov 2026** (`GATEWAY_FIGURE_PLACEMENT=1`, image `rantai-gateway:figplace`):
+  sumber `[FIGURE]` yang judulnya berbagi ≥2 kata dengan pertanyaan disisipkan sebagai `[figure:N]` setelah kalimat
+  bersitasi pertama yang menyebutnya (atau di akhir jawaban penjelasan), bila model tidak memasang gambar sendiri.
+  Lewat Elise API (Kelas 8 Tanya, "Jelaskan struktur jantung manusia"): sebelumnya 0/6 tertanam (`cited: false`,
+  tampil di bawah jawaban), sesudahnya 3/3 tertanam dengan `cited: true`. Rollback: `rantai-gateway-8b-citeguard`.
 - **Pemeriksa sitasi di :11438 sejak 17 Nov 2026** (`GATEWAY_CITATION_GUARD=1`, image `rantai-gateway:citeguard`):
   pada request yang system prompt-nya memuat daftar `Sources:` bernomor, `[figure:N]` yang tidak menunjuk sumber
   `[FIGURE]` dan `[n]` di luar daftar dibuang sebelum jawaban sampai ke RantAI Agents (juga saat streaming). Di 14
