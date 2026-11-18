@@ -16,6 +16,7 @@ const STRATEGIES: Array<{ id: string; label: string; hint: string }> = [
   { id: "nafs_aql_l10", label: "Gate, λ 0.10", hint: "" },
   { id: "nafs_aql_l40", label: "Gate, λ 0.40", hint: "" },
   { id: "nafs_aql_l60", label: "Gate, λ 0.60", hint: "Escalates less often" },
+  { id: "pre_route", label: "Router before answering", hint: "System 1 reads the question and picks the model before anything is answered (Semantic Router style)" },
 ];
 const DEFAULT_STRATEGIES = ["fast_only", "slow_only", "nafs_aql"];
 
@@ -26,7 +27,7 @@ const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "")
 /** The one-sentence finding: the best gate against "System 2 always", when both ran. */
 export function finding(points: DuoStrategyPoint[]): string | null {
   const slow = points.find((p) => p.system === "slow_only");
-  const gates = points.filter((p) => p.system.startsWith("nafs_") && p.accuracy !== null && p.meanCostS !== null);
+  const gates = points.filter((p) => (p.system.startsWith("nafs_") || p.system === "pre_route") && p.accuracy !== null && p.meanCostS !== null);
   if (!slow || slow.accuracy === null || slow.meanCostS === null || !gates.length) return null;
   const best = [...gates].sort((a, b) => b.accuracy! - a.accuracy! || a.meanCostS! - b.meanCostS!)[0];
   const share = best.meanCostS! / slow.meanCostS;

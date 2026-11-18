@@ -8,7 +8,7 @@
 import { duoGateway, DuoError } from "@/lib/duo";
 
 /** Strategies the page offers. `nafs_aql_l<NN>` is the gate with λ = NN/100 (the gateway's own naming). */
-const FIXED = ["fast_only", "slow_only", "nafs_aql", "nafs_blind"] as const;
+const FIXED = ["fast_only", "slow_only", "nafs_aql", "nafs_blind", "pre_route"] as const;
 const LAMBDA_SYSTEM = /^nafs_aql_l(\d{1,3})$/;
 export const DUO_EVAL_MAX_ITEMS = 200;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -26,7 +26,7 @@ export function strategyLabel(s: string): string {
   const m = LAMBDA_SYSTEM.exec(s);
   if (m) return `Gate, λ = ${(Number(m[1]) / 100).toFixed(2)}`;
   return (
-    { fast_only: "System 1 only", slow_only: "System 2 always", nafs_aql: "Gate (default λ)", nafs_blind: "Gate, checker hidden" }[s] ??
+    { fast_only: "System 1 only", slow_only: "System 2 always", nafs_aql: "Gate (default λ)", nafs_blind: "Gate, checker hidden", pre_route: "Router before answering" }[s] ??
     s
   );
 }
