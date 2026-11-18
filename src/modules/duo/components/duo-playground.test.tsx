@@ -93,4 +93,22 @@ describe("DuoPlayground", () => {
     expect(await screen.findByText(/backend unavailable/)).toBeInTheDocument();
     expect(screen.getByLabelText("Question")).toHaveValue("hello");
   });
+
+  it("returns no Promise from an effect when the browser's scrollIntoView returns one (Chrome)", async () => {
+    const proto = Element.prototype as unknown as { scrollIntoView?: unknown };
+    const had = proto.scrollIntoView;
+    proto.scrollIntoView = () => Promise.resolve();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      fetchMock.mockImplementation(() => json({ configured: true }));
+      const { unmount } = render(<DuoPlayground />);
+      await screen.findByLabelText("Question");
+      unmount(); // React runs the effect cleanups here, as it does when the Duo tabs hide this panel
+      const bad = errors.mock.calls.map((c) => c.map(String).join(" ")).filter((m) => /effect|is not a function/i.test(m));
+      expect(bad).toEqual([]);
+    } finally {
+      proto.scrollIntoView = had;
+      errors.mockRestore();
+    }
+  });
 });
