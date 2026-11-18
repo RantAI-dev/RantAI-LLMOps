@@ -1,5 +1,5 @@
-import { DuoPlayground } from "@/modules/duo";
+import { DuoPage } from "@/modules/duo";
 
 export default function Page() {
-  return <DuoPlayground />;
+  return <DuoPage />;
 }

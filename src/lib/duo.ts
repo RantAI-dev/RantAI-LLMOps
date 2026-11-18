@@ -160,15 +160,27 @@ export function toTrace(reply: unknown): DuoTrace {
 
 /** One chat turn through the gateway. Slow-path answers can take minutes, so the timeout is long. */
 export async function duoChat(r: DuoRequest, timeoutMs = 15 * 60_000): Promise<DuoTrace> {
+  return toTrace(await duoGateway("/v1/chat", { method: "POST", body: gatewayBody(r), timeoutMs }));
+}
+
+/**
+ * A call to the gateway with the server-side token. Returns the parsed JSON; throws DuoError with the status to answer
+ * the browser with (503 not configured, 502 unreachable or our token refused, otherwise the gateway's own status).
+ */
+export async function duoGateway(
+  path: string,
+  { method = "GET", body, timeoutMs = 30_000 }: { method?: "GET" | "POST"; body?: unknown; timeoutMs?: number } = {}
+): Promise<unknown> {
   if (!duoConfigured()) throw new DuoError("The Duo gateway is not configured (DUO_GATEWAY_URL)", 503);
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
   if (token()) headers.Authorization = `Bearer ${token()}`;
   let res: Response;
   try {
-    res = await fetch(`${baseUrl()}/v1/chat`, {
-      method: "POST",
+    res = await fetch(`${baseUrl()}${path}`, {
+      method,
       headers,
-      body: JSON.stringify(gatewayBody(r)),
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
@@ -187,8 +199,9 @@ export async function duoChat(r: DuoRequest, timeoutMs = 15 * 60_000): Promise<D
     const status = res.status === 401 || res.status === 403 ? 502 : res.status;
     throw new DuoError(`Duo gateway ${res.status}: ${message}`, status);
   }
+  if (!text.trim()) return null; // e.g. 202 Accepted on a cancel
   try {
-    return toTrace(JSON.parse(text));
+    return JSON.parse(text) as unknown;
   } catch {
     throw new DuoError("The Duo gateway returned something that is not JSON", 502);
   }

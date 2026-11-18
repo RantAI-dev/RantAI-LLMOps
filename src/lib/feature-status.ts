@@ -80,6 +80,8 @@ export const FEATURE_STATUS = {
   "playground.imageInput": "live",
   // Duo (System 1 + System 2) through a Rantai-Aql gateway, /duo. Through `/api/duo/chat` (DUO_GATEWAY_URL). See docs/RENCANA-DUO.md.
   "duo.playground": "live",
+  // Duo strategy comparison (D2): accuracy against cost per strategy, from the gateway's own eval. Through `/api/duo/evals`.
+  "duo.strategies": "live",
   // Image datasets (ZIP of JSONL + images). Through `/api/datasets/vision/*`.
   "datasets.vision": "live",
   // Vision fine-tune method (trainers/unsloth-vision-train). Through `/api/finetune/submit`.
