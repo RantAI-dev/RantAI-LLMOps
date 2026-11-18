@@ -293,6 +293,18 @@ setara; tanpa itu batasnya hilang tanpa pesan. Kontainer sebelum perubahan disim
 "Model only supports text input". Entrypoint SGLang di LLMOps memberinya sejak v0.45.0. Kontainer `rantai-sglang-8b`
 (Qwen3-VL) tidak terpengaruh: multimodal Qwen3-VL menyala secara bawaan.
 
+**`rantai-frontend` harus memasang volume bernama `rantai-llmops_ui_data` di `/data`.** Image frontend mendeklarasikan
+`VOLUME /data`, jadi kontainer yang dibuat ulang lewat API Docker tanpa mount eksplisit mendapat volume anonim kosong
+tanpa pesan apa pun. Itu terjadi pada v0.46.0 (17–18 Nov 2026): aplikasi tidak melihat prompt, riwayat eval, decision
+eval, pengaturan, dan konfigurasi gateway LLMOps, walau datanya tetap utuh di `ui_data`. Sejak v0.47.0 (18 Nov) mount itu
+eksplisit (`Mounts: [{Type: volume, Source: rantai-llmops_ui_data, Target: /data}]`); log job yang sempat tertulis di
+volume anonim (`68002b58…`, tidak dihapus) disalin ke `ui_data` tanpa menimpa. Rollback: `rantai-frontend-v0.46.0`
+(berhenti, restart no). Periksa setelah membuat ulang: `/api/prompts` harus mengembalikan prompt yang ada.
+
+**Sandbox kode gateway Rantai-Aql (`rantai-aql`).** Pemeriksa kode (HumanEval, MBPP) menolak menjalankan kode bila
+namespace user/mount/PID tidak bisa dibuat (fail closed), sehingga semua jawaban kode tercatat salah. Kontainer sekarang
+dibuat tanpa `seccomp=unconfined`/`apparmor=unconfined`; GSM8K tidak terpengaruh.
+
 ---
 
 ## Catatan lain
