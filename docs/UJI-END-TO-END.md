@@ -722,3 +722,14 @@ buruk). Penyebab di data: di v15-emas setiap baris diakhiri giliran bersitasi (0
 v17 (`learn/v17-nyambung`, 215 baris): jawaban *ingat* tetap menyebut nama dan topik, lalu mengulang titik terakhir
 pelajaran dengan sitasi aslinya dari prompt yang sama ("Terakhir kita sampai di sini: … [1]"); *kosong* dikurangi ke
 12. Baris yang berakhir tanpa sitasi 12/215 (6%), giliran asisten bersitasi 67% (v15-emas 63%). Hiperparameter sama.
+
+**v17 dan v18, juga tidak lolos.** v17 (data di atas, 4 epoch): ingat 6/6, jujur 6/6, tetapi sitasi giliran 2
+12/24 (lama 19/24). Jadi penyebabnya bukan akhir baris tanpa sitasi. Log latih menunjukkan sebabnya: `learn` lama
+berhenti di ±57 langkah dengan loss ±0,65, v17 ±108 langkah dengan loss 0,1–0,2. Baris *ingat*/*ringkas* menyalin
+percakapan v15 utuh dan trainer (`train_on_responses_only`) menghitung loss di setiap giliran asisten, sehingga giliran
+lama terlatih ±7 kali dan dihafal. v18 (2 epoch, *kosong* 16 dengan pertanyaan lebih beragam): sitasi naik ke 15/24,
+tetapi jujur tanpa riwayat hanya 3/6 karena frasa tetap "Terakhir kita sampai di sini" ikut muncul tanpa riwayat.
+
+v19 (`learn/v19-nyambung`, 145 baris, job cf417628): giliran baru **ditempel pada baris v15 itu sendiri** (48 *ingat*,
+40 *ringkas*), tanpa salinan, sehingga setiap giliran lama terlatih persis sesering di `learn` lama (4 epoch); frasa
+rekap divariasikan; *kosong* 30 baris pendek.
