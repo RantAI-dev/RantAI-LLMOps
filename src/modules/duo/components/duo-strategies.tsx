@@ -265,7 +265,10 @@ export function DuoStrategies() {
             </label>
           ))}
         </fieldset>
-        <p className="mt-2 text-[11px] text-ink-soft">System 2 takes about 30 s per question on the GB10, so 30 questions with System 2 always take around 15 minutes.</p>
+        <p className="mt-2 text-[11px] text-ink-soft">
+          Questions run one at a time. On the GB10, System 2 takes about 30 s per GSM8K question and several minutes per coding question, so a
+          comparison with System 2 always can take from 15 minutes to a few hours.
+        </p>
       </div>
 
       {error && <div className="rounded-lg border border-hairline px-4 py-2 text-xs text-destructive">{error}</div>}
