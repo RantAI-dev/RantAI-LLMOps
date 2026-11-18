@@ -115,3 +115,12 @@ export async function dockerConnectNetwork(
     EndpointConfig: aliases && aliases.length ? { Aliases: aliases } : {},
   });
 }
+
+export async function dockerRename(nameOrId: string, newName: string): Promise<DockerResult> {
+  return dockerRequest("POST", `/containers/${encodeURIComponent(nameOrId)}/rename?name=${encodeURIComponent(newName)}`);
+}
+
+/** Change a container's restart policy (or other updatable HostConfig fields). */
+export async function dockerUpdate(nameOrId: string, body: Record<string, unknown>): Promise<DockerResult> {
+  return dockerRequest("POST", `/containers/${encodeURIComponent(nameOrId)}/update`, body);
+}
