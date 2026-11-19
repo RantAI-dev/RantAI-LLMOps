@@ -76,6 +76,7 @@ lingkungan berikut:
 | `GATEWAY_VLLM_ALLOWED_MODELS` | daftar-izin, mis. `base,askv6,learn,practice` |
 | `HF_TOKEN` | opsional, untuk model bergerbang |
 | `DUO_GATEWAY_URL`, `DUO_GATEWAY_TOKEN` | opsional: gateway Rantai-Aql untuk halaman Duo, mis. `http://rantai-aql:8080` dan salah satu tokennya (`NAFS_AUTH_TOKENS`) |
+| `DUO_DEPLOYER_URL`, `DUO_DEPLOYER_TOKEN` | opsional: Duo deployer untuk tab *Models* di `/duo`, mis. `http://duo-deployer:8097` dan token acak ≥ 24 karakter (sama di frontend dan `duo-deployer`); kosong = tab *Models* hanya baca |
 | `INFERENCE_API_KEY` | kosongkan dulu — diisi pada langkah 4 |
 
 > **Rahasia JWT wajib.** Tanpa keduanya backend menjawab `/` tetapi setiap
@@ -304,6 +305,18 @@ volume anonim (`68002b58…`, tidak dihapus) disalin ke `ui_data` tanpa menimpa.
 **Sandbox kode gateway Rantai-Aql (`rantai-aql`).** Pemeriksa kode (HumanEval, MBPP) menolak menjalankan kode bila
 namespace user/mount/PID tidak bisa dibuat (fail closed), sehingga semua jawaban kode tercatat salah. Kontainer sekarang
 dibuat tanpa `seccomp=unconfined`/`apparmor=unconfined`; GSM8K tidak terpengaruh.
+
+**Duo deployer (`rantai-duo-deployer`, profil `duo`).** Tab *Models* di `/duo` mengganti model atau adapter di
+balik System 1/System 2 (`aql-s1`, `aql-s2`). Itu butuh Docker socket, yang setara akses root ke host, jadi socket
+**tidak** dipasang di frontend (port 3000 terbuka dengan satu password bersama). Socket hanya ada di kontainer kecil
+`duo-deployer`: image frontend yang sama dengan perintah `node deployer/duo-deployer.cjs`, tanpa port yang dibuka ke
+host, di jaringan `llmops` (harus satu jaringan dengan `aql-s1`/`aql-s2`). Ia hanya menerima `GET /status`,
+`POST /deploy` (model Hugging Face `owner/name` dan adapter di bawah `/root/.transformerlab`), dan `POST /rollback`
+dengan `Authorization: Bearer $DUO_DEPLOYER_TOKEN`; jalur lain 404. Pemegang token hanya bisa mengganti model kedua
+peran itu, bukan membuat kontainer sembarang. Menyalakan: buat token (`openssl rand -hex 24`), isi
+`DUO_DEPLOYER_TOKEN` di frontend dan `duo-deployer`, `DUO_DEPLOYER_URL=http://duo-deployer:8097` di frontend, lalu
+`docker compose --profile duo up -d duo-deployer frontend`. Mematikan: hentikan `rantai-duo-deployer` (tab *Models*
+kembali hanya baca).
 
 ---
 

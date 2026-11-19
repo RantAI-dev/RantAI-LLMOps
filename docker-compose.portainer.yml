@@ -456,6 +456,10 @@ services:
       # bearer tokens. Leave DUO_GATEWAY_URL empty and the Duo page says it is not configured.
       - DUO_GATEWAY_URL=${DUO_GATEWAY_URL:-}
       - DUO_GATEWAY_TOKEN=${DUO_GATEWAY_TOKEN:-}
+      # Duo model deployment (Models tab) goes through the duo-deployer service below, which holds the Docker
+      # socket; the frontend never does. Empty = the Models tab is read-only.
+      - DUO_DEPLOYER_URL=${DUO_DEPLOYER_URL:-}
+      - DUO_DEPLOYER_TOKEN=${DUO_DEPLOYER_TOKEN:-}
       # Optional second engine: a permanent vLLM service (safetensors, full
       # precision) reachable by its network alias `vllm`. Leave unset to keep the
       # Serve UI showing vLLM as "not configured" (never an error). See the
@@ -508,6 +512,24 @@ services:
     depends_on:
       - rantai-backend
       - ollama
+    restart: unless-stopped
+    networks:
+      - llmops
+
+  # Duo deployer (`--profile duo`): swaps the model or adapter behind the Rantai-Aql System 1 / System 2 containers
+  # (aql-s1, aql-s2) for the Duo Models tab. It is the only container here with the Docker socket, which is
+  # root-equivalent on the host, so it publishes no port and accepts only /status, /deploy and /rollback with
+  # DUO_DEPLOYER_TOKEN (at least 24 characters). Set DUO_DEPLOYER_URL=http://duo-deployer:8097 on the frontend.
+  duo-deployer:
+    image: ${FRONTEND_IMAGE:-ghcr.io/rantai-dev/rantai-llmops-fe:latest}
+    container_name: rantai-duo-deployer
+    profiles: ["duo"]
+    command: ["node", "deployer/duo-deployer.cjs"]
+    user: "0"
+    environment:
+      - DUO_DEPLOYER_TOKEN=${DUO_DEPLOYER_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     networks:
       - llmops

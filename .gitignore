@@ -62,3 +62,6 @@ __pycache__/
 /test-results/
 /playwright-report/
 scripts/poc/elise_poc_report.md
+
+# Duo deployer bundle (npm run build:deployer)
+/deployer/
