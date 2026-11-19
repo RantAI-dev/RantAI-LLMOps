@@ -18,6 +18,8 @@ ENV HOST_RUNNER=$HOST_RUNNER
 ENV DOCKER_CONTAINER=$DOCKER_CONTAINER
 ENV DOCKER_BUILD=1
 RUN npm run build
+# The Duo deployer (src/deployer): a separate container from this image holds the Docker socket, not the UI.
+RUN npm run build:deployer
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -32,6 +34,7 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup \
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/deployer ./deployer
 USER appuser
 VOLUME ["/data"]
 EXPOSE 3000

@@ -138,7 +138,7 @@ export function DuoPair() {
       </p>
       {!status.docker && (
         <p className="rounded-lg border border-hairline px-4 py-2 text-[12px] text-ink-soft">
-          Read only: changing models needs the Docker socket mounted on the frontend (DOCKER_SOCKET).
+          Read only: changing models needs the Duo deployer (DUO_DEPLOYER_URL, see docs/DEPLOY-PORTAINER.md).
         </p>
       )}
       <div className="grid gap-3 md:grid-cols-2">

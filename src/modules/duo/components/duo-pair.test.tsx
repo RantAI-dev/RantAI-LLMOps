@@ -41,10 +41,10 @@ afterEach(() => {
 });
 
 describe("DuoPair", () => {
-  it("shows both roles read-only when the frontend has no Docker socket", async () => {
+  it("shows both roles read-only when no Duo deployer is configured", async () => {
     fetchMock.mockImplementation(() => json(status(false)));
     render(<DuoPair />);
-    expect(await screen.findByText(/Read only: changing models needs the Docker socket/)).toBeInTheDocument();
+    expect(await screen.findByText(/Read only: changing models needs the Duo deployer/)).toBeInTheDocument();
     expect(screen.getByText("Qwen/Qwen3-4B-Thinking-2507")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /deploy/i })).not.toBeInTheDocument();
   });
