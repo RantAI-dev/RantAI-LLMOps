@@ -26,23 +26,37 @@ hanya bila perlu. Ada dua cara memutuskan "perlu", dan keduanya akan bisa diband
 - **Belum ada**: orkestrasi dua model, gate, dan tampilan jejak di LLMOps; ShadowPrefill di jalur GPU (engine Smiley
   Core Nafs-Aql hanya punya kernel AVX2, di ARM jatuh ke skalar).
 
-### Status 18 Nov
+### Status 19 Nov (dijeda; fokus pindah ke UGM)
 
 - **D1** selesai (v0.46.0).
-- **D2** tab *Compare strategies* di `/duo` (v0.47.0): pilih dataset, jumlah soal, dan strategi (`fast_only`,
-  `slow_only`, `nafs_aql`, `nafs_aql_l05/l10/l40/l60`), jalankan eval gateway (`/api/duo/evals`), lalu lihat akurasi
-  (interval 95%) terhadap detik per soal dengan frontier Pareto dari gateway. GSM8K (60 soal, GB10): System 1 81,7% /
-  3,0 s, gate 98,3% / 12,0 s, System 2 98,3% / 32,6 s, jadi gate menyamai System 2 dengan 37% waktunya.
-  **HumanEval belum bisa dinilai:** pemeriksa kode gateway menolak menjalankan kode karena sandbox (user/mount/PID
-  namespace) tidak tersedia di kontainer `rantai-aql`; semua jawaban tercatat salah (fail closed). Perlu kontainer
-  dengan `seccomp=unconfined` dan `apparmor=unconfined`, mungkin juga `kernel.apparmor_restrict_unprivileged_userns=0`
-  di host. Menunggu keputusan.
-- **D3** tertahan: frontend production tidak memasang Docker socket. Gateway menunjuk alias tetap (`aql-s1:8001`
-  `system1`, `aql-s2:8002` `system2`), jadi D3 cukup mengganti kontainer di balik alias itu tanpa menulis ulang
-  konfigurasi gateway.
-- **D4** butuh keputusan: Tazkiya meminta ≥ 5.000 jawaban System 2 terverifikasi (±20 jam GPU di GB10, berbagi dengan
-  model UGM); pilot kecil 300–500 soal dimungkinkan.
-- **D5** belum dimulai (strategi baru di `nafs-eval`, Rust).
+- **D2** selesai (v0.47.0, perbaikan crash pindah tab di v0.48.0). Tab *Compare strategies* di `/duo`: pilih dataset,
+  jumlah soal, dan strategi, jalankan eval gateway (`/api/duo/evals`), lalu lihat akurasi (interval 95%) terhadap detik
+  per soal dengan frontier Pareto. Hasil di GB10:
+  - GSM8K 60 soal: System 1 81,7% / 3,0 s, gate 98,3% / 12,0 s, System 2 98,3% / 32,6 s. Gate menyamai System 2 dengan
+    37% waktunya.
+  - schema_tasks: System 1 91,7% / 0,8 s, gate 100% / 0,9 s, System 2 100% / 24,2 s.
+  - Sapuan λ di GSM8K (30 soal): System 1 93,3% / 2,8 s; semua λ (0,05–0,60) 100% dengan 7,9–8,9 s dan eskalasi 13%.
+  - **Dataset kode (HumanEval) dilewati.** Sandbox pemeriksa kode butuh user namespace, yang ditolak host Ubuntu 24.04
+    (`kernel.apparmor_restrict_unprivileged_userns=1`). Keputusan: pengaturan host tidak diubah.
+- **D3** live (v0.49.0). Tab *Models* mengganti model atau adapter System 1/2 lewat kontainer terpisah
+  `rantai-duo-deployer` yang memegang Docker socket (tanpa port ke host, hanya status/deploy/rollback dengan token);
+  frontend tetap tanpa socket. Celah: daftar adapter hasil training di tab itu masih kosong (host-runner belum
+  tersambung), jadi saat ini hanya ganti model dasar.
+- **D4 pilot tidak lolos gerbang.** 293 jawaban System 2 terverifikasi dari GSM8K train, LoRA r16 pada Qwen3-1.7B,
+  2 epoch (job `4a0286bd`). Dibandingkan System 1 tanpa adapter pada 60 soal yang sama (run 18 Nov):
+  System 1 turun dari 86,7% ke 73,3% (2,8 → 2,7 s); gate tetap 98,3% tapi eskalasi naik dari 20% ke 30% dan waktu
+  naik dari 13,7 ke 16,4 s. Adapter tidak dipakai; `aql-s1` dikembalikan ke model dasar. Kemungkinan penyebab: data
+  terlalu sedikit dan gaya jawaban System 2 (panjang, berpikir) tidak cocok untuk System 1 tanpa mode berpikir.
+- **D4 ronde 2 juga tidak lolos.** System 1 menjawab 1.200 soal GSM8K train (950 benar); System 2 memperbaiki 221
+  dari 250 yang salah; 1.392 baris (jawaban sendiri + perbaikan ×2) dengan system prompt asli gateway, 1 epoch,
+  lr 1e-4 (job `20b2628c`). Hasil 60 soal: System 1 83,3% (baseline 86,7%, pilot 73,3%) tetapi 13,0 s per soal
+  (baseline 2,8 s); gate 98,3% / 15,8 s, eskalasi 25%. Adapter tidak dipakai; `aql-s1` kembali ke model dasar.
+  Penyebab lambat belum diperiksa (panjang data latih mirip). D4 dihentikan dulu.
+- **D5** selesai (Rantai-Aql PR #1, strategi `pre_route`: System 1 memilih jalur sebelum menjawab).
+  - GSM8K 60: fast 86,7% / 2,8 s; pre_route 86,7% / 8,8 s (eskalasi 8%); gate 98,3% / 13,7 s (20%); slow 98,3% /
+    31,5 s.
+  - schema_tasks: fast 91,7% / 0,83 s; pre_route 91,7% / 0,95 s; gate 100% / 3,2 s; slow 100% / 25,4 s.
+  - Router sebelum menjawab tidak menambah akurasi. Gate yang memutuskan setelah melihat draf tetap terbaik.
 
 ## 3. Arsitektur
 
