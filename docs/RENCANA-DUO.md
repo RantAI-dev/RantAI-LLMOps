@@ -26,7 +26,7 @@ hanya bila perlu. Ada dua cara memutuskan "perlu", dan keduanya akan bisa diband
 - **Belum ada**: orkestrasi dua model, gate, dan tampilan jejak di LLMOps; ShadowPrefill di jalur GPU (engine Smiley
   Core Nafs-Aql hanya punya kernel AVX2, di ARM jatuh ke skalar).
 
-### Status 19 Nov (dijeda; fokus pindah ke UGM)
+### Status 21 Nov (dilanjutkan)
 
 - **D1** selesai (v0.46.0).
 - **D2** selesai (v0.47.0, perbaikan crash pindah tab di v0.48.0). Tab *Compare strategies* di `/duo`: pilih dataset,
@@ -49,9 +49,12 @@ hanya bila perlu. Ada dua cara memutuskan "perlu", dan keduanya akan bisa diband
   terlalu sedikit dan gaya jawaban System 2 (panjang, berpikir) tidak cocok untuk System 1 tanpa mode berpikir.
 - **D4 ronde 2 juga tidak lolos.** System 1 menjawab 1.200 soal GSM8K train (950 benar); System 2 memperbaiki 221
   dari 250 yang salah; 1.392 baris (jawaban sendiri + perbaikan ×2) dengan system prompt asli gateway, 1 epoch,
-  lr 1e-4 (job `20b2628c`). Hasil 60 soal: System 1 83,3% (baseline 86,7%, pilot 73,3%) tetapi 13,0 s per soal
-  (baseline 2,8 s); gate 98,3% / 15,8 s, eskalasi 25%. Adapter tidak dipakai; `aql-s1` kembali ke model dasar.
-  Penyebab lambat belum diperiksa (panjang data latih mirip). D4 dihentikan dulu.
+  lr 1e-4 (job `20b2628c`). Hasil 60 soal: System 1 83,3% (baseline 86,7%, selisih 2 soal), gate 98,3%, eskalasi 25%
+  (baseline 20%). Adapter tidak membuat System 1 lambat: median 2,8 s per soal (baseline 2,6 s). Rata-rata 13,0 s di
+  laporan awal berasal dari satu soal yang menunggu 582 s sebelum token pertama, karena eval dimulai 2 menit setelah
+  `aql-s1` diganti (pemanasan adapter LoRA di vLLM); tanpa soal itu rata-ratanya 3,3 s. Jadi ronde 2 setara dengan
+  baseline, bukan lebih baik: tidak lolos gerbang (akurasi sama atau naik dengan biaya lebih rendah). Pelajaran: beri
+  satu permintaan pemanasan setelah mengganti model sebelum mengukur waktu.
 - **D5** selesai (Rantai-Aql PR #1, strategi `pre_route`: System 1 memilih jalur sebelum menjawab).
   - GSM8K 60: fast 86,7% / 2,8 s; pre_route 86,7% / 8,8 s (eskalasi 8%); gate 98,3% / 13,7 s (20%); slow 98,3% /
     31,5 s.
