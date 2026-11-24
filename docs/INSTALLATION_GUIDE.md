@@ -106,16 +106,19 @@ docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 
 ---
 
-## 🔑 4. Tahap 2: Menyiapkan Secrets & Environment Variables
+## 🔑 4. Tahap 2: Menyiapkan Secrets & Environment Variables (Zero-Clone)
 
-Di box baru, buat direktori kerja:
+> [!TIP]
+> **Tidak perlu melakukan `git clone` repo.**  
+> Semua image container sudah ter-build dan dipublikasikan di GitHub Container Registry (GHCR) pada rilis **`v0.49.0`**. Anda hanya membutuhkan direktori kosong, file konfigurasi `.env`, dan file `docker-compose.yml` yang diunduh langsung via curl.
+
+Di box baru, buat direktori kerja dan masuk ke dalamnya:
 
 ```bash
-mkdir -p ~/rantai-llmops
-cd ~/rantai-llmops
+mkdir -p ~/rantai-llmops && cd ~/rantai-llmops
 ```
 
-Generate secret kunci enkripsi yang dibutuhkan:
+Generate secret kunci enkripsi dan buat file `.env`:
 
 ```bash
 # Generate secret untuk JWT TransformerLab & NextAuth
@@ -124,7 +127,7 @@ export TL_REFRESH=$(openssl rand -hex 32)
 export AUTH_SEC=$(openssl rand -base64 32)
 export DUO_TOKEN=$(openssl rand -hex 24)
 
-# Buat file .env
+# Buat file .env secara otomatis
 cat <<EOF > .env
 # Security & Auth
 TRANSFORMERLAB_JWT_SECRET=${TL_JWT}
@@ -138,7 +141,7 @@ HF_TOKEN=hf_masukkan_token_huggingface_disini
 INFERENCE_MODEL=qwen2.5:3b-instruct
 CHAT_MAX_TOKENS=8192
 
-# Images (Bisa override jika punya build lokal)
+# Pre-built Container Images dari Release GHCR (Tidak perlu build lokal)
 BACKEND_IMAGE=ghcr.io/rantai-dev/rantai-llmops-backend@sha256:d4c323c76cbe7caf4f8c7eecbf9f052ef389bf38bdd104c380563134cd49d4be
 FRONTEND_IMAGE=ghcr.io/rantai-dev/rantai-llmops-fe:latest
 
@@ -152,9 +155,15 @@ EOF
 
 ---
 
-## 📦 5. Tahap 3: File `docker-compose.yml` Lengkap
+## 📦 5. Tahap 3: Download `docker-compose.yml` (Tanpa Clone Repo)
 
-Buat file `docker-compose.yml` di folder `~/rantai-llmops/` (sama persis dengan yang ada di Portainer box UGM):
+Unduh file compose langsung dari rilis repository resmi tanpa clone git:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/RantAI-dev/RantAI-LLMOps/main/docker-compose.portainer.yml -o docker-compose.yml
+```
+
+*(Atau jika ingin membuat file manual atau paste di Portainer Web Editor, gunakan isi konfigurasi di bawah ini):*
 
 ```yaml
 version: '3.8'
@@ -350,55 +359,15 @@ docker compose up -d rantai-backend ollama
 *(Tunggu ~2-3 menit hingga `rantai-backend` selesai inisialisasi volume data).*
 
 ### Langkah 2: Bootstrap Auth & Mendapatkan `INFERENCE_API_KEY` (Paling Krusial!)
-Aplikasi Transformer Lab di backend baru awalnya belum memiliki API Key. Jalankan script bootstrap berikut untuk men-generate key dan menaikkan quota komputasi:
+Aplikasi Transformer Lab di backend baru awalnya belum memiliki API Key dan kuotanya default 0. Jalankan script bootstrap berikut untuk men-generate key dan menaikkan quota komputasi otomatis:
 
 ```bash
-# Buat script bootstrap lokal
-cat << 'EOF' > bootstrap.sh
-#!/bin/bash
-set -e
-TL_URL="http://localhost:8339"
-TL_ADMIN_EMAIL="admin@example.com"
-TL_ADMIN_PASSWORD="admin123"
-
-echo "1. Menunggu backend siap di $TL_URL..."
-until curl -s -f -o /dev/null "$TL_URL/"; do
-  sleep 3
-done
-
-echo "2. Login admin..."
-TOKEN=$(curl -s -X POST "$TL_URL/auth/jwt/login" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  --data-urlencode "username=$TL_ADMIN_EMAIL" \
-  --data-urlencode "password=$TL_ADMIN_PASSWORD" \
-  | sed -n 's/.*"access_token":"\([^"]*\)".*/\1/p')
-
-echo "3. Ambil Team ID..."
-TEAM_ID=$(curl -s "$TL_URL/users/me/teams" -H "Authorization: Bearer $TOKEN" \
-  | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)
-
-echo "4. Mint API Key baru..."
-API_KEY=$(curl -s -X POST "$TL_URL/auth/api-keys" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d "{\"name\":\"rantai-llmops\",\"team_id\":\"$TEAM_ID\"}" \
-  | sed -n 's/.*"api_key":"\([^"]*\)".*/\1/p')
-
-echo "5. Naikkan Kuota Komputasi Team..."
-curl -s -X PUT "$TL_URL/teams/$TEAM_ID" \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"compute_quota_minutes": 5000000}' > /dev/null
-
-echo "=========================================="
-echo "BERHASIL!"
-echo "INFERENCE_API_KEY=$API_KEY"
-echo "INFERENCE_TEAM_ID=$TEAM_ID"
-echo "=========================================="
-echo "INFERENCE_API_KEY=$API_KEY" >> .env
-EOF
-
-chmod +x bootstrap.sh
-./bootstrap.sh
+# Unduh script bootstrap resmi dari repo (tanpa clone git)
+curl -fsSL https://raw.githubusercontent.com/RantAI-dev/RantAI-LLMOps/main/scripts/bootstrap-tl-auth.sh -o bootstrap.sh
+bash bootstrap.sh
 ```
+
+*(Script di atas akan login ke backend `:8339`, membuat API key `rantai-llmops`, menaikkan kuota team menjadi unlimited, dan otomatis menambahkan `INFERENCE_API_KEY=...` ke file `.env`).*
 
 ### Langkah 3: Jalankan Seluruh Sisa Stack (Frontend + Engines)
 Setelah `.env` terisi `INFERENCE_API_KEY`, jalankan seluruh service:
