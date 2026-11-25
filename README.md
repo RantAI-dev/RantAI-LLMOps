@@ -15,11 +15,9 @@
 ---
 
 > [!IMPORTANT]
-> **🚀 Panduan Instalasi Produksi di Box Baru (Multi-Container / Portainer Stack)**  
-> Untuk instalasi lengkap stack LLMOps siap pakai dari awal hingga akhir (mencakup **Frontend UI**, **RantAI Backend/Unsloth**, **Ollama**, **vLLM**, **SGLang**, **Rantai-AQL Duo**, **Hugging Face**, dan **Dataset Storage**), silakan ikuti panduan komprehensif di:  
-> 👉 **[docs/INSTALLATION_GUIDE.md](docs/INSTALLATION_GUIDE.md)**  
->  
-> *Catatan Arsitektur:* Stack ini berjalan di lingkungan **Docker containerized (single node / bare-metal / VM Linux via Docker Compose atau Portainer)** dan **belum mendukung Kubernetes / Pod-based cluster**. Karena batasan perizinan socket di Portainer, seluruh container engine dijalankan secara statis (*pre-provisioned*).
+> **Memasang di box baru:** ikuti [docs/INSTALLATION_GUIDE.md](docs/INSTALLATION_GUIDE.md). Image GHCR saat ini hanya
+> untuk `linux/arm64` (DGX Spark / GB10); di box x86_64 image perlu dibangun sendiri. Catatan box yang sedang berjalan
+> ada di [docs/DEPLOY-PORTAINER.md](docs/DEPLOY-PORTAINER.md).
 
 An LLMOps control centre: a dashboard for running LoRA fine-tunes, scoring them on real
 benchmarks, serving the results, and keeping track of datasets, models and compute — on

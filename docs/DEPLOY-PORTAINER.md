@@ -39,8 +39,8 @@ lewat gerbang, yang memaksa kunci API dan daftar-izin model.
 
 - **Portainer** mengelola host Docker.
 - **NVIDIA Container Toolkit** agar kontainer melihat GPU.
-- **Kontainer istimewa diizinkan** — kotak pasir penyedia komputasi (bwrap)
-  memerlukannya.
+- **Kontainer istimewa tidak wajib.** Entrypoint backend mematikan bwrap secara bawaan; untuk sandbox bwrap yang
+  lebih ketat, beri backend `privileged: true` dan `RANTAI_SANDBOX=1`.
 - **Ruang kosong ≥ 60 GB.** Citra backend ~5 GB, dan volumenya tumbuh menjadi
   ~15–20 GB setelah pemasangan pertama. Penggabungan adapter menambah lagi:
   satu model 4B menjadi **8,1 GB** per adapter.
@@ -50,7 +50,8 @@ lewat gerbang, yang memaksa kunci API dan daftar-izin model.
 ## 1. Membangun citra
 
 Terbitkan **GitHub Release**; alur kerja `ghcr.yml` membangun keduanya
-(amd64 + arm64) ke GHCR. Alur itu dipicu **hanya oleh rilis** — sebuah push
+ke GHCR, **hanya untuk arm64** (runner `ubuntu-24.04-arm`, `platforms: linux/arm64`). Box x86_64 perlu membangun
+image sendiri; lihat [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md). Alur itu dipicu **hanya oleh rilis** — sebuah push
 biasa tidak membangun apa pun.
 
 - `ghcr.io/rantai-dev/rantai-llmops-fe`
