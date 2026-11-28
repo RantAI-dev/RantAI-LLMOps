@@ -109,6 +109,18 @@ describe("DuoStatus", () => {
     expect(await screen.findByText("No answers yet")).toBeInTheDocument();
   });
 
+  it("shows a spare engine whose models are not started as off, not as a fault", async () => {
+    const spare = {
+      name: "llamacpp", label: "llama.cpp", kind: "llamacpp", active: false, serves_system1: false, serves_system2: false,
+      system1: role("system1", { ok: false, error: "connection refused" }), system2: role("system2", { ok: false, error: "connection refused" }),
+    };
+    routes({ "GET /v1/system": { ...SYSTEM, backends: [spare, VLLM] }, "GET /healthz": { status: "ok" }, "GET /v1/system/activity": [] });
+    render(<DuoStatus />);
+    expect((await screen.findAllByText("Not started")).length).toBe(2);
+    expect(screen.queryByText("Not reachable")).not.toBeInTheDocument();
+    expect(screen.queryByText("connection refused")).not.toBeInTheDocument();
+  });
+
   it("switches engine only after a confirmation", async () => {
     const other = { name: "sglang", label: "SGLang", kind: "sglang", active: false, serves_system1: false, serves_system2: false, system1: role("system1"), system2: role("system2") };
     routes({

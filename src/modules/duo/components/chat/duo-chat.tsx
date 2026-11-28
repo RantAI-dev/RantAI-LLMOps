@@ -49,9 +49,9 @@ type Mode = "auto" | "fast" | "slow";
 type Msg = { id: string; role: "user"; content: string; files: Attached[] } | { id: string; role: "assistant"; turn: LiveTurn; question: string };
 type Attached = { name: string; text: string; chars: number; cut: boolean; busy?: boolean };
 type ConvSummary = { conversation_id: string; title?: string; updated_at?: string; messages?: number; room_id?: string | null };
-type Prefs = { mode: Mode; lambda: number | null; budget: number; reasoning: boolean };
+type Prefs = { mode: Mode; lambda: number | null; budget: number; reasoning: boolean; memory: boolean };
 
-const DEFAULT_PREFS: Prefs = { mode: "auto", lambda: null, budget: 0, reasoning: false };
+const DEFAULT_PREFS: Prefs = { mode: "auto", lambda: null, budget: 0, reasoning: false, memory: false };
 const PREFS_KEY = "duo.chat.prefs";
 const MAX_CHARS = 8000;
 // Characters of attached text one question carries (the original app's ATTACH_BUDGET): a whole document belongs in a
@@ -119,6 +119,7 @@ function loadPrefs(): Prefs {
       lambda: typeof p.lambda === "number" && p.lambda >= 0 && p.lambda <= 1 ? p.lambda : null,
       budget: typeof p.budget === "number" && p.budget >= 0 && p.budget <= 16384 ? p.budget : 0,
       reasoning: p.reasoning === true,
+      memory: p.memory === true,
     };
   } catch {
     return DEFAULT_PREFS;
@@ -358,6 +359,8 @@ export function DuoChat() {
       ...(prefs.mode !== "auto" ? { force_mode: prefs.mode } : {}),
       ...(prefs.lambda !== null ? { lambda: prefs.lambda } : {}),
       ...(prefs.budget > 0 ? { thinking_budget: prefs.budget } : {}),
+      // Off unless turned on, as in the original app: only then does the gateway quote earlier checked answers.
+      ...(prefs.memory ? { retrieve: true } : {}),
       ...(opts.verification ? { verification: opts.verification } : {}),
       ...(kb && kbEnabled ? { knowledge: { kb, mode: "auto" } } : {}),
     };
@@ -682,6 +685,10 @@ export function DuoChat() {
               <label className="flex items-center gap-2 text-xs">
                 <input type="checkbox" checked={prefs.reasoning} onChange={(e) => setPrefs((p) => ({ ...p, reasoning: e.target.checked }))} />
                 Show System 2&apos;s thinking
+              </label>
+              <label className="flex items-start gap-2 text-xs" title="A question close to one that was answered and checked before is given that answer to start from.">
+                <input type="checkbox" className="mt-0.5" checked={prefs.memory} onChange={(e) => setPrefs((p) => ({ ...p, memory: e.target.checked }))} />
+                Reuse earlier checked answers to similar questions
               </label>
             </div>
           </details>

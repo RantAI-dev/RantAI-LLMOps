@@ -57,6 +57,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   fetchMock.mockReset();
+  window.localStorage.clear();
 });
 
 describe("DuoChat", () => {
@@ -69,8 +70,19 @@ describe("DuoChat", () => {
     expect(screen.getByText("Checked")).toBeInTheDocument();
     expect(lastStreamRequest).toMatchObject({ messages: [{ role: "user", content: "How many minutes?" }], show_reasoning: false });
     expect(lastStreamRequest).not.toHaveProperty("force_mode");
+    expect(lastStreamRequest).not.toHaveProperty("retrieve");
     await user.click(screen.getByRole("button", { name: "Good answer" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/duo/gw/v1/replies/rep1/feedback", expect.objectContaining({ method: "POST" })));
+  });
+
+  it("asks the gateway to reuse earlier checked answers only when that setting is on", async () => {
+    const user = userEvent.setup();
+    render(<DuoChat />);
+    await user.click(screen.getByText("Settings"));
+    await user.click(screen.getByLabelText("Reuse earlier checked answers to similar questions"));
+    await user.type(screen.getByLabelText("Your message"), "How many minutes?{Enter}");
+    expect(await screen.findByText("145")).toBeInTheDocument();
+    expect(lastStreamRequest).toMatchObject({ retrieve: true });
   });
 
   it("sends the chosen mode and continues the same conversation", async () => {

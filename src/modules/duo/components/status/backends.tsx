@@ -16,19 +16,21 @@ import { gw } from "@/modules/duo/lib/gw";
 type Rec = Record<string, unknown>;
 type Target = { body: Rec; label: string };
 
-function RoleRow({ h, name }: { h: Rec; name: string }) {
+/** One model of an engine. A spare engine (not in use) whose models are not running is shown as off, not as a fault. */
+function RoleRow({ h, name, spare = false }: { h: Rec; name: string; spare?: boolean }) {
   const ok = h.ok === true;
+  const off = !ok && spare;
   const inFlight = typeof h.in_flight === "number" ? h.in_flight : null;
   const max = typeof h.max_in_flight === "number" ? h.max_in_flight : null;
   return (
     <div className="space-y-0.5 rounded-md border border-hairline bg-background px-3 py-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className={cn("size-2 rounded-full", ok ? "bg-success" : "bg-danger")} aria-hidden />
+        <span className={cn("size-2 rounded-full", ok ? "bg-success" : off ? "bg-ink-faint" : "bg-danger")} aria-hidden />
         <span className="font-medium text-primary">{name}</span>
         <span className="min-w-0 flex-1 truncate text-ink-soft" title={str(h.hf_id, "")}>
           {str(h.hf_id, "") || str(h.model)}
         </span>
-        <Pill tone={ok ? "good" : "bad"}>{ok ? "Ready" : "Not reachable"}</Pill>
+        <Pill tone={ok ? "good" : off ? "neutral" : "bad"}>{ok ? "Ready" : off ? "Not started" : "Not reachable"}</Pill>
       </div>
       <p className="pl-4 text-xs text-ink-faint">
         {inFlight !== null && max !== null ? `${inFlight} of ${max} answer slots busy` : "Slots unknown"}
@@ -36,10 +38,12 @@ function RoleRow({ h, name }: { h: Rec; name: string }) {
         {str(h.weights, "") ? ` · weights ${str(h.weights)}` : ""}
         {str(h.url, "") ? ` · ${str(h.url)}` : ""}
       </p>
-      {!ok && str(h.error, "") ? <p className="pl-4 text-xs text-danger">{str(h.error)}</p> : null}
+      {!ok && !off && str(h.error, "") ? <p className="pl-4 text-xs text-danger">{str(h.error)}</p> : null}
     </div>
   );
 }
+
+const engineInUse = (b: Rec) => b.active === true || b.serves_system1 === true || b.serves_system2 === true;
 
 /** The model servers the gateway knows, with live health, and switching between them (guarded by a confirmation). */
 export function Backends({ system, onChanged }: { system: Rec; onChanged: () => void }) {
@@ -89,9 +93,9 @@ export function Backends({ system, onChanged }: { system: Rec; onChanged: () => 
         <EmptyState icon={Server} title="No model servers reported" description="The gateway did not list any backends." />
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {backends.map((b) => {
+          {[...backends].sort((x, y) => Number(engineInUse(y)) - Number(engineInUse(x))).map((b) => {
             const name = str(b.name, "");
-            const inUse = b.active === true || b.serves_system1 === true || b.serves_system2 === true;
+            const inUse = engineInUse(b);
             const both = rec(b.system1).ok === true && rec(b.system2).ok === true;
             return (
               <div key={name} className="space-y-2 rounded-lg border border-hairline p-3">
@@ -117,8 +121,8 @@ export function Backends({ system, onChanged }: { system: Rec; onChanged: () => 
                     </Button>
                   ) : null}
                 </div>
-                <RoleRow h={rec(b.system1)} name="System 1" />
-                <RoleRow h={rec(b.system2)} name="System 2" />
+                <RoleRow h={rec(b.system1)} name="System 1" spare={!inUse} />
+                <RoleRow h={rec(b.system2)} name="System 2" spare={!inUse} />
               </div>
             );
           })}
