@@ -458,7 +458,7 @@ export function KbDocuments({
                           <RotateCcw aria-hidden />
                           <span className="sr-only">Read {name} again</span>
                         </ConfirmButton>
-                        <ConfirmButton variant="ghost" confirmLabel="Delete?" title={`Delete “${name}” and its ${fmtInt(num(d.n_chunks))} passages`} onConfirm={() => remove(d)}>
+                        <ConfirmButton variant="ghost" confirmLabel="Delete?" title={`Delete “${name}” and its ${plural(num(d.n_chunks), "passage")}`} onConfirm={() => remove(d)}>
                           <Trash2 aria-hidden />
                           <span className="sr-only">Delete {name}</span>
                         </ConfirmButton>

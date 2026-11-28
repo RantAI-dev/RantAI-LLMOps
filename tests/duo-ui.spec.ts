@@ -45,15 +45,21 @@ test("Chat: a question gets a streamed answer with its assurance", async ({ page
   const box = page.getByPlaceholder(/Ask a question/);
   await box.fill("What is 21 times 3? Answer briefly.");
   await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect(page.getByText("63").first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText(/\b63\b/).first()).toBeVisible({ timeout: 120_000 });
   await expect(page.getByText(/^(Checked|Agreed|Not checked|Abstained)$/).first()).toBeVisible({ timeout: 120_000 });
   await page.screenshot({ path: `${SHOTS}/chat-answer.png`, fullPage: true });
   expect(problems, problems.join("\n")).toEqual([]);
+  // Leave nothing behind on the deployment.
+  const convs = (await (await page.request.get(`${BASE}/api/duo/gw/v1/conversations`)).json()) as { conversation_id: string; title?: string }[];
+  for (const c of convs.filter((x) => x.title === "What is 21 times 3? Answer briefly.")) {
+    await page.request.delete(`${BASE}/api/duo/gw/v1/conversations/${c.conversation_id}`);
+  }
 });
 
 test("Rooms: create a room, ask in it, delete it", async ({ page }) => {
   const problems = watch(page);
-  const name = `Playwright room ${Date.now() % 100000}`;
+  // Letters only, so the answer "11" below cannot match the room's own name.
+  const name = `Playwright room ${Math.random().toString(36).replace(/[^a-z]/g, "").slice(0, 6)}`;
   await page.goto(`${BASE}/duo/rooms`);
   await page.getByLabel("New room name").fill(name);
   await page.getByLabel("New room name").press("Enter");
@@ -61,7 +67,11 @@ test("Rooms: create a room, ask in it, delete it", async ({ page }) => {
   await expect(box).toBeVisible({ timeout: 30_000 });
   await box.fill("What is 5 plus 6?");
   await page.getByRole("button", { name: "Send to the room" }).click();
-  await expect(page.getByText("11").first()).toBeVisible({ timeout: 180_000 });
+  await expect(page.getByText(/\b11\b/).first()).toBeVisible({ timeout: 180_000 });
   await page.screenshot({ path: `${SHOTS}/room-answer.png`, fullPage: true });
   expect(problems, problems.join("\n")).toEqual([]);
+  const rooms = (await (await page.request.get(`${BASE}/api/duo/gw/v1/rooms`)).json()) as { room_id: string; name: string }[];
+  const mine = rooms.find((r) => r.name === name);
+  expect(mine).toBeTruthy();
+  expect((await page.request.delete(`${BASE}/api/duo/gw/v1/rooms/${mine!.room_id}`)).ok()).toBe(true);
 });

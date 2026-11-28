@@ -101,13 +101,13 @@ export function KbGraph({ kb, onOpen, onBuildStarted }: { kb: string; onOpen: (t
       {building ? (
         <div className="space-y-1" role="status" aria-live="polite">
           <p className="flex items-center gap-2 text-sm text-ink-soft">
-            <Spinner /> Reading {fmtInt(num(p.passages_read))} of {fmtInt(num(p.passages))} passages for names and relations…
+            <Spinner /> Reading {fmtInt(num(p.passages_read))} of {plural(num(p.passages), "passage")} for names and relations…
           </p>
           <Meter value={num(p.passages) ? num(p.passages_read) / num(p.passages) : 0} label="Graph building progress" />
         </div>
       ) : view.enabled !== false && left > 0 ? (
         <p className="text-xs text-ink-faint">
-          The quick model reads each passage for names and relations: {fmtInt(left)} passages, about {mins} minutes. Chat keeps working meanwhile; once started it runs to
+          The quick model reads each passage for names and relations: {plural(left, "passage")}, about {mins} minutes. Chat keeps working meanwhile; once started it runs to
           the end.
         </p>
       ) : null}

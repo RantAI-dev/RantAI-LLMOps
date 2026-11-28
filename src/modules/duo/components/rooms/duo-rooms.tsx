@@ -14,6 +14,7 @@ import { Answer } from "@/modules/duo/components/chat/answer";
 import { answerText, applyEvent, assuranceOf, isLive, newTurn, turnFromStored, type LiveTurn, type Rec } from "@/modules/duo/components/chat/turn";
 import { arr, ConfirmButton, fmtAgo, GwErrorState, Loading, Pill, rec, Segmented, Spinner, str } from "@/modules/duo/components/duo-ui";
 import { gw, parseSse, useGw } from "@/modules/duo/lib/gw";
+import { plural } from "@/modules/duo/components/knowledge/kb-api";
 
 type Room = { room_id: string; name: string; conversation_id?: string; questions?: number; last_activity?: string; members?: number; users?: string[]; busy?: boolean; queued?: number };
 type Item = { kind: "q"; id: string; who: string; text: string; ts?: string } | { kind: "a"; id: string; turn: LiveTurn } | { kind: "note"; id: string; text: string };
@@ -455,7 +456,7 @@ export function DuoRooms() {
                   </span>
                   <span className="block text-xs text-ink-faint">
                     {r.members ? `${r.members} here · ` : ""}
-                    {r.questions ?? 0} questions · {fmtAgo(r.last_activity)}
+                    {plural(r.questions ?? 0, "question")} · {fmtAgo(r.last_activity)}
                   </span>
                 </button>
               </li>

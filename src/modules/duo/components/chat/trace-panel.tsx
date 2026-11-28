@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock, fmtMs, fmtNum, fmtPct, KV, Meter, Pill, rec, str, arr } from "@/modules/duo/components/duo-ui";
 import { assuranceOf, STATE_LABEL, type LiveTurn, type Rec } from "@/modules/duo/components/chat/turn";
 import { gw } from "@/modules/duo/lib/gw";
+import { plural } from "@/modules/duo/components/knowledge/kb-api";
 
 const CHECKER: Record<string, string> = {
   math: "Maths check",
@@ -68,7 +69,7 @@ export function SourcesView({ sources }: { sources: Rec[] }) {
       ) : null}
       {mem ? (
         <p className="text-ink-soft">
-          Answered with a memory of the knowledge base: {fmtNum(mem.tokens)} memory tokens from {fmtNum(mem.documents)} passages (experimental).
+          Answered with a memory of the knowledge base: {fmtNum(mem.tokens)} memory tokens from {plural(Number(mem.documents) || 0, "passage")} (experimental).
         </p>
       ) : null}
       {hits.length ? (
