@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import type { DuoRole, DuoRoleStatus } from "@/lib/duo-deploy";
 import type { TrainedAdapter } from "@/lib/trained-adapters";
 import { cn } from "@/lib/utils";
+import { ConfirmButton } from "@/modules/duo/components/duo-ui";
 
 type PairStatus = { docker: boolean; roles: Record<DuoRole, DuoRoleStatus>; adapters: TrainedAdapter[] };
 
@@ -35,6 +36,7 @@ function RoleCard({ role, status, adapters, docker, onChanged }: { role: DuoRole
   }
 
   const job = status.job;
+  const current = `${status.baseModel ?? "unknown model"}${status.adapterPath ? `, adapter ${jobId(status.adapterPath)}` : ""}`;
   return (
     <div className="rounded-lg border border-hairline bg-card p-4">
       <div className="mb-2 flex items-center gap-2">
@@ -74,16 +76,29 @@ function RoleCard({ role, status, adapters, docker, onChanged }: { role: DuoRole
               ))}
             </select>
           </label>
-          <div className="flex gap-2">
-            <Button size="sm" disabled={sending || busy(status) || !base} onClick={() => post({ role, baseModel: base, adapterPath: adapter || null })}>
+          {/* Both replace the live container that answers for this role, so each asks once more and says what goes. */}
+          <div className="flex flex-wrap gap-2">
+            <ConfirmButton
+              variant="outline"
+              disabled={sending || busy(status) || !base}
+              onConfirm={() => post({ role, baseModel: base, adapterPath: adapter || null })}
+              confirmLabel={`Click again: replaces ${status.label}`}
+              title={`Replaces the running ${status.served} container (${current}) with ${base || "the base model"}${adapter ? ` and adapter ${jobId(adapter)}` : ""}. The previous container is kept and comes back if the new one does not answer.`}
+            >
               <Upload className="mr-1 h-3.5 w-3.5" />
               Deploy
-            </Button>
+            </ConfirmButton>
             {status.hasPrevious && (
-              <Button size="sm" variant="outline" disabled={sending || busy(status)} onClick={() => post({ role, action: "rollback" })}>
+              <ConfirmButton
+                variant="outline"
+                disabled={sending || busy(status)}
+                onConfirm={() => post({ role, action: "rollback" })}
+                confirmLabel={`Click again: rolls ${status.label} back`}
+                title={`Replaces the running ${status.served} container (${current}) with the previous one.`}
+              >
                 <RotateCcw className="mr-1 h-3.5 w-3.5" />
                 Roll back
-              </Button>
+              </ConfirmButton>
             )}
           </div>
           {error && <p className="text-[12px] text-destructive">{error}</p>}
@@ -128,7 +143,15 @@ export function DuoPair() {
     return () => clearInterval(t);
   }, [working]);
 
-  if (error) return <div className="rounded-lg border border-hairline px-4 py-2 text-xs text-destructive">{error}</div>;
+  if (error && !status)
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-hairline px-4 py-2 text-xs text-destructive">
+        <span className="flex-1">{error}</span>
+        <Button size="xs" variant="outline" onClick={() => setTick((n) => n + 1)}>
+          Try again
+        </Button>
+      </div>
+    );
   if (!status) return <p className="text-[12px] text-ink-soft">Loading…</p>;
   return (
     <div className="space-y-3">
@@ -136,6 +159,7 @@ export function DuoPair() {
         The gateway always calls <code>system1</code> and <code>system2</code>. Deploying replaces the vLLM container behind that name; the previous
         one is kept and comes back by itself if the new model does not answer.
       </p>
+      {error && <p className="text-[12px] text-destructive">Could not refresh: {error}</p>}
       {!status.docker && (
         <p className="rounded-lg border border-hairline px-4 py-2 text-[12px] text-ink-soft">
           Read only: changing models needs the Duo deployer (DUO_DEPLOYER_URL, see docs/DEPLOY-PORTAINER.md).

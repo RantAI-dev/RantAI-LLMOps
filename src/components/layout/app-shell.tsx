@@ -55,7 +55,7 @@ const mainNav: NavItem[] = [
   { label: "Traces", href: "/traces", icon: Activity },
   { label: "Tasks", href: "/tasks", icon: ListTodo },
   { label: "Interact", href: "/interact", icon: MessageSquareMore },
-  { label: "Duo", href: "/duo", icon: Brain },
+  { label: "Semantic Duo", href: "/duo", icon: Brain },
   { label: "Fine-tune", href: "/finetune", icon: Sparkles },
   { label: "Evals", href: "/evals", icon: FlaskConical },
   { label: "Generations", href: "/generations", icon: Columns2 },

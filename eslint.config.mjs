@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored third-party code (Nafs-Aql answer renderer, Apache-2.0), kept byte-for-byte.
+    "src/modules/duo/vendor/**",
   ]),
 ]);
 

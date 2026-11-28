@@ -42,7 +42,7 @@ const W = 520;
 const H = 300;
 const M = { l: 48, r: 16, t: 14, b: 40 };
 
-function FrontierChart({ points }: { points: DuoStrategyPoint[] }) {
+export function FrontierChart({ points }: { points: DuoStrategyPoint[] }) {
   const pts = points.filter((p) => p.accuracy !== null && p.meanCostS !== null);
   if (!pts.length) return null;
   const xMax = Math.max(...pts.map((p) => p.meanCostS!)) * 1.12 || 1;
@@ -92,7 +92,7 @@ function FrontierChart({ points }: { points: DuoStrategyPoint[] }) {
   );
 }
 
-function PointsTable({ points }: { points: DuoStrategyPoint[] }) {
+export function PointsTable({ points }: { points: DuoStrategyPoint[] }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-hairline">
       <table className="w-full text-[12px]">

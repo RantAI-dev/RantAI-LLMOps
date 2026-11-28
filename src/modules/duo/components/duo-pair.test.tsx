@@ -58,9 +58,35 @@ describe("DuoPair", () => {
     expect(screen.queryByRole("option", { name: /job ffff0000/ })).not.toBeInTheDocument();
     await user.selectOptions(s1Adapter, ADAPTER);
     await user.click(screen.getAllByRole("button", { name: /deploy/i })[0]);
+    // nothing is replaced until the second click, which names the role
+    expect(fetchMock.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Click again: replaces System 1" }));
     await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => i?.method === "POST")).toBe(true));
     const [, init] = fetchMock.mock.calls.find(([, i]) => i?.method === "POST")!;
     expect(JSON.parse(init.body)).toEqual({ role: "s1", baseModel: "Qwen/Qwen3-1.7B", adapterPath: ADAPTER });
     expect(screen.getByRole("button", { name: /roll back/i })).toBeInTheDocument(); // System 2 has a previous container
+  });
+
+  it("rolls back only after a second click", async () => {
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => (init?.method === "POST" ? json({ phase: "replacing" }, 202) : json(status(true))));
+    render(<DuoPair />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /roll back/i }));
+    expect(fetchMock.mock.calls.some(([, i]) => i?.method === "POST")).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Click again: rolls System 2 back" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, i]) => i?.method === "POST")).toBe(true));
+    const [, init] = fetchMock.mock.calls.find(([, i]) => i?.method === "POST")!;
+    expect(JSON.parse(init.body)).toEqual({ role: "s2", action: "rollback" });
+  });
+
+  it("offers to try again when the first load fails", async () => {
+    let fail = true;
+    fetchMock.mockImplementation(() => (fail ? json({ error: "deployer unreachable" }, 502) : json(status(false))));
+    render(<DuoPair />);
+    const user = userEvent.setup();
+    expect(await screen.findByText("deployer unreachable")).toBeInTheDocument();
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(/Read only: changing models needs the Duo deployer/)).toBeInTheDocument();
   });
 });

@@ -69,6 +69,11 @@ const GATED = [
   "/api/evals/vlm/does-not-exist",
   "/api/evals/vlm/sets/does-not-exist",
   "/api/evals/vlm/sets/does-not-exist/image?path=images/a.png",
+  // Semantic Duo: the gateway pass-through and the live room relay
+  "/api/duo/gw/v1/kb",
+  "/api/duo/gw/healthz",
+  "/api/duo/gw/metrics",
+  "/api/duo/rooms/00000000-0000-0000-0000-000000000000/live",
 ];
 
 test.describe("Auth gate", () => {
@@ -89,7 +94,7 @@ test.describe("Auth gate", () => {
       const res = await anon.post(BASE + path, { data: {} });
       if (res.status() !== 401) leaks.push(`POST ${path} -> ${res.status()}`);
     }
-    for (const path of ["/api/adapters/reconcile", "/api/serve/vllm/stop", "/api/chat-images", "/api/evals/vlm", "/api/evals/vlm/sets"]) {
+    for (const path of ["/api/adapters/reconcile", "/api/serve/vllm/stop", "/api/chat-images", "/api/evals/vlm", "/api/evals/vlm/sets", "/api/duo/gw/v1/chat/stream", "/api/duo/gw/v1/kb", "/api/duo/rooms/00000000-0000-0000-0000-000000000000/live"]) {
       const res = await anon.post(BASE + path, { data: {} });
       if (res.status() !== 401) leaks.push(`POST ${path} -> ${res.status()}`);
     }

@@ -1,0 +1,108 @@
+/*
+ * Answer styles for the Nafs-Aql renderer (src/modules/duo/vendor/nafs-render.js), ported from the original
+ * Nafs-Aql web app (rust/crates/nafs-web/assets/app.css, Apache-2.0, Copyright 2026 Dirac R&D Team) and mapped onto
+ * the LLMOps design tokens. Scoped to .duo-answer.
+ */
+.duo-answer{
+  --border:var(--hairline);--surface:var(--background);--surface-2:var(--surface-2);--muted:var(--ink-soft);--faint:var(--ink-faint);
+  --text:var(--foreground);--accent:var(--primary);--accent-ink:var(--primary-foreground);--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --font:inherit;--warn:var(--warning-strong);--warn-bg:var(--warning-soft);--ok:var(--success);--slow:var(--purple);--focus:var(--ring);--amber:var(--warning);
+  font-size:14px;line-height:1.65;word-wrap:break-word;overflow-wrap:anywhere;
+}
+.duo-answer code{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);padding:1px 5px;border-radius:5px}
+.duo-answer .caret{display:inline-block;width:7px;height:15px;background:var(--accent);vertical-align:-2px;margin-left:2px;animation:duo-pulse 1s infinite}
+@keyframes duo-pulse{50%{opacity:.25}}
+.duo-answer table{border-collapse:collapse}
+.duo-answer .cite{display:inline-flex;align-items:center;justify-content:center;min-width:1.4em;height:1.4em;margin:0 1px;padding:0 4px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2);color:var(--accent);font-size:.72em;font-weight:650;vertical-align:.15em;cursor:pointer}
+.duo-answer{--ans-gap:12px}
+.duo-answer>*:first-child{margin-top:0} .duo-answer>*:last-child{margin-bottom:0}
+.duo-answer p{margin:0 0 var(--ans-gap)}
+.duo-answer h2,.duo-answer h3,.duo-answer h4,.duo-answer h5,.duo-answer h6{margin:18px 0 6px;line-height:1.3;font-weight:650;letter-spacing:-.005em}
+.duo-answer h2{font-size:1.2em} .duo-answer h3{font-size:1.08em} .duo-answer h4,.duo-answer h5,.duo-answer h6{font-size:1em;color:var(--muted);text-transform:none}
+.duo-answer ul,.duo-answer ol{margin:2px 0 var(--ans-gap);padding-left:1.45em} .duo-answer li{margin:3px 0} .duo-answer li>ul,.duo-answer li>ol{margin:3px 0 4px}
+.duo-answer li::marker{color:var(--faint)}
+.duo-answer li.task{list-style:none;margin-left:-1.45em;display:flex;gap:9px;align-items:baseline}
+.duo-answer .box{flex:none;width:15px;height:15px;border:1.6px solid var(--faint);border-radius:4px;position:relative;top:2px;background:var(--surface)}
+.duo-answer .box.on{background:var(--accent);border-color:var(--accent)} .duo-answer .box.on::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;border:solid var(--accent-ink);border-width:0 2px 2px 0;transform:rotate(40deg)}
+.duo-answer blockquote{margin:0 0 var(--ans-gap);padding:2px 0 2px 14px;border-left:3px solid var(--border);color:var(--muted)} .duo-answer blockquote p:last-child{margin-bottom:0}
+.duo-answer hr{border:0;border-top:1px solid var(--border);margin:18px 0}
+.duo-answer del{color:var(--faint)} .duo-answer mark{background:color-mix(in srgb,var(--amber) 28%,transparent);color:inherit;padding:0 2px;border-radius:3px}
+.duo-answer kbd{font:11.5px var(--mono);background:var(--surface-2);border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;padding:0 5px}
+.duo-answer a{text-underline-offset:2px;text-decoration-thickness:1px}
+.duo-answer .callout{margin:0 0 var(--ans-gap);padding:10px 14px;border-radius:10px;border:1px solid var(--border);border-left:4px solid var(--accent);background:var(--surface-2)}
+.duo-answer .callout .ct{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--accent);margin-bottom:2px}
+.duo-answer .callout p:last-child{margin-bottom:0}
+.duo-answer .callout.warning,.duo-answer .callout.caution{border-left-color:var(--warn);background:var(--warn-bg)} .duo-answer .callout.warning .ct,.duo-answer .callout.caution .ct{color:var(--warn)}
+.duo-answer .callout.tip{border-left-color:var(--ok)} .duo-answer .callout.tip .ct{color:var(--ok)}
+.duo-answer .callout.important{border-left-color:var(--slow)} .duo-answer .callout.important .ct{color:var(--slow)}
+
+/* Tables: scroll sideways rather than squeeze, keep the header in view, align numbers, copy as tab-separated text. */
+.duo-answer .tablewrap{position:relative;margin:4px 0 var(--ans-gap);border:1px solid var(--border);border-radius:10px;overflow:auto;max-height:28em;background:var(--surface)}
+.duo-answer .tablewrap table{border-collapse:separate;border-spacing:0;width:100%;font-size:13.5px;margin:0}
+.duo-answer .tablewrap th,.duo-answer .tablewrap td{padding:7px 12px;border:0;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+.duo-answer .tablewrap th{position:sticky;top:0;z-index:1;background:var(--surface-2);font-weight:650;font-size:12.5px;color:var(--muted);white-space:nowrap;border-bottom:1px solid var(--border)}
+.duo-answer .tablewrap tbody tr:last-child td{border-bottom:0} .duo-answer .tablewrap tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--surface-2) 45%,transparent)} .duo-answer .tablewrap tbody tr:hover td{background:var(--surface-2)}
+.duo-answer .tablewrap .al-right{text-align:right;font-variant-numeric:tabular-nums} .duo-answer .tablewrap .al-center{text-align:center}
+.duo-answer .tablewrap td code{white-space:nowrap}
+.duo-answer .tbl-bar{position:sticky;left:0;display:flex;justify-content:flex-end;gap:4px;padding:4px;border-bottom:1px solid var(--border);background:var(--surface)}
+.duo-answer .tbl-copy{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:6px;font-size:11px;padding:3px 8px;min-height:24px;cursor:pointer}
+.duo-answer .tbl-copy:hover{color:var(--text);border-color:var(--accent)}
+.duo-answer .tablewrap th[tabindex]{cursor:pointer;user-select:none} .duo-answer .tablewrap th[tabindex]:hover{color:var(--text)}
+.duo-answer .tablewrap th[aria-sort=ascending]::after{content:" ▲";font-size:9px} .duo-answer .tablewrap th[aria-sort=descending]::after{content:" ▼";font-size:9px}
+.duo-answer .tablewrap th[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.duo-answer .footnotes{font-size:12.5px;color:var(--muted);border-top:1px solid var(--border);margin-top:10px;padding-top:8px;padding-left:22px} .duo-answer sup.fn{font-size:.72em;color:var(--accent);cursor:help;font-weight:650;margin-left:1px}
+
+/* Code: a dark block in both themes, a language tag, copy, colours for the parts of a program. */
+.duo-answer pre.code{margin:6px 0 var(--ans-gap);padding:30px 0 12px;background:#0F1720;color:#E3E8EE;border:1px solid #1D2938;border-radius:12px;position:relative;overflow:hidden;font-size:12.5px;line-height:1.55}
+.duo-answer pre.code code{display:block;overflow-x:auto;padding:0 14px;tab-size:4;font-family:var(--mono);background:none;color:inherit;font-size:inherit}
+.duo-answer pre.code .lang{position:absolute;left:12px;top:7px;font-size:10.5px;letter-spacing:.08em;color:#7E8B99;text-transform:uppercase}
+.duo-answer pre.code .copy{position:absolute;top:4px;right:6px;border:0;background:rgba(255,255,255,.07);color:#C7D3E0;border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer}
+.duo-answer pre.code .copy:hover,.duo-answer pre.code .code-act:hover{background:rgba(255,255,255,.14)}
+.duo-answer pre.code .code-act{position:absolute;top:4px;border:0;background:rgba(255,255,255,.07);color:#C7D3E0;border-radius:6px;font-size:11px;padding:2px 8px;cursor:pointer}
+.duo-answer pre.code .code-act[data-act=wrap]{right:104px} .duo-answer pre.code .code-act[data-act=savecode]{right:56px} .duo-answer pre.code .code-act[aria-pressed=true]{background:rgba(255,255,255,.22);color:#fff}
+.duo-answer pre.code .copy:focus-visible,.duo-answer pre.code .code-act:focus-visible{outline:2px solid #8FB8FF;outline-offset:1px}
+.duo-answer pre.code[data-nums]{display:grid;grid-template-columns:auto 1fr} .duo-answer pre.code[data-nums] code{grid-column:2;min-width:0;padding-left:10px}
+.duo-answer pre.code .gutter{grid-column:1;padding:0 8px 0 12px;text-align:right;color:#5E6B7A;user-select:none;font-family:var(--mono);border-right:1px solid #1D2938;white-space:pre}
+.duo-answer pre.code[data-nums] .more{grid-column:1 / -1}
+.duo-answer pre.code.long .gutter{max-height:calc(30em - 42px);overflow:hidden}
+.duo-answer pre.code.wrapped code{white-space:pre-wrap;overflow-wrap:anywhere} .duo-answer pre.code.wrapped .gutter{display:none} .duo-answer pre.code.wrapped[data-nums]{display:block} .duo-answer pre.code.wrapped[data-nums] code{padding-left:14px}
+.duo-answer pre.code.long{max-height:30em} .duo-answer pre.code.long code{max-height:calc(30em - 42px);overflow-y:hidden}
+.duo-answer pre.code .more{position:absolute;left:0;right:0;bottom:0;border:0;padding:30px 0 10px;background:linear-gradient(transparent,#0F1720 62%);color:#9FB4CC;font-size:12px;cursor:pointer}
+.t-k{color:#F28BA8} .t-s{color:#A6DA95} .t-c{color:#7E8B99;font-style:italic} .t-n{color:#F5C16C} .t-f{color:#8AB4F8} .t-y{color:#5FD0D4} .t-l{color:#F5A97F} .t-p{color:#8BD5CA}
+
+/* Maths: MathML, in the page's own font size; a display formula sits on its own line and scrolls if it must. */
+.duo-answer math{font-size:1.08em;font-family:"STIX Two Math","Cambria Math","Latin Modern Math",math,serif}
+.duo-answer .math{margin:6px 0 var(--ans-gap);padding:10px 12px;text-align:center;overflow-x:auto;background:var(--surface-2);border-radius:10px;font-family:inherit}
+.duo-answer .math math{font-size:1.2em}
+.duo-answer code.m{background:transparent;padding:0}
+
+/* Diagrams: inline SVG that follows the theme. */
+.duo-answer figure.diagram{margin:6px 0 var(--ans-gap);border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
+.duo-answer .fig-bar{display:flex;align-items:center;gap:6px;padding:5px 8px 5px 12px;border-bottom:1px solid var(--border);background:var(--surface-2)}
+.duo-answer .fig-bar .lang{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)} .duo-answer .fig-bar .grow{flex:1}
+.duo-answer .fig-btn{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:6px;font-size:11.5px;padding:2px 9px;cursor:pointer} .duo-answer .fig-btn:hover{color:var(--text);border-color:var(--accent)}
+.duo-answer .fig-body{padding:14px;overflow:auto;text-align:center} .duo-answer .fig-source{margin:0;border:0;border-top:1px solid var(--border);border-radius:0;background:#0F1720;color:#E3E8EE;padding:12px 14px;font-size:12px;overflow:auto}
+.mm-svg{max-width:100%;min-width:calc(var(--w,0px) * .72);height:auto;font:13px var(--font);overflow:visible}
+.mm-node rect,.mm-node polygon,.mm-node circle,.mm-node path{fill:var(--surface-2);stroke:var(--accent);stroke-width:1.5} .mm-node line{stroke:var(--accent);stroke-width:1.2}
+.mm-node text{fill:var(--text);font-weight:550} .mm-part rect{fill:var(--accent);stroke:none} .mm-part text{fill:var(--accent-ink);font-weight:650} .mm-part.actor rect{fill:var(--slow)}
+.mm-edge{stroke:var(--muted);stroke-width:1.5;fill:none} .mm-edge.dotted{stroke-dasharray:5 4} .mm-edge.thick{stroke-width:2.8}
+.mm-head{fill:var(--muted);stroke:none} .mm-x{stroke:var(--muted);stroke-width:1.5}
+.mm-elabel rect{fill:var(--surface);stroke:var(--border)} .mm-elabel text{fill:var(--muted);font-size:12px}
+.mm-group rect{fill:color-mix(in srgb,var(--accent) 6%,transparent);stroke:var(--border);stroke-dasharray:4 3} .mm-group text{fill:var(--muted);font-size:12px;font-weight:600}
+.mm-life{stroke:var(--border);stroke-width:1.3;stroke-dasharray:4 4} .mm-msg{fill:var(--text);font-size:12.5px}
+.mm-note rect{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1} .mm-note text{fill:var(--text);font-size:12px}
+.mm-frame rect{fill:none;stroke:var(--border)} .mm-frame .tag{fill:var(--surface-2);stroke:var(--border)} .mm-frame text{fill:var(--muted);font-size:12px} .mm-frame .kind{font-weight:700;fill:var(--text)} .mm-frame line{stroke:var(--border)}
+.mm-slice{stroke:var(--surface);stroke-width:2} .mm-pct{fill:#fff;font-size:12px;font-weight:700} .mm-legend{fill:var(--text);font-size:12.5px} .mm-title{fill:var(--text);font-size:14px;font-weight:650}
+@media print{.duo-answer .tbl-bar,.duo-answer pre.code .copy,.duo-answer pre.code .code-act,.duo-answer .fig-bar .fig-btn{display:none}}
+.duo-answer figure.diagram.fig-full .fig-body.zoomed{align-items:flex-start;justify-content:flex-start}
+/* SVG charts drawn by answer.tsx in place of Nivo. */
+.duo-answer .duo-chart{width:100%;max-width:640px;height:auto;margin:0 auto;display:block}
+.duo-answer .duo-chart-tx{fill:var(--muted);font-size:11px}
+.duo-answer .duo-chart-grid{stroke:var(--border);stroke-width:1}
+.duo-answer .duo-chart-note{color:var(--muted);font-size:12.5px;margin:0}
+.duo-answer .chart-head{display:flex;flex-direction:column;gap:2px;padding:10px 14px 0;text-align:left}
+.duo-answer .chart-head span{color:var(--muted);font-size:12.5px}
+.duo-answer .chart-data{padding:0 14px 10px;text-align:left;font-size:12.5px}
+.duo-answer .chart-data summary{cursor:pointer;color:var(--muted)}
+.duo-answer figure.fig-full{position:fixed;inset:4vh 4vw;z-index:60;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.duo-answer .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
