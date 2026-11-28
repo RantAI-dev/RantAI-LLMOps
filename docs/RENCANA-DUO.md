@@ -61,19 +61,41 @@ hanya bila perlu. Ada dua cara memutuskan "perlu", dan keduanya akan bisa diband
   - schema_tasks: fast 91,7% / 0,83 s; pre_route 91,7% / 0,95 s; gate 100% / 3,2 s; slow 100% / 25,4 s.
   - Router sebelum menjawab tidak menambah akurasi. Gate yang memutuskan setelah melihat draf tetap terbaik.
 
+### Status 28 Nov: Semantic Duo (v0.50.0)
+
+- **Nama resmi menjadi Semantic Duo.** Menu sidebar dan judul halaman sudah diganti. Fitur `/duo` disamakan dengan
+  aplikasi web asli Nafs-Aql (crate `nafs-web`), terdiri dari 12 halaman: Chat, Rooms, Knowledge, Files & memory,
+  Code, Quality, Learning, Experiments, Cache, Speed, Status, dan Models.
+- **Rantai-Aql mengikuti nafsaql sampai fase 39** (merge 12 commit upstream), lalu profil GB10 diperbarui:
+  - reasoning cache;
+  - ShadowPrefill untuk model penjawab;
+  - knowledge store `aql-kb` (SurrealDB 3.3.5) dan embedding `aql-embed` (Qwen3-Embedding-0.6B di vLLM, 0,025 memori
+    GPU);
+  - graph pengetahuan memakai System 1;
+  - fitur yang tidak berguna di vLLM dimatikan (`harness.constrain`, `adaptive_exit`).
+- **Diuji live di GB10:**
+  - semua rute gateway lewat proxy LLMOps;
+  - alur tulis (chat streaming, feedback, ekspor PDF/Word, knowledge base dari unggah sampai graph, file `nafs://`,
+    room live, eval, bench, agen kode);
+  - Playwright `tests/duo-ui.spec.ts`: 12 halaman tanpa error, ditambah satu pertanyaan di Chat dan di Room.
+- **Test Rust di gateway:** 575 lulus, 27 gagal. Semua yang gagal adalah test sandbox pemeriksa kode yang butuh user
+  namespace, dan host menolaknya (`apparmor_restrict_unprivileged_userns=1`, keputusan: tidak diubah). Akibatnya di
+  produksi, **pemeriksaan kode (Code, HumanEval/MBPP, cek kode di Chat) selalu berakhir "Tests could not run"**. Matematika,
+  skema, judge, dan knowledge tidak terpengaruh.
+
 ## 3. Arsitektur
 
 ```
-Browser ── /duo (halaman LLMOps)
-             │  POST /api/duo/chat  {messages, mode, lambda}
+Browser ── /duo/* (12 halaman Semantic Duo)
+             │  /api/duo/gw/<path gateway>        semua rute REST, hanya yang ada di allowlist (src/lib/duo-proxy.ts)
+             │  /api/duo/rooms/{id}/live          Rooms: SSE ke browser, WebSocket ke gateway (src/lib/duo-rooms.ts)
              ▼
-LLMOps BFF ── token Rantai-Aql hanya di server (DUO_GATEWAY_URL, DUO_GATEWAY_TOKEN)
-             │  POST /v1/chat
+LLMOps server ── token Rantai-Aql hanya di server (DUO_GATEWAY_URL, DUO_GATEWAY_TOKEN)
              ▼
-Rantai-Aql gateway ── gate, checker, judge, memori
-     │                         │
-     ▼                         ▼
- aql-s1 (System 1)        aql-s2 (System 2)        ← dilayani vLLM; nanti adapter hasil fine-tune LLMOps
+Rantai-Aql gateway ── gate, checker, judge, memori, knowledge, reasoning cache
+     │                    │                    │                    │
+     ▼                    ▼                    ▼                    ▼
+ aql-s1 (System 1)   aql-s2 (System 2)    aql-kb (SurrealDB)   aql-embed (embedding)
 ```
 
 LLMOps tidak menulis ulang gate. Gateway Rantai-Aql adalah orkestratornya; LLMOps menyediakan model, adapter, UI, dan
@@ -91,7 +113,8 @@ eval di sekitarnya. Dengan begitu pembaruan Nafs-Aql dari Pak Risman tetap bisa 
 
 ## 5. Risiko dan pertanyaan terbuka
 
-- **"Peregrine"** belum jelas (engine atau model); ditanyakan ke Pak Risman.
+- **"Peregrine"** ternyata engine inferensi kedua Nafs-Aql (fase 39, bersama Smiley Core), dipilih per model. Di GB10
+  keduanya tidak dipakai; yang aktif tetap vLLM GPU.
 - **ShadowPrefill** tidak ada di jalur GPU. vLLM punya prefix caching; padanannya (membaca percakapan lebih dulu di
   model yang menganggur) bisa ditambahkan di gateway untuk backend vLLM.
 - **Kalibrasi gate** dibuat di CPU; biaya tunggu di GPU jauh lebih kecil, jadi λ terbaik bisa bergeser. D2 yang
